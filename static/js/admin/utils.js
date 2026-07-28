@@ -33,6 +33,22 @@ function apiPost(url, data) {
   });
 }
 
+// Multipart POST for file uploads. Pass a FormData instance; jQuery must not
+// set contentType/processData so the browser writes the multipart boundary.
+function apiPostForm(url, formData) {
+  return $.ajax({
+    url: url,
+    type: 'POST',
+    data: formData,
+    contentType: false,
+    processData: false,
+    dataType: 'json',
+    statusCode: {
+      401: function () { window.location.href = '/admin/'; }
+    }
+  });
+}
+
 function apiGet(url, params) {
   return $.ajax({
     url: url,

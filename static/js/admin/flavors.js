@@ -43,20 +43,20 @@ $(function () {
 
   $('#addFlavorForm').on('submit', function (e) {
     e.preventDefault();
-    var data = {
-      action:            'add',
-      name:              $('#addName').val(),
-      description:       $('#addDescription').val(),
-      price_per_kg:      parseFloat($('#addPrice').val()),
-      sale_price_per_kg: parseFloat($('#addSalePrice').val()),
-      reorder_level_kg:  parseFloat($('#addReorderKg').val()) || 5,
-      is_active:         $('#addIsActive').is(':checked') ? 1 : 0,
-      image:             $('#addImage').val().trim(),
-      ingredients:       $('#addIngredients').val().trim(),
-      nutrition_fact: collectNutrition('add')
-    };
+    var fd = new FormData();
+    fd.append('action',            'add');
+    fd.append('name',              $('#addName').val());
+    fd.append('description',       $('#addDescription').val());
+    fd.append('price_per_kg',      parseFloat($('#addPrice').val()) || 0);
+    fd.append('sale_price_per_kg', parseFloat($('#addSalePrice').val()) || 0);
+    fd.append('reorder_level_kg',  parseFloat($('#addReorderKg').val()) || 5);
+    fd.append('is_active',         $('#addIsActive').is(':checked') ? 1 : 0);
+    fd.append('ingredients',       $('#addIngredients').val().trim());
+    fd.append('nutrition_fact',    collectNutrition('add'));
+    var addFile = $('#addImage')[0].files[0];
+    if (addFile) fd.append('image', addFile);
     showLoader('Adding flavor…');
-    apiPost('/admin/api/flavors/', data)
+    apiPostForm('/admin/api/flavors/', fd)
       .done(function (res) {
         showAlertModal(res.message, res.success ? 'success' : 'danger');
         if (res.success) { $('#addFlavorModal').modal('hide'); $('#addFlavorForm')[0].reset(); loadFlavors(); }
@@ -67,21 +67,22 @@ $(function () {
 
   $('#editFlavorForm').on('submit', function (e) {
     e.preventDefault();
-    var data = {
-      action:            'edit',
-      id:                parseInt($('#editFlavorId').val()),
-      name:              $('#editName').val(),
-      description:       $('#editDescription').val(),
-      price_per_kg:      parseFloat($('#editPrice').val()),
-      sale_price_per_kg: parseFloat($('#editSalePrice').val()),
-      reorder_level_kg:  parseFloat($('#editReorderKg').val()) || 5,
-      is_active:         $('#editIsActive').is(':checked') ? 1 : 0,
-      image:             $('#editImage').val().trim(),
-      ingredients:       $('#editIngredients').val().trim(),
-      nutrition_fact: collectNutrition('edit')
-    };
+    var fd = new FormData();
+    fd.append('action',            'edit');
+    fd.append('id',                parseInt($('#editFlavorId').val()));
+    fd.append('name',              $('#editName').val());
+    fd.append('description',       $('#editDescription').val());
+    fd.append('price_per_kg',      parseFloat($('#editPrice').val()) || 0);
+    fd.append('sale_price_per_kg', parseFloat($('#editSalePrice').val()) || 0);
+    fd.append('reorder_level_kg',  parseFloat($('#editReorderKg').val()) || 5);
+    fd.append('is_active',         $('#editIsActive').is(':checked') ? 1 : 0);
+    fd.append('ingredients',       $('#editIngredients').val().trim());
+    fd.append('nutrition_fact',    collectNutrition('edit'));
+    var editFile = $('#editImage')[0].files[0];
+    if (editFile) fd.append('image', editFile);
+    if ($('#editRemoveImage').is(':checked')) fd.append('remove_image', 1);
     showLoader('Saving…');
-    apiPost('/admin/api/flavors/', data)
+    apiPostForm('/admin/api/flavors/', fd)
       .done(function (res) {
         showAlertModal(res.message, res.success ? 'success' : 'danger');
         if (res.success) { $('#editFlavorModal').modal('hide'); loadFlavors(); }
@@ -203,7 +204,17 @@ function openEditFlavor(id) {
   $('#editSalePrice').val(f.sale_price_per_kg);
   $('#editReorderKg').val(f.reorder_level_grams ? (f.reorder_level_grams / 1000) : 5);
   $('#editIsActive').prop('checked', parseInt(f.is_active) === 1);
-  $('#editImage').val(f.image || '');
+  // Image is a file input — can't be pre-filled. Reset it and show the current
+  // image (if any) as a preview, with an optional "remove" checkbox.
+  $('#editImage').val('');
+  $('#editRemoveImage').prop('checked', false);
+  if (f.image) {
+    $('#editImagePreview').attr('src', f.image).show();
+    $('#editRemoveImageWrap').show();
+  } else {
+    $('#editImagePreview').attr('src', '').hide();
+    $('#editRemoveImageWrap').hide();
+  }
   $('#editIngredients').val(f.ingredients || '');
   populateNutrition('edit', f.nutrition_fact);
   $('#editFlavorModal').modal('show');

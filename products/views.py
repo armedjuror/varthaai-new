@@ -165,7 +165,7 @@ class FlavorsAPI(APIView):
             'sale_price_per_kg': f.sale_price_per_kg,
             'reorder_level_grams': f.reorder_level_grams,
             'is_active': 1 if f.is_active else 0,
-            'image': str(f.image) if f.image else '',
+            'image': f.image.url if f.image else '',
             'ingredients': f.ingredients or '',
             'nutrition_fact': _nutrition_out(f.nutrition_fact),
             'total_orders': (sold or {}).get('orders', 0) or 0,
@@ -199,7 +199,6 @@ class FlavorsAPI(APIView):
             'sale_price_per_kg': _float(data.get('sale_price_per_kg')),
             'reorder_level_grams': _kg_to_grams(data.get('reorder_level_kg') or 5),
             'is_active': _int(data.get('is_active', 1)) == 1,
-            'image': (data.get('image') or '').strip() or None,
             'ingredients': (data.get('ingredients') or '').strip() or None,
             'nutrition_fact': _parse_nutrition(data.get('nutrition_fact')),
         }
@@ -209,6 +208,9 @@ class FlavorsAPI(APIView):
         fields = self._flavor_fields(request.data)
         if not fields['name']:
             return err('Flavor name is required.')
+        image = request.FILES.get('image')
+        if image:
+            fields['image'] = image
         flavor = Flavor.objects.create(brand_id=brand_id, **fields)
         return ok({'id': flavor.id}, 'Flavor added successfully!')
 
@@ -221,6 +223,13 @@ class FlavorsAPI(APIView):
             return err('Flavor not found.', status=404)
         for key, value in self._flavor_fields(request.data).items():
             setattr(flavor, key, value)
+        # Image: replace only when a new file is uploaded; clear on explicit
+        # remove; otherwise keep the existing one untouched.
+        image = request.FILES.get('image')
+        if image:
+            flavor.image = image
+        elif _int(request.data.get('remove_image')) == 1:
+            flavor.image = None
         flavor.save()
         return ok(message='Flavor updated successfully!')
 
