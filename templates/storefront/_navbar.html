@@ -1,0 +1,50 @@
+{% load static %}
+<nav class="navbar navbar-expand-lg navbar-dark">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <img src="{% static 'images/logo.png' %}" alt="Varthaai Logo" height="40">
+    </a>
+    <div class="location-badge d-none d-sm-flex">
+      <i class="fas fa-map-marker-alt"></i> We're live, Bengaluru
+    </div>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="navbarNav">
+      <ul class="navbar-nav ms-auto">
+        <li class="nav-item">
+          <a class="nav-link" href="/">Home</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/#about">About Us</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/#products">Flavours</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" href="/#reviews">Reviews</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link" id="track-order-btn" href="#">Track Order</a>
+        </li>
+        {% if is_loggedin %}
+          <li class="nav-item">
+            <a class="nav-link" id="dashboard-btn" href="/dashboard/">Dashboard</a>
+          </li>
+        {% else %}
+          <li class="nav-item">
+            <a class="nav-link" id="login-btn" href="#">Login</a>
+          </li>
+        {% endif %}
+        <li class="nav-item">
+          <a class="btn btn-outline-primary btn-sm ms-2" href="/shop/"><i class="fas fa-shopping-cart me-2"></i>Order Now</a>
+        </li>
+      </ul>
+      <div class="d-block d-sm-none mt-2">
+        <div class="location-badge d-inline-block">
+          <i class="fas fa-map-marker-alt"></i> We're live, Bengaluru
+        </div>
+      </div>
+    </div>
+  </div>
+</nav>

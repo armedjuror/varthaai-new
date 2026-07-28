@@ -1,0 +1,111 @@
+{% extends 'storefront/base.html' %}
+{% load static %}
+
+{% block title %}Blog - Varthaai{% endblock %}
+
+{% block extra_head %}
+<style>
+  .blog-section { padding: 120px 0 60px; min-height: 80vh; }
+  .blog-card { border: 1px solid #eee; border-radius: 10px; overflow: hidden; transition: transform 0.3s ease, box-shadow 0.3s ease; height: 100%; display: flex; flex-direction: column; }
+  .blog-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1); }
+  .blog-card img { width: 100%; height: 250px; object-fit: cover; }
+  .blog-card-body { padding: 20px; flex-grow: 1; display: flex; flex-direction: column; }
+  .blog-card-title { font-size: 1.25rem; font-weight: 600; margin-bottom: 10px; color: var(--dark-color); }
+  .blog-card-title a { color: inherit; text-decoration: none; }
+  .blog-card-title a:hover { color: var(--primary-color); }
+  .blog-meta { color: #888; font-size: 0.9rem; margin-bottom: 15px; }
+  .blog-excerpt { color: #666; margin-bottom: 15px; flex-grow: 1; }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="blog-section">
+  <div class="container">
+    <div class="section-heading text-center mb-5">
+      <h2>Our Blog</h2>
+      <div class="separator"></div>
+      <p class="lead mt-3">Stories, recipes, and insights from Varthaai</p>
+    </div>
+
+    <div class="row g-4" id="blog-list">
+      <div class="col-12 text-center">
+        <p class="text-muted">Loading blog posts...</p>
+      </div>
+    </div>
+
+    <div class="row mt-4">
+      <div class="col-12 text-center">
+        <button class="btn btn-outline-primary" id="loadMoreBtn" style="display: none;">Load More</button>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentPage = 1;
+let hasMore = true;
+
+$(document).ready(function() {
+  loadBlogs();
+  $('#loadMoreBtn').on('click', function() {
+    if (hasMore) { currentPage++; loadBlogs(); }
+  });
+});
+
+function loadBlogs() {
+  $.ajax({
+    url: '/api/blogs/',
+    type: 'GET',
+    data: { limit: 9, offset: (currentPage - 1) * 9 },
+    dataType: 'json',
+    success: function(response) {
+      if (response.success && response.data && response.data.length > 0) {
+        const blogContainer = $('#blog-list');
+        if (currentPage === 1) blogContainer.empty();
+
+        response.data.forEach(function(blog) {
+          const imageHtml = blog.featured_image
+            ? `<img src="${blog.featured_image}" alt="${blog.title}" class="img-fluid">`
+            : '<div style="height: 250px; background: #f0f0f0; display: flex; align-items: center; justify-content: center;"><i class="fas fa-image fa-3x text-muted"></i></div>';
+          const date = new Date(blog.published_at || blog.created_at);
+          const formattedDate = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+          const blogHtml = `
+            <div class="col-md-4">
+              <div class="blog-card">
+                ${imageHtml}
+                <div class="blog-card-body">
+                  <h5 class="blog-card-title"><a href="/blog-detail/?slug=${blog.slug}">${blog.title}</a></h5>
+                  <div class="blog-meta">
+                    <i class="far fa-calendar me-1"></i> ${formattedDate}
+                    ${blog.author_name ? `<span class="ms-3"><i class="far fa-user me-1"></i> ${blog.author_name}</span>` : ''}
+                  </div>
+                  <p class="blog-excerpt">${blog.excerpt || (blog.content.replace(/[#*\`_~\[\]()]/g, '').replace(/\n/g, ' ').trim().substring(0, 150) + '...')}</p>
+                  <a href="/blog-detail/?slug=${blog.slug}" class="btn btn-sm btn-outline-primary">Read More</a>
+                </div>
+              </div>
+            </div>`;
+          blogContainer.append(blogHtml);
+        });
+
+        const totalLoaded = currentPage * 9;
+        hasMore = totalLoaded < response.total;
+        $('#loadMoreBtn').toggle(hasMore);
+      } else {
+        if (currentPage === 1) {
+          $('#blog-list').html('<div class="col-12 text-center"><p class="text-muted">No blog posts available yet.</p></div>');
+        }
+        $('#loadMoreBtn').hide();
+      }
+    },
+    error: function(xhr, status, error) {
+      console.error('Error loading blogs:', error);
+      if (currentPage === 1) {
+        $('#blog-list').html('<div class="col-12 text-center"><p class="text-muted">Error loading blog posts.</p></div>');
+      }
+    }
+  });
+}
+</script>
+{% endblock %}

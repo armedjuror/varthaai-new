@@ -1,0 +1,149 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Reviews — Varthaai Admin{% endblock %}
+
+{% block content %}
+<div class="page-body">
+
+  <!-- Page header -->
+  <div class="page-header">
+    <div>
+      <h1>Reviews</h1>
+      <p>Manage customer reviews and approval status.</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-sm btn-outline-primary" onclick="bulkApprove()">
+        <i class="fas fa-check-double me-1"></i>Bulk Approve
+      </button>
+    </div>
+  </div>
+
+  <!-- Stat cards -->
+  <div class="row g-3 mb-4">
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat-card">
+        <div class="stat-icon blue"><i class="fas fa-star"></i></div>
+        <div class="stat-body"><h2 id="statTotal">—</h2><p>Total Reviews</p></div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat-card">
+        <div class="stat-icon green"><i class="fas fa-check-circle"></i></div>
+        <div class="stat-body"><h2 id="statApproved">—</h2><p>Approved</p></div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat-card">
+        <div class="stat-icon amber"><i class="fas fa-clock"></i></div>
+        <div class="stat-body"><h2 id="statPending">—</h2><p>Pending</p></div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat-card">
+        <div class="stat-icon teal"><i class="fas fa-star-half-alt"></i></div>
+        <div class="stat-body"><h2 id="statAvgRating">—</h2><p>Avg Rating</p></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="filter-bar mb-3">
+    <form id="reviewFilterForm">
+      <div class="row g-3">
+        <div class="col-md-2">
+          <label class="form-label">Status</label>
+          <select class="form-select" id="filterStatus">
+            <option value="all">All</option>
+            <option value="approved">Approved</option>
+            <option value="pending">Pending</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Rating</label>
+          <select class="form-select" id="filterRating">
+            <option value="all">All Ratings</option>
+            <option value="5">5 Stars</option>
+            <option value="4">4 Stars</option>
+            <option value="3">3 Stars</option>
+            <option value="2">2 Stars</option>
+            <option value="1">1 Star</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Search</label>
+          <input type="text" class="form-control" id="filterSearch" placeholder="Name or review text…">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">From</label>
+          <input type="date" class="form-control" id="filterDateFrom">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">To</label>
+          <input type="date" class="form-control" id="filterDateTo">
+        </div>
+        <div class="col-md-1">
+          <label class="form-label">Per Page</label>
+          <select class="form-select" id="perPageReviews">
+            <option value="10">10</option>
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+        <div class="col-md-1 d-flex align-items-end">
+          <button type="reset" class="btn btn-sm btn-outline-secondary w-100">
+            <i class="fas fa-xmark me-1"></i>Clear
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- Table -->
+  <div class="data-card">
+    <div class="data-card-header">
+      <h3>Reviews (<span id="reviewsCount">…</span>)</h3>
+    </div>
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th><input type="checkbox" id="selectAllReviews"></th>
+            <th>Customer</th>
+            <th>Rating</th>
+            <th>Review</th>
+            <th>Status</th>
+            <th>Date</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="reviewsTableBody">
+          <tr><td colspan="7" class="text-center" style="padding:40px;color:var(--gray-400)">
+            <div class="admin-loader-spinner" style="margin:0 auto 10px"></div>Loading…
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div id="reviewsPagination" style="padding:16px 20px"></div>
+  </div>
+
+</div><!-- /.page-body -->
+
+<!-- Review Detail Modal -->
+<div class="modal fade" id="reviewModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-star me-2"></i>Review</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="reviewModalBody"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/admin/reviews.js' %}"></script>
+{% endblock %}

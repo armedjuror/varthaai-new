@@ -1,0 +1,471 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Login — Varthaai</title>
+  <link rel="icon" href="{% static 'images/favicon.ico' %}" type="image/x-icon">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --green-deep:   #2d5a12;
+      --green-mid:    #4a7e25;
+      --green:        #85AA4E;
+      --green-light:  #a8c872;
+      --yellow:       #FCE103;
+      --white:        #ffffff;
+      --gray-50:      #f9fafb;
+      --gray-100:     #f3f4f6;
+      --gray-200:     #e5e7eb;
+      --gray-400:     #9ca3af;
+      --gray-500:     #6b7280;
+      --gray-700:     #374151;
+      --gray-900:     #111827;
+      --error:        #dc2626;
+      --error-bg:     #fef2f2;
+      --error-border: #fecaca;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      background: var(--gray-100);
+      color: var(--gray-900);
+    }
+
+    /* ── Brand Panel (left) ── */
+    .brand-panel {
+      width: 44%;
+      background: linear-gradient(150deg, var(--green-deep) 0%, var(--green-mid) 50%, var(--green) 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 56px 48px 48px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Decorative blobs */
+    .brand-panel .blob {
+      position: absolute;
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    .brand-panel .blob-1 {
+      width: 380px; height: 380px;
+      background: rgba(255,255,255,0.05);
+      top: -120px; left: -130px;
+    }
+    .brand-panel .blob-2 {
+      width: 260px; height: 260px;
+      background: rgba(252,225,3,0.08);
+      bottom: -70px; right: -70px;
+    }
+    .brand-panel .blob-3 {
+      width: 140px; height: 140px;
+      background: rgba(255,255,255,0.06);
+      top: 48%; right: 10px;
+    }
+
+    .brand-logo {
+      width: 230px;
+      filter: drop-shadow(0 8px 28px rgba(0,0,0,0.3));
+      z-index: 1;
+      margin-bottom: 20px;
+    }
+
+    .brand-tagline {
+      color: rgba(255,255,255,0.75);
+      font-size: 0.875rem;
+      font-weight: 500;
+      letter-spacing: 0.3px;
+      text-align: center;
+      margin-bottom: 52px;
+      z-index: 1;
+      line-height: 1.6;
+    }
+
+    .brand-mascot {
+      width: 210px;
+      z-index: 1;
+      filter: drop-shadow(0 18px 36px rgba(0,0,0,0.35));
+      animation: float 3.5s ease-in-out infinite;
+    }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0px) rotate(-1deg); }
+      50%       { transform: translateY(-14px) rotate(1deg); }
+    }
+
+    .brand-badge {
+      position: absolute;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255,255,255,0.1);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 100px;
+      padding: 7px 20px;
+      color: rgba(255,255,255,0.85);
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      white-space: nowrap;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .brand-badge i { color: var(--yellow); }
+
+    /* ── Form Panel (right) ── */
+    .form-panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 40px;
+      background: var(--white);
+    }
+
+    .form-box {
+      width: 100%;
+      max-width: 400px;
+    }
+
+    .form-header {
+      margin-bottom: 36px;
+    }
+
+    .form-header h1 {
+      font-size: 2rem;
+      font-weight: 800;
+      color: var(--gray-900);
+      line-height: 1.2;
+      margin-bottom: 8px;
+    }
+
+    .form-header p {
+      color: var(--gray-500);
+      font-size: 0.9rem;
+      font-weight: 400;
+    }
+
+    /* Error alert */
+    .alert-error {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--error-bg);
+      border: 1px solid var(--error-border);
+      border-left: 4px solid var(--error);
+      border-radius: 10px;
+      padding: 13px 16px;
+      color: var(--error);
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 28px;
+    }
+
+    /* Field */
+    .field-group {
+      margin-bottom: 18px;
+    }
+
+    .field-group label {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--gray-700);
+      margin-bottom: 7px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+
+    .input-wrap {
+      position: relative;
+    }
+
+    .input-icon {
+      position: absolute;
+      left: 15px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--gray-400);
+      font-size: 0.85rem;
+      pointer-events: none;
+      transition: color 0.2s;
+    }
+
+    .input-wrap:focus-within .input-icon {
+      color: var(--green);
+    }
+
+    .field-group input {
+      width: 100%;
+      padding: 14px 44px;
+      border: 1.5px solid var(--gray-200);
+      border-radius: 12px;
+      font-family: inherit;
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--gray-900);
+      background: var(--gray-50);
+      outline: none;
+      transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+    }
+
+    .field-group input::placeholder {
+      color: var(--gray-400);
+      font-weight: 400;
+    }
+
+    .field-group input:focus {
+      border-color: var(--green);
+      background: var(--white);
+      box-shadow: 0 0 0 4px rgba(133,170,78,0.12);
+    }
+
+    .toggle-pass {
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--gray-400);
+      font-size: 0.85rem;
+      padding: 4px 6px;
+      border-radius: 6px;
+      transition: color 0.2s, background 0.2s;
+      line-height: 1;
+    }
+    .toggle-pass:hover {
+      color: var(--green);
+      background: rgba(133,170,78,0.08);
+    }
+
+    /* Divider */
+    .divider {
+      height: 1px;
+      background: var(--gray-200);
+      margin: 24px 0;
+    }
+
+    /* Submit button */
+    .btn-submit {
+      width: 100%;
+      padding: 15px;
+      background: linear-gradient(135deg, var(--green-mid) 0%, var(--green) 100%);
+      border: none;
+      border-radius: 12px;
+      color: var(--white);
+      font-family: inherit;
+      font-size: 0.95rem;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: transform 0.2s, box-shadow 0.2s, filter 0.2s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-submit::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(255,255,255,0);
+      transition: background 0.2s;
+    }
+
+    .btn-submit:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 30px rgba(133,170,78,0.45);
+      filter: brightness(1.06);
+    }
+
+    .btn-submit:active {
+      transform: translateY(0);
+      box-shadow: none;
+    }
+
+    /* Footer note */
+    .secure-note {
+      text-align: center;
+      margin-top: 28px;
+      color: var(--gray-400);
+      font-size: 0.75rem;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+    }
+    .secure-note i { color: var(--green); }
+
+    /* ── Responsive ── */
+    @media (max-width: 900px) {
+      .brand-panel { width: 42%; padding: 40px 32px; }
+      .brand-logo  { width: 190px; }
+      .brand-mascot { width: 170px; }
+    }
+
+    @media (max-width: 680px) {
+      body { flex-direction: column; }
+
+      .brand-panel {
+        width: 100%;
+        padding: 40px 24px 36px;
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 0;
+      }
+
+      .brand-panel .blob,
+      .brand-badge { display: none; }
+
+      .brand-logo {
+        width: 160px;
+        margin-bottom: 0;
+        margin-right: 20px;
+      }
+
+      .brand-tagline { display: none; }
+
+      .brand-mascot {
+        width: 100px;
+        animation: none;
+      }
+
+      .form-panel { padding: 36px 24px 48px; }
+      .form-header h1 { font-size: 1.6rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Left: Brand panel -->
+  <div class="brand-panel">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+
+    <img src="{% static 'images/mascot.png' %}" alt="" class="brand-mascot">
+    <p class="brand-tagline">Fresh Kerala snacks,<br>delivered to your door.</p>
+    <img src="{% static 'images/logo.png' %}" alt="Varthaai" class="brand-logo">
+
+    <div class="brand-badge">
+      <i class="fas fa-shield-halved"></i>
+      Admin Portal
+    </div>
+  </div>
+
+  <!-- Right: Login form -->
+  <div class="form-panel">
+    <div class="form-box">
+
+      <div class="form-header">
+        <h1>Welcome back</h1>
+        <p>Sign in to your admin account to continue</p>
+      </div>
+
+      {% if error %}
+        <div class="alert-error" role="alert">
+          <i class="fas fa-circle-exclamation"></i>
+          {{ error }}
+        </div>
+      {% endif %}
+
+      <form method="POST" action="{% url 'accounts:login' %}" id="loginForm" novalidate>
+        {% csrf_token %}
+
+        <div class="field-group">
+          <label for="username">Username</label>
+          <div class="input-wrap">
+            <i class="fas fa-user input-icon"></i>
+            <input
+              type="text"
+              id="username"
+              name="username"
+              placeholder="Enter your username"
+              autocomplete="username"
+              value="{{ username|default:'' }}"
+              required
+            >
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label for="password">Password</label>
+          <div class="input-wrap">
+            <i class="fas fa-lock input-icon"></i>
+            <input
+              type="password"
+              id="password"
+              name="password"
+              placeholder="Enter your password"
+              autocomplete="current-password"
+              required
+            >
+            <button type="button" class="toggle-pass" id="togglePass" aria-label="Show or hide password">
+              <i class="fas fa-eye" id="eyeIcon"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <button type="submit" class="btn-submit">
+          <i class="fas fa-right-to-bracket"></i>
+          Sign In
+        </button>
+
+      </form>
+
+      <p class="secure-note">
+        <i class="fas fa-shield-halved"></i>
+        Secure admin access only
+      </p>
+
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('username').focus();
+
+    document.getElementById('togglePass').addEventListener('click', function () {
+      var pwd  = document.getElementById('password');
+      var icon = document.getElementById('eyeIcon');
+      if (pwd.type === 'password') {
+        pwd.type = 'text';
+        icon.className = 'fas fa-eye-slash';
+        this.setAttribute('aria-label', 'Hide password');
+      } else {
+        pwd.type = 'password';
+        icon.className = 'fas fa-eye';
+        this.setAttribute('aria-label', 'Show password');
+      }
+    });
+  </script>
+
+</body>
+</html>

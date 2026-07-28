@@ -1,0 +1,103 @@
+{% extends 'storefront/base.html' %}
+{% load static %}
+
+{% block title %}Blog - Varthaai{% endblock %}
+
+{% block extra_head %}
+<style>
+  .blog-detail-section { padding: 120px 0 60px; min-height: 80vh; }
+  .blog-header { margin-bottom: 40px; }
+  .blog-title { font-size: 2.5rem; font-weight: 700; margin-bottom: 20px; color: var(--dark-color); }
+  .blog-meta { color: #888; font-size: 1rem; margin-bottom: 30px; }
+  .blog-featured-image { width: 100%; max-height: 500px; object-fit: cover; border-radius: 10px; margin-bottom: 30px; }
+  .blog-content { font-size: 1.1rem; line-height: 1.8; color: #333; }
+  .blog-content p { margin-bottom: 20px; }
+  .blog-content img { max-width: 100%; height: auto; border-radius: 8px; margin: 20px 0; }
+  .blog-content h1, .blog-content h2, .blog-content h3, .blog-content h4, .blog-content h5, .blog-content h6 { margin-top: 30px; margin-bottom: 15px; font-weight: 600; color: var(--dark-color); }
+  .blog-content h1 { font-size: 2rem; }
+  .blog-content h2 { font-size: 1.75rem; }
+  .blog-content h3 { font-size: 1.5rem; }
+  .blog-content h4 { font-size: 1.25rem; }
+  .blog-content ul, .blog-content ol { margin-bottom: 20px; padding-left: 30px; }
+  .blog-content li { margin-bottom: 10px; }
+  .blog-content code { background-color: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 0.9em; }
+  .blog-content pre { background-color: #f4f4f4; padding: 15px; border-radius: 8px; overflow-x: auto; margin: 20px 0; }
+  .blog-content pre code { background-color: transparent; padding: 0; }
+  .blog-content blockquote { border-left: 4px solid var(--primary-color); padding-left: 20px; margin: 20px 0; font-style: italic; color: #666; }
+  .blog-content a { color: var(--primary-color); text-decoration: none; }
+  .blog-content a:hover { text-decoration: underline; }
+  .blog-content strong { font-weight: 600; }
+  .blog-content em { font-style: italic; }
+  .back-link { margin-bottom: 30px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="blog-detail-section">
+  <div class="container">
+    <div class="row">
+      <div class="col-lg-8 mx-auto">
+        <div class="back-link">
+          <a href="/blog/" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-left me-2"></i>Back to Blog
+          </a>
+        </div>
+        <div id="blog-content">
+          <div class="text-center"><p class="text-muted">Loading blog post...</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+  const slug = '{{ slug|escapejs }}';
+  if (!slug) {
+    $('#blog-content').html('<div class="alert alert-danger">Blog post not found.</div>');
+    return;
+  }
+  loadBlogDetail(slug);
+});
+
+function loadBlogDetail(slug) {
+  $.ajax({
+    url: '/api/blogs/?slug=' + encodeURIComponent(slug),
+    type: 'GET',
+    dataType: 'json',
+    success: function(response) {
+      if (response.success && response.data) {
+        const blog = response.data;
+        const date = new Date(blog.published_at || blog.created_at);
+        const formattedDate = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+        const imageHtml = blog.featured_image
+          ? `<img src="${blog.featured_image}" alt="${blog.title}" class="blog-featured-image">`
+          : '';
+        const blogHtml = `
+          <div class="blog-header">
+            <h1 class="blog-title">${blog.title}</h1>
+            <div class="blog-meta">
+              <i class="far fa-calendar me-1"></i> ${formattedDate}
+              ${blog.author_name ? `<span class="ms-3"><i class="far fa-user me-1"></i> ${blog.author_name}</span>` : ''}
+            </div>
+          </div>
+          ${imageHtml}
+          <div class="blog-content">
+            ${typeof marked !== 'undefined' ? marked.parse(blog.content) : blog.content.replace(/\n/g, '<br>')}
+          </div>`;
+        $('#blog-content').html(blogHtml);
+        document.title = blog.title + ' - Varthaai Blog';
+      } else {
+        $('#blog-content').html('<div class="alert alert-danger">Blog post not found.</div>');
+      }
+    },
+    error: function(xhr, status, error) {
+      console.error('Error loading blog:', error);
+      $('#blog-content').html('<div class="alert alert-danger">Error loading blog post. Please try again later.</div>');
+    }
+  });
+}
+</script>
+{% endblock %}

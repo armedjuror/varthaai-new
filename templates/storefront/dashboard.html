@@ -1,0 +1,666 @@
+{% extends 'storefront/base.html' %}
+{% load static %}
+
+{% block title %}Dashboard - Varthaai{% endblock %}
+
+{% block extra_head %}
+<style>
+  .dashboard-section { padding: 120px 0 60px; min-height: 80vh; }
+  .user-info { background-color: #fff; border-radius: 15px; padding: 25px; margin-bottom: 30px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05); }
+  .points-badge { background-color: var(--primary-color); color: white; padding: 10px 15px; border-radius: 20px; font-weight: 700; display: inline-flex; align-items: center; gap: 10px; }
+  .points-badge i { font-size: 1.2rem; }
+  .tab-content { background-color: #fff; border-radius: 15px; padding: 25px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05); }
+  #myTab.nav-tabs { border-bottom: none; margin-bottom: 20px; }
+  #myTab.nav-tabs .nav-link { border: none; border-radius: 30px; padding: 10px 20px; margin-right: 10px; color: #333 !important; font-weight: 600; transition: all 0.3s ease; background-color: transparent; }
+  #myTab.nav-tabs .nav-link:hover { background-color: rgba(134, 170, 78, 0.1) !important; color: var(--primary-color) !important; }
+  #myTab.nav-tabs .nav-link.active { background-color: var(--primary-color) !important; color: #fff !important; }
+  #myTab.nav-tabs .nav-link.active:hover { background-color: var(--primary-color) !important; color: #fff !important; }
+  .order-card { border: 1px solid #eee; border-radius: 10px; padding: 20px; margin-bottom: 20px; transition: all 0.3s ease; }
+  .order-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1); }
+  .order-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eee; cursor: pointer; transition: opacity 0.3s ease; }
+  .order-header:hover { opacity: 0.8; }
+  .order-id { font-weight: 700; color: var(--dark-color); }
+  .order-date { color: #888; font-size: 0.9rem; }
+  .order-status { padding: 5px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
+  .status-pending { background-color: #ffecb3; color: #e6a700; }
+  .status-confirmed { background-color: #b3e5fc; color: #0288d1; }
+  .status-processing { background-color: #c8e6c9; color: #388e3c; }
+  .status-shipped { background-color: #bbdefb; color: #1976d2; }
+  .status-delivered { background-color: #dcedc8; color: #689f38; }
+  .status-cancelled { background-color: #ffcdd2; color: #d32f2f; }
+  .transaction-card { border: 1px solid #eee; border-radius: 10px; padding: 15px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
+  .transaction-info { flex-grow: 1; }
+  .transaction-type { font-weight: 600; margin-bottom: 5px; }
+  .transaction-date { font-size: 0.8rem; color: #888; }
+  .transaction-points { font-weight: 700; font-size: 1.2rem; }
+  .referral-link { background-color: #f5f5f5; padding: 15px; border-radius: 10px; margin-top: 20px; }
+  .referral-input-group { margin-bottom: 15px; }
+  .order-items-table { width: 100%; margin-top: 15px; margin-bottom: 15px; }
+  .order-items-table th, .order-items-table td { padding: 8px; text-align: left; border-bottom: 1px solid #eee; }
+  .order-items-table th { background-color: #f8f9fa; font-weight: 600; font-size: 0.85rem; }
+  .order-items-table .text-end { text-align: right; }
+  .order-actions { margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .contact-support-card { background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); color: white; border-radius: 15px; padding: 25px; margin-top: 20px; text-align: center; }
+  .contact-support-card h4 { color: white; margin-bottom: 15px; }
+  .contact-support-card p { color: rgba(255, 255, 255, 0.9); margin-bottom: 20px; }
+  .whatsapp-btn { background-color: white; color: #25D366; border: none; padding: 12px 30px; border-radius: 25px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 10px; transition: all 0.3s ease; }
+  .whatsapp-btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2); color: #128C7E; }
+  .points-reference { font-size: 0.85rem; color: #666; margin-top: 5px; }
+  .points-reference a { color: var(--primary-color); text-decoration: none; }
+  .points-reference a:hover { text-decoration: underline; }
+  .order-toggle-icon { transition: transform 0.3s ease; margin-left: 10px; display: inline-block; }
+  .order-header[aria-expanded="false"] .order-toggle-icon, .order-header.collapsed .order-toggle-icon { transform: rotate(180deg); }
+  .order-details-collapse { transition: all 0.3s ease; }
+  .transaction-status-credited-positive { color: var(--primary-color); }
+  .transaction-status-credited-negative { color: #d32f2f; }
+  .transaction-status-other { color: #999; }
+  .review-card { border: 1px solid #eee; border-radius: 10px; padding: 20px; margin-bottom: 20px; transition: all 0.3s ease; }
+  .review-card:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1); }
+  .review-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eee; }
+  .review-rating { display: flex; align-items: center; gap: 5px; }
+  .review-rating .star { color: #ffc107; font-size: 1.2rem; }
+  .review-rating .star.empty { color: #ddd; }
+  .review-date { color: #888; font-size: 0.9rem; }
+  .review-status { padding: 5px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
+  .review-status-approved { background-color: #dcedc8; color: #689f38; }
+  .review-status-pending { background-color: #ffecb3; color: #e6a700; }
+  .review-text { color: #333; line-height: 1.6; margin-top: 10px; }
+  .rating { display: flex; gap: 5px; font-size: 1.5rem; cursor: pointer; }
+  .rating i { color: #ddd; transition: color 0.2s; }
+  .rating i.fas { color: #ffc107; }
+  .rating i:hover { color: #ffc107; }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="dashboard-section">
+  <div class="container">
+    <div class="user-info" id="user-info">
+      <div class="text-center py-4"><p class="mt-2">Loading user information...</p></div>
+    </div>
+
+    <ul class="nav nav-tabs" id="myTab" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="orders-tab" data-bs-toggle="tab" data-bs-target="#orders" type="button" role="tab" aria-controls="orders" aria-selected="true">My Orders</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="points-tab" data-bs-toggle="tab" data-bs-target="#points" type="button" role="tab" aria-controls="points" aria-selected="false">Points History</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="reviews-tab" data-bs-toggle="tab" data-bs-target="#reviews" type="button" role="tab" aria-controls="reviews" aria-selected="false">My Reviews</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="referral-tab" data-bs-toggle="tab" data-bs-target="#referral" type="button" role="tab" aria-controls="referral" aria-selected="false">My Referrals</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="support-tab" data-bs-toggle="tab" data-bs-target="#support" type="button" role="tab" aria-controls="support" aria-selected="false">Contact Support</button>
+      </li>
+    </ul>
+
+    <div class="tab-content" id="myTabContent">
+      <div class="tab-pane fade show active" id="orders" role="tabpanel" aria-labelledby="orders-tab">
+        <div id="orders-content">
+          <div class="text-center py-4"><p class="mt-2">Loading orders...</p></div>
+        </div>
+      </div>
+
+      <div class="tab-pane fade" id="points" role="tabpanel" aria-labelledby="points-tab">
+        <div id="points-content">
+          <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+            <p class="mt-2">Loading points history...</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-pane fade" id="referral" role="tabpanel" aria-labelledby="referral-tab">
+        <div class="referral-info mb-4">
+          <h4>Refer &amp; Earn</h4>
+          <p>Share your referral link with friends and earn 50 points when they make a purchase.</p>
+        </div>
+        <div class="referral-link">
+          <h5>Your Referral Link</h5>
+          <div class="input-group referral-input-group">
+            <input type="text" class="form-control" id="referral-link" value="" readonly>
+            <button class="btn btn-outline-primary" type="button" id="copy-link">Copy</button>
+          </div>
+          <div class="text-center">
+            <p>Or share directly:</p>
+            <div class="social-sharing" id="social-sharing">
+              <a href="#" class="btn btn-success" target="_blank" id="whatsapp-share"><i class="fab fa-whatsapp"></i> WhatsApp</a>
+              <a href="#" class="btn btn-info" id="email-share"><i class="fas fa-envelope"></i> Email</a>
+              <a href="#" class="btn btn-secondary" id="sms-share"><i class="fas fa-sms"></i> SMS</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-pane fade" id="reviews" role="tabpanel" aria-labelledby="reviews-tab">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+          <h5 class="mb-0">Your Reviews</h5>
+          <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#dashboardReviewModal">
+            <i class="fas fa-plus"></i> Add Review
+          </button>
+        </div>
+        <div id="reviews-content">
+          <div class="text-center py-4">
+            <div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading...</span></div>
+            <p class="mt-2">Loading reviews...</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-pane fade" id="support" role="tabpanel" aria-labelledby="support-tab">
+        <div class="contact-support-card">
+          <h4><i class="fab fa-whatsapp"></i> Need Help?</h4>
+          <p>Our support team is here to assist you. Contact us via WhatsApp for quick assistance with your orders, questions, or any concerns.</p>
+          <a href="https://wa.me/919400557445?text=Hello%2C%20I%20need%20help%20with%20my%20order" target="_blank" class="whatsapp-btn">
+            <i class="fab fa-whatsapp" style="font-size: 1.5rem;"></i> Chat with Support
+          </a>
+          <p class="mt-3" style="font-size: 0.9rem; opacity: 0.8;"><i class="fas fa-phone"></i> +91 9400557445</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block modals %}
+<div class="modal fade" id="editProfileModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Profile</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="profile-form">
+          <div class="mb-3">
+            <label for="edit-mobile" class="form-label">Mobile Number</label>
+            <input type="tel" class="form-control" id="edit-mobile" value="" disabled>
+            <small class="form-text text-muted">Mobile number cannot be changed</small>
+          </div>
+          <div class="mb-3">
+            <label for="edit-name" class="form-label">Full Name</label>
+            <input type="text" class="form-control" id="edit-name" value="">
+          </div>
+          <div class="mb-3">
+            <label for="edit-address" class="form-label">Delivery Address</label>
+            <textarea class="form-control" id="edit-address" rows="3"></textarea>
+          </div>
+          <div class="mb-3">
+            <label for="edit-pincode" class="form-label">Pincode</label>
+            <input type="text" class="form-control" id="edit-pincode" value="" pattern="[0-9]{6}">
+          </div>
+          <div class="mb-3">
+            <label for="edit-designation" class="form-label">Designation</label>
+            <input type="text" class="form-control" id="edit-designation" value="">
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="save-profile-btn" class="btn btn-primary">Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="dashboardReviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add Your Review</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="dashboard-review-form">
+          <div class="mb-3">
+            <input type="hidden" class="form-control" id="dashboard-review-name" required>
+            <input type="hidden" class="form-control" id="dashboard-review-mobile" pattern="[0-9]{10}" required>
+            <input type="hidden" class="form-control" id="dashboard-designation" required>
+            <label class="form-label">Rating</label>
+            <div class="rating">
+              <i class="far fa-star" data-rating="1"></i>
+              <i class="far fa-star" data-rating="2"></i>
+              <i class="far fa-star" data-rating="3"></i>
+              <i class="far fa-star" data-rating="4"></i>
+              <i class="far fa-star" data-rating="5"></i>
+              <input type="hidden" id="dashboard-rating-value" value="0">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label for="dashboard-review-text" class="form-label">Your Review</label>
+            <textarea class="form-control" id="dashboard-review-text" rows="3" required></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="dashboard-submit-review-btn" class="btn btn-primary">Submit Review</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="dashboardReviewSuccessModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Review Submitted Successfully!</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body text-center">
+        <div class="success-icon mb-4"><i class="fas fa-check-circle" style="font-size: 3rem; color: #28a745;"></i></div>
+        <h4>Thank You for Your Review</h4>
+        <p>It will get featured once approved!</p>
+        <div class="order-details mt-4">
+          <p>Woohoo, You earned <span id="dashboard-review-points-earned"></span> points!<br>Each point is equivalent to one rupee :)</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  let dashboardData = null;
+  let userId = {{ storefront_user.id }};
+
+  $(document).ready(function() {
+    loadDashboardData();
+
+    $(document).on('click', '.order-header', function() {
+      let header = $(this);
+      let target = header.data('bs-target');
+      let collapse = $(target);
+      collapse.on('shown.bs.collapse hidden.bs.collapse', function() {
+        header.attr('aria-expanded', collapse.hasClass('show'));
+      });
+    });
+
+    $('#copy-link').on('click', function() {
+      var referralLink = document.getElementById('referral-link');
+      referralLink.select();
+      document.execCommand('copy');
+      $(this).text('Copied!');
+      setTimeout(function() { $('#copy-link').text('Copy'); }, 2000);
+    });
+
+    $('#dashboardReviewModal').on('show.bs.modal', function() {
+      if (dashboardData && dashboardData.user) {
+        $('#dashboard-review-name').val(dashboardData.user.name || '');
+        $('#dashboard-review-mobile').val(dashboardData.user.mobile || '');
+        $('#dashboard-designation').val(dashboardData.user.designation || '');
+      }
+    });
+
+    $('#dashboardReviewModal .rating i').on('click', function() {
+      const rating = $(this).data('rating');
+      $('#dashboard-rating-value').val(rating);
+      $('#dashboardReviewModal .rating i').removeClass('fas').addClass('far');
+      for (let i = 1; i <= rating; i++) {
+        $(`#dashboardReviewModal .rating i[data-rating="${i}"]`).removeClass('far').addClass('fas');
+      }
+    });
+
+    $('#dashboard-submit-review-btn').on('click', function() { submitDashboardReview(); });
+
+    $('#save-profile-btn').on('click', function() {
+      if (!$('#edit-name').val()) { showAlertModal('Please enter your name', 'warning'); return; }
+      if ($('#edit-pincode').val() && !$('#edit-pincode').val().match(/^\d{6}$/)) {
+        showAlertModal('Please enter a valid 6-digit pincode', 'warning'); return;
+      }
+      $('#loader').fadeIn();
+      let address = $('#edit-address').val();
+      let name = $('#edit-name').val();
+      let pincode = $('#edit-pincode').val();
+      let designation = $('#edit-designation').val();
+      $.ajax({
+        url: '/api/update-profile/',
+        type: 'POST',
+        data: { user_id: userId, name: name, address: address, pincode: pincode, designation: designation },
+        dataType: 'json',
+        success: function(response) {
+          if (response.success) {
+            $('#user-address').text(address + " " + pincode);
+            $('#user-name').text(name);
+            $('#user-designation').text(designation);
+            $('#editProfileModal').modal('hide');
+            $('#loader').fadeOut();
+          } else {
+            showAlertModal('Error: ' + response.message, 'error');
+            $('#loader').fadeOut();
+          }
+        },
+        error: function(xhr, status, error) {
+          console.error('Error updating profile:', error);
+          showAlertModal('Error updating profile. Please try again.', 'error');
+          $('#loader').fadeOut();
+        }
+      });
+    });
+  });
+
+  function loadDashboardData() {
+    $('#loader').fadeIn();
+    $.ajax({
+      url: '/api/dashboard-data/',
+      type: 'GET',
+      dataType: 'json',
+      success: function(response) {
+        if (response.success) {
+          dashboardData = response;
+          renderUserInfo(response.user);
+          renderOrders(response.orders);
+          renderPoints(response.points_transactions, response.user.loyalty_points);
+          renderReviews(response.reviews);
+          updateReferralLinks(response.user.mobile);
+          updateProfileModal(response.user);
+          $('#loader').fadeOut();
+        } else {
+          $('#loader').fadeOut();
+          console.error('Error loading dashboard:', response.message);
+          if (response.message === 'User not authenticated') { window.location.href = '/'; }
+        }
+      },
+      error: function(xhr, status, error) {
+        console.error('Error loading dashboard data:', error);
+        $('#user-info').html('<div class="alert alert-danger">Error loading dashboard data. Please refresh the page.</div>');
+        $('#loader').fadeOut();
+      }
+    });
+  }
+
+  function renderUserInfo(user) {
+    let addressHtml = user.address
+      ? `<p><i class="fas fa-map-marker-alt"></i> Address: <span id="user-address">${escapeHtml(user.address)}, ${escapeHtml(user.pincode)}</span></p>`
+      : '<p><i class="fas fa-map-marker-alt"></i> No address provided</p>';
+    let designationHtml = user.designation
+      ? `<p><i class="fas fa-address-card"></i> Designation: <span id="user-designation">${escapeHtml(user.designation)}</span></p>`
+      : '<p><i class="fas fa-address-card"></i> Designation not added</p>';
+    $('#user-info').html(`
+        <div class="row">
+            <div class="col-md-8">
+                <h2>Welcome, <span id="user-name">${escapeHtml(user.name || 'User')}</span></h2>
+                <p><i class="fas fa-phone"></i> Phone: <span id="user-phone">${escapeHtml(user.mobile)}</span></p>
+                ${addressHtml}
+                ${designationHtml}
+            </div>
+            <div class="col-md-4 text-md-end">
+                <div class="points-badge"><i class="fas fa-coins"></i> ${user.loyalty_points} Points</div>
+                <p class="mt-2">1 point = ₹1 discount</p>
+                <div class="d-flex gap-2 justify-content-md-end mt-2">
+                    <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editProfileModal">
+                        <i class="fas fa-edit"></i> Edit Profile
+                    </button>
+                    <a href="/logout/" class="btn btn-sm btn-outline-danger">
+                        <i class="fas fa-sign-out-alt"></i> Logout
+                    </a>
+                </div>
+            </div>
+        </div>
+    `);
+  }
+
+  function renderOrders(orders) {
+    if (orders.length === 0) {
+      $('#orders-content').html(`
+          <div class="text-center py-5">
+              <i class="fas fa-shopping-cart fa-3x mb-3 text-muted"></i>
+              <h4>No orders yet</h4>
+              <p>You haven't placed any orders yet.</p>
+              <a href="/shop/" class="btn btn-primary mt-3">Shop Now</a>
+          </div>`);
+      return;
+    }
+    let ordersHtml = '';
+    orders.forEach(function(order) {
+      let statusClass = getStatusClass(order.status);
+      let itemsHtml = '';
+      if (order.items && order.items.length > 0) {
+        itemsHtml = '<table class="order-items-table"><thead><tr><th>Item</th><th>Quantity</th><th class="text-end">Price/100g</th><th class="text-end">Total</th></tr></thead><tbody>';
+        order.items.forEach(function(item) {
+          let priceHtml = `₹${formatNumber(item.sale_price_per_kg)}`;
+          if (item.price_per_kg != item.sale_price_per_kg) {
+            priceHtml += `<br><small class="text-muted text-decoration-line-through">₹${formatNumber(item.price_per_kg)}</small>`;
+          }
+          itemsHtml += `
+              <tr>
+                  <td><strong>${escapeHtml(item.name)}</strong>${item.description ? `<br><small class="text-muted">${escapeHtml(item.description)}</small>` : ''}</td>
+                  <td>${formatNumber(item.quantity)}g</td>
+                  <td class="text-end">${priceHtml}</td>
+                  <td class="text-end"><strong>₹${formatNumber(item.item_total, 2)}</strong></td>
+              </tr>`;
+        });
+        itemsHtml += '</tbody></table>';
+      }
+      let itemCountText = order.item_count == 1 ? '1 item' : order.item_count + ' items';
+      let formattedDate = formatDate(new Date(order.order_date));
+      let discountHtml = order.discount_amount > 0 ? `<p><strong>Discount:</strong> -₹${formatNumber(order.discount_amount, 2)}</p>` : '';
+      ordersHtml += `
+          <div class="order-card">
+              <div class="order-header" data-bs-toggle="collapse" data-bs-target="#order-${order.id}" aria-expanded="false" aria-controls="order-${order.id}">
+                  <div>
+                      <div class="order-id">Order #${order.id} (${itemCountText})<i class="fas fa-chevron-up order-toggle-icon"></i></div>
+                      <div class="order-date">${formattedDate}</div>
+                  </div>
+                  <div><span class="order-status ${statusClass}">${capitalizeFirst(order.status)}</span></div>
+              </div>
+              <div class="collapse order-details-collapse" id="order-${order.id}">
+                  <div class="order-details">
+                      ${itemsHtml}
+                      <div class="row mt-3">
+                          <div class="col-md-6">
+                              <p><strong>Delivery Address:</strong> <br>${escapeHtml(order.address + ' ' + order.pincode)}</p>
+                              ${order.coupon_code ? `<p><strong>Coupon Applied:</strong> ${escapeHtml(order.coupon_code)}</p>` : ''}
+                          </div>
+                          <div class="col-md-6 text-md-end">
+                              <p><strong>Subtotal:</strong> ₹${formatNumber(order.subtotal, 2)}</p>
+                              ${discountHtml}
+                              <p><strong>Delivery Charge:</strong> ₹${formatNumber(order.delivery_charge, 2)}</p>
+                              <p><strong>Total:</strong> ₹${formatNumber(order.total_price, 2)}</p>
+                              <p><strong>Payment:</strong> ${capitalizeFirst(order.payment_status)}</p>
+                          </div>
+                      </div>
+                      <div class="order-actions">
+                          <button onclick="printInvoice('${order.id}')" target="_top" class="btn btn-outline-primary btn-sm">
+                              <i class="fas fa-print"></i> Print Invoice
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>`;
+    });
+    $('#orders-content').html(ordersHtml);
+    $('.order-header').each(function() {
+      let header = $(this);
+      let collapse = $(header.data('bs-target'));
+      header.attr('aria-expanded', collapse.hasClass('show'));
+    });
+  }
+
+  function renderPoints(transactions, loyaltyPoints) {
+    let pointsHtml = `
+        <div class="points-summary mb-4">
+            <h4>Your Points Balance: <span class="text-primary">${loyaltyPoints} points</span></h4>
+            <p>Use your points to get discounts on your next purchase. 1 point = ₹1 discount.</p>
+        </div>
+        <h5>Points History</h5>`;
+    if (transactions.length === 0) {
+      pointsHtml += `
+          <div class="text-center py-4">
+              <i class="fas fa-coins fa-3x mb-3 text-muted"></i>
+              <h4>No point transactions yet</h4>
+              <p>You haven't earned or redeemed any points yet.</p>
+          </div>`;
+    } else {
+      const typeLabels = { 'purchase': 'Purchase Reward', 'review': 'Review Bonus', 'feedback': 'Feedback Bonus', 'referral': 'Referral Bonus', 'redemption': 'Points Redemption' };
+      transactions.forEach(function(transaction) {
+        let statusClass = 'transaction-status-other';
+        if (transaction.status == 'credited') {
+          statusClass = transaction.points > 0 ? 'transaction-status-credited-positive' : 'transaction-status-credited-negative';
+        }
+        let formattedDate = formatDate(new Date(transaction.transaction_date));
+        let referenceHtml = '';
+        if (transaction.reference) {
+          if (transaction.type == 'purchase' && transaction.order_id) {
+            referenceHtml = `<div class="points-reference">• <a href="/print-invoice/?id=${transaction.reference}" target="_blank">Order #${transaction.reference}</a></div>`;
+          } else {
+            referenceHtml = `<div class="points-reference">• Ref: ${transaction.reference}</div>`;
+          }
+        }
+        let pointsSign = (transaction.points > 0) ? '+' : '-';
+        let typeLabel = typeLabels[transaction.type] || capitalizeFirst(transaction.type);
+        pointsHtml += `
+            <div class="transaction-card">
+                <div class="transaction-info">
+                    <div class="transaction-type">${typeLabel}</div>
+                    <div class="transaction-date">
+                        ${formattedDate}
+                        ${referenceHtml}
+                        <div class="points-reference ${statusClass}">• ${capitalizeFirst(transaction.status)}</div>
+                    </div>
+                </div>
+                <div class="transaction-points ${statusClass}">${pointsSign}${formatNumber(Math.abs(transaction.points))} pts</div>
+            </div>`;
+      });
+    }
+    $('#points-content').html(pointsHtml);
+  }
+
+  function updateReferralLinks(mobile) {
+    let referralUrl = `https://varthaai.com/?ref=${encodeURIComponent(mobile)}`;
+    $('#referral-link').val(referralUrl);
+    $('#whatsapp-share').attr('href', `https://wa.me/?text=${encodeURIComponent('Check out Varthaai! Use my referral link to order: ' + referralUrl)}`);
+    $('#email-share').attr('href', `mailto:?subject=Check out Varthaai&body=${encodeURIComponent('I thought you might like this: ' + referralUrl)}`);
+    $('#sms-share').attr('href', `sms:?body=${encodeURIComponent('Check out Varthaai! Use my referral link: ' + referralUrl)}`);
+  }
+
+  function renderReviews(reviews) {
+    if (reviews.length === 0) {
+      $('#reviews-content').html(`
+          <div class="text-center py-5">
+              <i class="fas fa-star fa-3x mb-3 text-muted"></i>
+              <h4>No reviews yet</h4>
+              <p>You haven't submitted any reviews yet.</p>
+          </div>`);
+      return;
+    }
+    let reviewsHtml = '';
+    reviews.forEach(function(review) {
+      let formattedDate = formatDate(new Date(review.created_at));
+      let starsHtml = '';
+      for (let i = 1; i <= 5; i++) {
+        starsHtml += (i <= review.rating) ? '<i class="fas fa-star star"></i>' : '<i class="far fa-star star empty"></i>';
+      }
+      let statusClass = review.is_approved == 1 ? 'review-status-approved' : 'review-status-pending';
+      let statusText = review.is_approved == 1 ? 'Approved' : 'Pending Approval';
+      reviewsHtml += `
+          <div class="review-card">
+              <div class="review-header">
+                  <div>
+                      <div class="review-rating">${starsHtml}<span class="ms-2">${review.rating}/5</span></div>
+                      <div class="review-date mt-2">${formattedDate}</div>
+                  </div>
+                  <div><span class="review-status ${statusClass}">${statusText}</span></div>
+              </div>
+              <div class="review-text">${escapeHtml(review.review)}</div>
+          </div>`;
+    });
+    $('#reviews-content').html(reviewsHtml);
+  }
+
+  function updateProfileModal(user) {
+    $('#edit-name').val(user.name || '');
+    $('#edit-mobile').val(user.mobile || '');
+    $('#edit-address').val(user.address || '');
+    $('#edit-pincode').val(user.pincode || '');
+    $('#edit-designation').val(user.designation || '');
+  }
+
+  function escapeHtml(text) {
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+    return String(text).replace(/[&<>"']/g, m => map[m]);
+  }
+
+  function formatNumber(num, decimals = 0) {
+    return parseFloat(num).toFixed(decimals).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+
+  function formatDate(date) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const day = date.getDate();
+    const month = months[date.getMonth()];
+    const year = date.getFullYear();
+    let hours = date.getHours();
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12; hours = hours ? hours : 12;
+    return `${day} ${month} ${year}, ${hours}:${minutes} ${ampm}`;
+  }
+
+  function getStatusClass(status) {
+    const statusClasses = { 'pending': 'status-pending', 'confirmed': 'status-confirmed', 'processing': 'status-processing', 'shipped': 'status-shipped', 'delivered': 'status-delivered', 'cancelled': 'status-cancelled' };
+    return statusClasses[status] || '';
+  }
+
+  function capitalizeFirst(str) { return str.charAt(0).toUpperCase() + str.slice(1); }
+
+  function printInvoice(orderId) {
+    window.open(`/print-invoice/?id=${orderId}`, '_blank', 'width=800,height=600');
+  }
+
+  function validateDashboardReviewForm() {
+    let isValid = true;
+    if (!$('#dashboard-review-name').val()) { showAlertModal('Please enter your name', 'warning'); isValid = false; }
+    if (!$('#dashboard-review-mobile').val() || !$('#dashboard-review-mobile').val().match(/^\d{10}$/)) { showAlertModal('Please enter a valid 10-digit mobile number', 'warning'); isValid = false; }
+    if (!$('#dashboard-designation').val()) { showAlertModal('Please enter your designation', 'warning'); isValid = false; }
+    if ($('#dashboard-rating-value').val() === '0') { showAlertModal('Please select a rating', 'warning'); isValid = false; }
+    if (!$('#dashboard-review-text').val()) { showAlertModal('Please enter your review', 'warning'); isValid = false; }
+    return isValid;
+  }
+
+  function submitDashboardReview() {
+    if (!validateDashboardReviewForm()) return;
+    const reviewData = {
+      name: $('#dashboard-review-name').val(),
+      mobile: $('#dashboard-review-mobile').val(),
+      designation: $('#dashboard-designation').val(),
+      rating: $('#dashboard-rating-value').val(),
+      review: $('#dashboard-review-text').val(),
+      recaptcha_token: ''
+    };
+    $('#loader').fadeIn();
+    $.ajax({
+      url: '/api/submit-review/',
+      type: 'POST',
+      data: reviewData,
+      dataType: 'json',
+      success: function(response) {
+        $('#loader').fadeOut();
+        if (response.success) {
+          $('#dashboardReviewModal').modal('hide');
+          $('#dashboard-review-points-earned').text(response.points_earned);
+          $('#dashboardReviewSuccessModal').modal('show');
+          $('#dashboard-review-form')[0].reset();
+          $('#dashboardReviewModal .rating i').removeClass('fas').addClass('far');
+          $('#dashboard-rating-value').val('0');
+          loadDashboardData();
+        } else {
+          showAlertModal('Error: ' + response.message, 'error');
+        }
+      },
+      error: function(xhr, status, error) {
+        $('#loader').fadeOut();
+        console.error('Error submitting review:', error);
+        showAlertModal('Error: Could not submit review. Please try again.', 'error');
+      }
+    });
+  }
+</script>
+{% endblock %}

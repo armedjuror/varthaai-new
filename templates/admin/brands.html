@@ -1,0 +1,274 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Brands — Varthaai Admin{% endblock %}
+
+{% block content %}
+
+<div class="page-body">
+
+  <div class="page-header">
+    <div>
+      <h1>Brands</h1>
+      <p>Manage your brands. Stocks and expenses are shared; everything else is per-brand.</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addBrandModal">
+        <i class="fas fa-plus me-1"></i>Add Brand
+      </button>
+    </div>
+  </div>
+
+  <!-- Brands table -->
+  <div class="card">
+    <div class="card-body p-0">
+      <div class="table-responsive">
+        <table class="table" id="brandsTable">
+          <thead>
+            <tr>
+              <th>Brand</th>
+              <th>Order Prefix</th>
+              <th>Website</th>
+              <th>Instagram</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="brandsBody">
+            <tr><td colspan="6" class="text-center py-4">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.page-body -->
+
+<!-- Add Brand Modal -->
+<div class="modal fade" id="addBrandModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-plus me-2"></i>Add Brand</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="addBrandForm">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">Brand Name <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" name="name" required placeholder="e.g. Varthaai">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Order Prefix <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" name="order_prefix" required maxlength="10" placeholder="e.g. VO" style="text-transform:uppercase">
+              <div class="form-text">Short prefix for order IDs (e.g. VO → VO_66f3a1…). Max 10 chars.</div>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Logo URL</label>
+              <input type="text" class="form-control" name="logo" placeholder="images/logo.png or https://…">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Website</label>
+              <input type="url" class="form-control" name="website" placeholder="https://example.com">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Instagram</label>
+              <input type="text" class="form-control" name="instagram" placeholder="@handle or full URL">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Add Brand</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Brand Modal -->
+<div class="modal fade" id="editBrandModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-pen me-2"></i>Edit Brand</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="editBrandForm">
+        <input type="hidden" name="id">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">Brand Name <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" name="name" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Order Prefix <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" name="order_prefix" required maxlength="10" style="text-transform:uppercase">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Logo URL</label>
+              <input type="text" class="form-control" name="logo">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Website</label>
+              <input type="url" class="form-control" name="website">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Instagram</label>
+              <input type="text" class="form-control" name="instagram">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let brandsData = [];
+
+// A brand logo is a free-text path/URL. Absolute URLs are used as-is; a bare
+// path (e.g. "images/logo.png") is served from MEDIA_URL.
+function logoSrc(logo) {
+  if (!logo) return '';
+  return /^https?:\/\//i.test(logo) ? logo : '/media/' + logo.replace(/^\/+/, '');
+}
+
+async function loadBrands() {
+  const res  = await apiGet('/admin/api/brands/');
+  brandsData = res.data || [];
+  renderBrands();
+}
+
+function renderBrands() {
+  const tbody = document.getElementById('brandsBody');
+  if (!brandsData.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-muted">No brands found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = brandsData.map(b => `
+    <tr>
+      <td>
+        <div class="d-flex align-items-center gap-2">
+          ${b.logo ? `<img src="${logoSrc(b.logo)}" alt="" style="width:32px;height:32px;object-fit:contain;border-radius:4px">` : '<div style="width:32px;height:32px;background:#f3f4f6;border-radius:4px"></div>'}
+          <div>
+            <div class="fw-semibold">${esc(b.name)}</div>
+            <small class="text-muted">ID: ${b.id}</small>
+          </div>
+        </div>
+      </td>
+      <td><code>${esc(b.order_prefix)}_</code></td>
+      <td>${b.website ? `<a href="${esc(b.website)}" target="_blank" class="text-truncate d-inline-block" style="max-width:160px">${esc(b.website)}</a>` : '<span class="text-muted">—</span>'}</td>
+      <td>${b.instagram ? esc(b.instagram) : '<span class="text-muted">—</span>'}</td>
+      <td><span class="badge ${b.is_active ? 'bg-success' : 'bg-secondary'}">${b.is_active ? 'Active' : 'Inactive'}</span></td>
+      <td>
+        <div class="d-flex gap-1">
+          <button class="btn btn-outline-primary btn-xs" onclick="openEdit(${b.id})" title="Edit"><i class="fas fa-pen"></i></button>
+          <button class="btn btn-outline-secondary btn-xs" onclick="toggleBrand(${b.id})">${b.is_active ? '<i class="fas fa-ban"></i>' : '<i class="fas fa-check"></i>'}</button>
+          ${b.id > 1 ? `<button class="btn btn-outline-danger btn-xs" onclick="deleteBrand(${b.id})"><i class="fas fa-trash"></i></button>` : ''}
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function esc(str) {
+  return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function openEdit(id) {
+  const b = brandsData.find(x => x.id == id);
+  if (!b) return;
+  const f = document.getElementById('editBrandForm');
+  f.id.value           = b.id;
+  f.name.value         = b.name;
+  f.order_prefix.value = b.order_prefix;
+  f.logo.value         = b.logo  ?? '';
+  f.website.value      = b.website   ?? '';
+  f.instagram.value    = b.instagram ?? '';
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('editBrandModal')).show();
+}
+
+function toggleBrand(id) {
+  const b = brandsData.find(x => x.id == id);
+  if (!b) return;
+  const action = b.is_active ? 'Deactivate' : 'Activate';
+  confirm(`${action} brand "${b.name}"?`).then(async () => {
+    showLoader();
+    const res = await apiPost('/admin/api/brands/', { action: 'toggle', id });
+    hideLoader();
+    if (res.success) { showAlertModal(res.message, 'success'); loadBrands(); }
+    else showAlertModal(res.message, 'danger');
+  }).catch(() => {});
+}
+
+function deleteBrand(id) {
+  const b = brandsData.find(x => x.id == id);
+  if (!b) return;
+  confirm(`Delete brand "${b.name}"? This cannot be undone.`).then(async () => {
+    showLoader();
+    const res = await apiPost('/admin/api/brands/', { action: 'delete', id });
+    hideLoader();
+    if (res.success) { showAlertModal(res.message, 'success'); loadBrands(); }
+    else showAlertModal(res.message, 'danger');
+  }).catch(() => {});
+}
+
+document.getElementById('addBrandForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target;
+  showLoader();
+  const res = await apiPost('/admin/api/brands/', {
+    action:       'add',
+    name:         f.name.value.trim(),
+    order_prefix: f.order_prefix.value.trim().toUpperCase(),
+    logo:         f.logo.value.trim(),
+    website:      f.website.value.trim(),
+    instagram:    f.instagram.value.trim(),
+  });
+  hideLoader();
+  if (res.success) {
+    bootstrap.Modal.getInstance(document.getElementById('addBrandModal')).hide();
+    f.reset();
+    showAlertModal(res.message, 'success');
+    loadBrands();
+  } else {
+    showAlertModal(res.message, 'danger');
+  }
+});
+
+document.getElementById('editBrandForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target;
+  showLoader();
+  const res = await apiPost('/admin/api/brands/', {
+    action:       'edit',
+    id:           parseInt(f.id.value),
+    name:         f.name.value.trim(),
+    order_prefix: f.order_prefix.value.trim().toUpperCase(),
+    logo:         f.logo.value.trim(),
+    website:      f.website.value.trim(),
+    instagram:    f.instagram.value.trim(),
+  });
+  hideLoader();
+  if (res.success) {
+    bootstrap.Modal.getInstance(document.getElementById('editBrandModal')).hide();
+    showAlertModal(res.message, 'success');
+    loadBrands();
+  } else {
+    showAlertModal(res.message, 'danger');
+  }
+});
+
+loadBrands();
+</script>
+{% endblock %}

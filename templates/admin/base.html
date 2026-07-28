@@ -1,0 +1,281 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>{% block title %}Admin — Varthaai{% endblock %}</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="{% static 'images/favicon-32x32.png' %}">
+  <link rel="icon" type="image/png" sizes="16x16" href="{% static 'images/favicon-16x16.png' %}">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="{% static 'css/dash-style.css' %}">
+  <link rel="stylesheet" href="{% static 'css/loader.css' %}">
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+{% with url_name=request.resolver_match.url_name %}
+
+<!-- Admin loader overlay -->
+<div class="admin-loader" id="adminLoader">
+  <div class="admin-loader-inner">
+    <div class="admin-loader-spinner"></div>
+    <div class="admin-loader-label">Loading…</div>
+  </div>
+</div>
+
+<div class="sidebar-backdrop"></div>
+
+<aside class="sidebar">
+  <!-- Logo -->
+  <div class="sidebar-logo">
+    <img src="{% static 'images/logo.png' %}" alt="{% if current_brand %}{{ current_brand.name }}{% else %}Varthaai{% endif %}">
+  </div>
+
+  <!-- Navigation -->
+  <nav class="sidebar-nav">
+    <p class="nav-section-label">Menu</p>
+
+    {% if 'dashboard' in nav_perms %}
+    <a href="{% url 'core:dashboard' %}" class="nav-item{% if url_name == 'dashboard' %} active{% endif %}">
+      <i class="fas fa-chart-pie"></i>
+      <span>Dashboard</span>
+    </a>
+    {% endif %}
+
+    {% if 'orders' in nav_perms %}
+    <a href="{% url 'orders:orders' %}" class="nav-item{% if url_name == 'orders' or url_name == 'view_order' or url_name == 'edit_order' %} active{% endif %}">
+      <i class="fas fa-bag-shopping"></i>
+      <span>Orders</span>
+    </a>
+    {% endif %}
+
+    {% if 'coupons' in nav_perms %}
+    <a href="{% url 'orders:coupons' %}" class="nav-item{% if url_name == 'coupons' %} active{% endif %}">
+      <i class="fas fa-ticket"></i>
+      <span>Coupons</span>
+    </a>
+    {% endif %}
+
+    {% if 'flavors' in nav_perms %}
+    <a href="{% url 'products:flavors' %}" class="nav-item{% if url_name == 'flavors' %} active{% endif %}">
+      <i class="fas fa-pepper-hot"></i>
+      <span>Flavors</span>
+    </a>
+    {% endif %}
+
+    {% if 'customers' in nav_perms %}
+    <a href="{% url 'accounts:customers' %}" class="nav-item{% if url_name == 'customers' %} active{% endif %}">
+      <i class="fas fa-users"></i>
+      <span>Customers</span>
+    </a>
+    {% endif %}
+
+    {% if 'reviews' in nav_perms %}
+    <a href="{% url 'marketing:reviews' %}" class="nav-item{% if url_name == 'reviews' %} active{% endif %}">
+      <i class="fas fa-star"></i>
+      <span>Reviews</span>
+    </a>
+    {% endif %}
+
+    {% if 'b2b' in nav_perms %}
+    <p class="nav-section-label" style="margin-top:12px">B2B</p>
+    <a href="{% url 'orders:b2b_dashboard' %}" class="nav-item{% if url_name == 'b2b_dashboard' %} active{% endif %}">
+      <i class="fas fa-gauge-high"></i>
+      <span>B2B Dashboard</span>
+    </a>
+    <a href="{% url 'crm:pipeline' %}" class="nav-item{% if url_name == 'pipeline' or url_name == 'view_b2b' %} active{% endif %}">
+      <i class="fas fa-briefcase"></i>
+      <span>Pipeline</span>
+    </a>
+    <a href="{% url 'orders:b2b_orders' %}" class="nav-item{% if url_name == 'b2b_orders' or url_name == 'b2b_order_create' %} active{% endif %}">
+      <i class="fas fa-file-invoice"></i>
+      <span>B2B Orders</span>
+    </a>
+    <a href="{% url 'orders:b2b_offers' %}" class="nav-item{% if url_name == 'b2b_offers' %} active{% endif %}">
+      <i class="fas fa-gift"></i>
+      <span>Offers</span>
+    </a>
+    {% endif %}
+
+    <p class="nav-section-label" style="margin-top:12px">General</p>
+
+    {% if 'stocks' in nav_perms %}
+      <a href="{% url 'products:stocks' %}" class="nav-item{% if url_name == 'stocks' %} active{% endif %}">
+        <i class="fas fa-warehouse"></i>
+        <span>Stocks</span>
+      </a>
+    {% endif %}
+
+    {% if 'expenses' in nav_perms %}
+      <a href="{% url 'finance:expenses' %}" class="nav-item{% if url_name == 'expenses' %} active{% endif %}">
+        <i class="fas fa-receipt"></i>
+        <span>Expenses</span>
+      </a>
+    {% endif %}
+
+    {% if is_super_admin %}
+      <a href="{% url 'core:settings' %}" class="nav-item{% if url_name == 'settings' %} active{% endif %}">
+        <i class="fas fa-gear"></i>
+        <span>Settings</span>
+      </a>
+      <a href="{% url 'core:brands' %}" class="nav-item{% if url_name == 'brands' %} active{% endif %}">
+        <i class="fas fa-layer-group"></i>
+        <span>Brands</span>
+      </a>
+    {% endif %}
+  </nav>
+
+  <!-- Profile / logout -->
+  <div class="sidebar-profile">
+    <div class="avatar-circle">
+      {{ admin_user.name|first|upper }}
+    </div>
+    <div class="profile-meta">
+      <span class="profile-name">{{ admin_user.name }}</span>
+      <span class="profile-role">{{ admin_user.role|capfirst }}</span>
+    </div>
+    <a href="{% url 'accounts:logout' %}" class="sidebar-logout" title="Logout">
+      <i class="fas fa-arrow-right-from-bracket"></i>
+    </a>
+  </div>
+</aside>
+
+<!-- Content wrapper -->
+<div class="content">
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <button class="sidebar-toggle" id="toggle-sidebar" aria-label="Toggle sidebar">
+      <i class="fas fa-bars"></i>
+    </button>
+
+    <div class="search-wrap">
+      <i class="fas fa-magnifying-glass"></i>
+      <input type="text" id="admin-search" placeholder="Search...">
+    </div>
+
+    <div class="topbar-right">
+      <!-- Brand switcher -->
+      {% if switchable_brands %}
+      <div class="dropdown" id="brandSwitcherWrap">
+        <button class="btn btn-outline-secondary btn-sm d-flex align-items-center gap-1" type="button"
+                id="brandSwitcherBtn" data-bs-toggle="dropdown" aria-expanded="false">
+          <i class="fas fa-layer-group"></i>
+          <span id="brandSwitcherLabel">{% if current_brand %}{{ current_brand.name }}{% else %}Brand{% endif %}</span>
+          <i class="fas fa-chevron-down" style="font-size:.65rem"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end" id="brandSwitcherMenu">
+          {% for brand in switchable_brands %}
+          <li>
+            <button class="dropdown-item d-flex align-items-center gap-2{% if current_brand and brand.id == current_brand.id %} active{% endif %}"
+                    onclick="switchBrand({{ brand.id }}, '{{ brand.name|escapejs }}')">
+              <i class="fas fa-layer-group" style="width:14px"></i>
+              {{ brand.name }}
+              {% if current_brand and brand.id == current_brand.id %}<i class="fas fa-check ms-auto" style="font-size:.7rem"></i>{% endif %}
+            </button>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+
+      <span class="topbar-name">Hi, {{ admin_user.name }}</span>
+
+      <div class="dropdown">
+        <button class="topbar-avatar-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+          <div class="avatar-circle">
+            {{ admin_user.name|first|upper }}
+          </div>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li>
+            <div class="dropdown-item" style="cursor:pointer" onclick="openChangePasswordModal()">
+              <i class="fas fa-key me-2"></i>Change Password
+            </div>
+          </li>
+          <li><hr class="dropdown-divider"></li>
+          <li>
+            <a class="dropdown-item text-danger" href="{% url 'accounts:logout' %}">
+              <i class="fas fa-arrow-right-from-bracket me-2"></i>Logout
+            </a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </header>
+
+  <div class="page-body">
+    {% block page_title %}{% endblock %}
+    {% block content %}{% endblock %}
+  </div>
+
+</div><!-- /.content -->
+
+{% endwith %}
+
+<!-- Scripts -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{% static 'js/alert-modal.js' %}"></script>
+<script src="{% static 'js/admin/utils.js' %}"></script>
+<script src="{% static 'js/admin/csrf.js' %}"></script>
+
+<script>
+  // Brand switcher — POST to Django endpoint; CSRF header added globally by csrf.js
+  window.switchBrand = function (id, name) {
+    $.ajax({
+      url: '{% url "accounts:brand_switch" %}',
+      type: 'POST',
+      contentType: 'application/json',
+      data: JSON.stringify({ brand_id: id }),
+      dataType: 'json',
+      success: function (data) {
+        if (data && data.success) {
+          window.location.reload();
+        } else {
+          showAlertModal((data && data.message) || 'Failed to switch brand.', 'danger');
+        }
+      },
+      error: function () { showAlertModal('Network error switching brand.', 'danger'); }
+    });
+  };
+
+  // Change password lives on the Settings > Security tab (Phase 14).
+  window.openChangePasswordModal = window.openChangePasswordModal || function () {
+    window.location.href = '{% url "core:settings" %}#tabSecurity';
+  };
+
+  // ── Full-page navigation loader ──
+  // Sidebar (and other real) links do a server round-trip; the overlay is
+  // otherwise only used for AJAX. Show it on click so there's immediate
+  // feedback during the lag before the next page paints.
+  $(document).on('click', 'a[href]', function (e) {
+    // Respect new-tab / modifier / middle-click — those don't leave this page.
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button === 1) return;
+    if (this.target === '_blank' || this.hasAttribute('download')) return;
+    if (this.getAttribute('data-bs-toggle')) return;
+
+    var href = this.getAttribute('href') || '';
+    if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0) return;
+
+    // Only for same-origin navigations that actually change the page.
+    if (this.host !== window.location.host) return;
+    // Same path+query (only a #hash differs, or identical) → no page load.
+    if (this.pathname === window.location.pathname && this.search === window.location.search) return;
+
+    showLoader('Loading…');
+  });
+
+  // Back/forward may restore this page from the bfcache with the overlay still
+  // up — clear it so the restored page isn't stuck behind the loader.
+  window.addEventListener('pageshow', function (e) { if (e.persisted) hideLoader(); });
+</script>
+
+{% block extra_js %}{% endblock %}
+
+</body>
+</html>

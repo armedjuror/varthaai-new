@@ -1,0 +1,508 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Edit Order {{ order.id }} — Varthaai Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  .item-row { background:var(--gray-50); border:1px solid var(--gray-200); border-radius:8px; padding:14px 16px; margin-bottom:8px; display:flex; align-items:center; gap:16px; }
+  .item-info { flex:1; min-width:0; }
+  .summary-row { display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--gray-200); font-size:0.875rem; }
+  .summary-row:last-child { border-bottom:none; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-body">
+
+  <!-- Page header -->
+  <div class="page-header">
+    <div>
+      <h1>Edit Order</h1>
+      <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0" style="font-size:0.82rem">
+          <li class="breadcrumb-item"><a href="{% url 'core:dashboard' %}">Dashboard</a></li>
+          <li class="breadcrumb-item"><a href="{% url 'orders:orders' %}">Orders</a></li>
+          <li class="breadcrumb-item"><a href="{% url 'orders:view_order' order.id %}">{{ order.id }}</a></li>
+          <li class="breadcrumb-item active">Edit</li>
+        </ol>
+      </nav>
+    </div>
+    <div class="page-header-actions">
+      <a href="{% url 'orders:view_order' order.id %}" class="btn btn-sm btn-outline-primary">
+        <i class="fas fa-eye me-1"></i>View
+      </a>
+      <a href="{% url 'orders:orders' %}" class="btn btn-sm btn-outline-secondary">
+        <i class="fas fa-arrow-left me-1"></i>Orders
+      </a>
+    </div>
+  </div>
+
+  <form id="editOrderForm">
+    <div class="row g-4">
+
+      <!-- Left: customer + items -->
+      <div class="col-lg-8 d-flex flex-column gap-4">
+
+        <!-- Customer Info -->
+        <div class="data-card">
+          <div class="data-card-header">
+            <h3>Customer Information</h3>
+          </div>
+          <div style="padding:20px">
+            <div class="row g-3">
+              <div class="col-md-12">
+                <label class="form-label">Registered Customer</label>
+                <select class="form-select" name="user_id" id="userSelect">
+                  <option value="">— Guest Order —</option>
+                  {% for u in users %}
+                    <option value="{{ u.id }}" data-name="{{ u.name }}" data-mobile="{{ u.mobile }}"
+                      {% if order.user_id == u.id %}selected{% endif %}>
+                      {{ u.name }} — {{ u.mobile }}
+                    </option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Name <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" name="name" value="{{ order.name }}" required>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Mobile <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" name="mobile" value="{{ order.mobile }}" required>
+              </div>
+              <div class="col-12">
+                <label class="form-label">Delivery Address <span class="text-danger">*</span></label>
+                <textarea class="form-control" name="address" rows="2" required>{{ order.address }}</textarea>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Pincode</label>
+                <input type="text" class="form-control" name="pincode" value="{{ order.pincode }}">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Delivery Charge (₹)</label>
+                <input type="number" class="form-control" name="delivery_charge" id="deliveryCharge"
+                       value="{{ order.delivery_charge }}" min="0" step="0.01">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Coupon</label>
+                <select class="form-select" name="coupon_id" id="couponSelect">
+                  <option value="">No Coupon</option>
+                  {% for c in coupons %}
+                    <option value="{{ c.id }}"
+                            data-discount-amount="{{ c.discount_amount|default:0 }}"
+                            data-discount-percentage="{{ c.discount_percentage|default:0 }}"
+                      {% if order.coupon_id == c.id %}selected{% endif %}>
+                      {{ c.code }}
+                      {% if c.discount_amount %}(₹{{ c.discount_amount|floatformat:0 }} off){% elif c.discount_percentage %}({{ c.discount_percentage }}% off){% endif %}
+                    </option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Order Items -->
+        <div class="data-card">
+          <div class="data-card-header">
+            <h3>Order Items</h3>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addItemModal">
+              <i class="fas fa-plus me-1"></i>Add Item
+            </button>
+          </div>
+          <div style="padding:16px" id="itemsList">
+            {% if not items %}
+              <div class="text-center py-4" style="color:var(--gray-400)">
+                <i class="fas fa-bag-shopping fa-2x mb-2 d-block"></i>No items — add one above
+              </div>
+            {% endif %}
+            {% for item in items %}
+              <div class="item-row" data-item-id="{{ item.item_id }}">
+                <div class="item-info">
+                  <div style="font-weight:600;font-size:0.9rem">
+                    {{ item.name }}
+                    {% if item.pack_label %}<span style="font-size:0.75rem;color:var(--gray-400)">({{ item.pack_label }})</span>{% endif %}
+                  </div>
+                  <div style="font-size:0.78rem;color:var(--gray-400)">
+                    ₹{{ item.sale_price_per_kg|floatformat:0 }}/kg
+                    {% if item.price_per_kg != item.sale_price_per_kg %}<span style="text-decoration:line-through">₹{{ item.price_per_kg|floatformat:0 }}</span>{% endif %}
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:12px;flex-shrink:0">
+                  <div>
+                    <div style="font-size:0.75rem;color:var(--gray-400);margin-bottom:3px">Qty (grams)</div>
+                    <input type="number" class="form-control form-control-sm qty-input"
+                           name="item_quantities[{{ item.item_id }}]"
+                           value="{{ item.quantity }}" min="0"
+                           data-price="{{ item.sale_price_per_kg }}"
+                           style="width:100px">
+                  </div>
+                  <div>
+                    <div style="font-size:0.75rem;color:var(--gray-400);margin-bottom:3px">Total</div>
+                    <div class="item-total fw-bold" style="font-size:0.9rem">₹{{ item.item_total|floatformat:2 }}</div>
+                  </div>
+                  <button type="button" class="btn-icon delete flex-shrink-0" title="Remove"
+                          onclick="removeItem(this, {{ item.item_id }})">
+                    <i class="fas fa-times"></i>
+                  </button>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right: status + summary + customer info -->
+      <div class="col-lg-4 d-flex flex-column gap-4">
+
+        <!-- Status -->
+        <div class="data-card">
+          <div class="data-card-header"><h3>Order Status</h3></div>
+          <div style="padding:20px">
+            <div class="mb-3">
+              <label class="form-label">Order Status</label>
+              <select class="form-select" name="status">
+                <option value="pending" {% if order.status == 'pending' %}selected{% endif %}>Pending</option>
+                <option value="confirmed" {% if order.status == 'confirmed' %}selected{% endif %}>Confirmed</option>
+                <option value="processing" {% if order.status == 'processing' %}selected{% endif %}>Processing</option>
+                <option value="shipped" {% if order.status == 'shipped' %}selected{% endif %}>Shipped</option>
+                <option value="delivered" {% if order.status == 'delivered' %}selected{% endif %}>Delivered</option>
+                <option value="cancelled" {% if order.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label">Payment Status</label>
+              <select class="form-select" name="payment_status">
+                <option value="pending" {% if order.payment_status == 'pending' %}selected{% endif %}>Pending</option>
+                <option value="paid" {% if order.payment_status == 'paid' %}selected{% endif %}>Paid</option>
+                <option value="failed" {% if order.payment_status == 'failed' %}selected{% endif %}>Failed</option>
+                <option value="refunded" {% if order.payment_status == 'refunded' %}selected{% endif %}>Refunded</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Order Summary -->
+        <div class="data-card">
+          <div class="data-card-header"><h3>Order Summary</h3></div>
+          <div style="padding:16px 20px">
+            <div class="summary-row">
+              <span style="color:var(--gray-400)">Subtotal</span>
+              <span id="summarySubtotal">₹{{ subtotal|floatformat:2 }}</span>
+            </div>
+            <div class="summary-row" id="summaryDiscountRow" style="{% if discount > 0 %}{% else %}display:none{% endif %}">
+              <span style="color:var(--gray-400)">Discount{% if order.coupon_code %} ({{ order.coupon_code }}){% endif %}</span>
+              <span id="summaryDiscount" style="color:#16a34a">-₹{{ discount|floatformat:2 }}</span>
+            </div>
+            <div class="summary-row">
+              <span style="color:var(--gray-400)">Delivery</span>
+              <span id="summaryDelivery">₹{{ order.delivery_charge|floatformat:2 }}</span>
+            </div>
+            <div class="summary-row" style="font-weight:700;font-size:1rem;border-bottom:none;padding-top:10px">
+              <span>Total</span>
+              <span id="summaryTotal">₹{{ final_total|floatformat:2 }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Linked Customer Info -->
+        {% if order.user_id %}
+        <div class="data-card">
+          <div class="data-card-header">
+            <h3>Linked Customer</h3>
+            <a href="{% url 'accounts:view_customer' order.user_id %}" class="btn btn-sm btn-outline-primary" style="font-size:0.75rem">View</a>
+          </div>
+          <div style="padding:16px 20px;font-size:0.875rem">
+            <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-200)">
+              <span style="color:var(--gray-400)">Name</span>
+              <span>{{ order.user.name }}</span>
+            </div>
+            {% if order_loyalty %}
+            <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-200)">
+              <span style="color:var(--gray-400)">Loyalty</span>
+              <span>
+                {{ order_loyalty.points }} pts
+                {% if order_loyalty.status == 'credited' %}{% with lcolor='#16a34a' %}
+                <span style="font-size:0.72rem;font-weight:600;color:{{ lcolor }};background:{{ lcolor }}18;padding:1px 7px;border-radius:20px;margin-left:4px">{{ order_loyalty.status|capfirst }}</span>
+                {% endwith %}{% elif order_loyalty.status == 'cancelled' %}{% with lcolor='#dc2626' %}
+                <span style="font-size:0.72rem;font-weight:600;color:{{ lcolor }};background:{{ lcolor }}18;padding:1px 7px;border-radius:20px;margin-left:4px">{{ order_loyalty.status|capfirst }}</span>
+                {% endwith %}{% else %}{% with lcolor='#f59e0b' %}
+                <span style="font-size:0.72rem;font-weight:600;color:{{ lcolor }};background:{{ lcolor }}18;padding:1px 7px;border-radius:20px;margin-left:4px">{{ order_loyalty.status|capfirst }}</span>
+                {% endwith %}{% endif %}
+              </span>
+            </div>
+            {% endif %}
+            {% if order.user.referral_code %}
+            <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray-200)">
+              <span style="color:var(--gray-400)">Referral</span>
+              <code style="font-size:0.8rem">{{ order.user.referral_code }}</code>
+            </div>
+            {% endif %}
+            {% if order.referral %}
+            <div style="display:flex;justify-content:space-between;padding:6px 0">
+              <span style="color:var(--gray-400)">Referred By</span>
+              <span>{{ order.referral.name }}</span>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- Save -->
+        <button type="submit" class="btn btn-primary w-100">
+          <i class="fas fa-save me-1"></i>Save Changes
+        </button>
+
+      </div>
+    </div>
+  </form>
+
+</div><!-- /.page-body -->
+
+<!-- Add Item Modal -->
+<div class="modal fade" id="addItemModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-plus me-2"></i>Add Item</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="addItemForm">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Flavor</label>
+            <select class="form-select" name="flavor_id" id="flavorSelect" required>
+              <option value="">Select a flavor…</option>
+              {% for f in flavors %}
+                <option value="{{ f.id }}" data-price="{{ f.sale_price_per_kg }}">
+                  {{ f.name }} — ₹{{ f.sale_price_per_kg|floatformat:0 }}/kg
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Pack</label>
+            <select class="form-select" name="flavor_pack_id" id="packSelect">
+              <option value="">Custom Weight</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Quantity (grams)</label>
+            <input type="number" class="form-control" name="quantity" id="modalQty" min="1" required placeholder="e.g. 500">
+          </div>
+          <div id="modalPreview" style="display:none;padding:10px 14px;background:var(--gray-50);border-radius:6px;font-size:0.85rem;color:var(--gray-500)"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-plus me-1"></i>Add Item</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var _orderId = "{{ order.id|escapejs }}";
+var _editPacks = {{ packs_json|safe }};
+
+/* ── User select → auto-fill name/mobile ── */
+$('#userSelect').on('change', function () {
+  var opt = this.options[this.selectedIndex];
+  if (opt.value) {
+    $('[name="name"]').val(opt.dataset.name || '');
+    $('[name="mobile"]').val(opt.dataset.mobile || '');
+  }
+});
+
+/* ── Live summary recalculation ── */
+function recalcSummary() {
+  var subtotal = 0;
+  $('.item-total').each(function () {
+    subtotal += parseFloat($(this).text().replace(/[₹,]/g, '')) || 0;
+  });
+  var delivery  = parseFloat($('#deliveryCharge').val()) || 0;
+  var discount  = 0;
+  var couponOpt = $('#couponSelect option:selected');
+  if (couponOpt.val()) {
+    var da = parseFloat(couponOpt.data('discount-amount'))     || 0;
+    var dp = parseFloat(couponOpt.data('discount-percentage')) || 0;
+    discount = da > 0 ? da : (dp > 0 ? subtotal * dp / 100 : 0);
+  }
+  var total = subtotal + delivery - discount;
+  $('#summarySubtotal').text('₹' + subtotal.toFixed(2));
+  $('#summaryDelivery').text('₹' + delivery.toFixed(2));
+  $('#summaryTotal').text('₹' + total.toFixed(2));
+  if (discount > 0) {
+    $('#summaryDiscount').text('-₹' + discount.toFixed(2));
+    $('#summaryDiscountRow').show();
+  } else {
+    $('#summaryDiscountRow').hide();
+  }
+}
+
+/* ── Quantity change → update item total ── */
+$(document).on('input change', '.qty-input', function () {
+  var qty   = parseFloat($(this).val()) || 0;
+  var price = parseFloat($(this).data('price')) || 0;
+  $(this).closest('.item-row').find('.item-total').text('₹' + ((qty / 1000) * price).toFixed(2));
+  recalcSummary();
+});
+$('#deliveryCharge, #couponSelect').on('input change', recalcSummary);
+
+/* ── Save order ── */
+$('#editOrderForm').on('submit', function (e) {
+  e.preventDefault();
+  var qtyInputs = $('.qty-input');
+  if (qtyInputs.length > 0) {
+    var hasItem = qtyInputs.toArray().some(function (el) { return parseInt(el.value) > 0; });
+    if (!hasItem) { showAlertModal('Order must have at least one item with quantity > 0.', 'warning'); return; }
+  }
+  var quantities = {};
+  qtyInputs.each(function () {
+    var m = this.name.match(/item_quantities\[(\d+)\]/);
+    if (m) quantities[m[1]] = parseInt(this.value) || 0;
+  });
+  showLoader('Saving…');
+  apiPost('/admin/api/orders/', {
+    action:          'update',
+    order_id:        _orderId,
+    name:            $('[name="name"]').val().trim(),
+    mobile:          $('[name="mobile"]').val().trim(),
+    address:         $('[name="address"]').val().trim(),
+    pincode:         $('[name="pincode"]').val().trim(),
+    status:          $('[name="status"]').val(),
+    payment_status:  $('[name="payment_status"]').val(),
+    delivery_charge: parseFloat($('#deliveryCharge').val()) || 0,
+    coupon_id:       $('#couponSelect').val() || null,
+    user_id:         $('#userSelect').val()   || null,
+    item_quantities: quantities
+  })
+    .done(function (res) { showAlertModal(res.message, res.success ? 'success' : 'danger'); })
+    .fail(function ()    { showAlertModal('Request failed.', 'danger'); })
+    .always(hideLoader);
+});
+
+/* ── Remove item ── */
+function removeItem(btn, itemId) {
+  confirmThen('Remove this item from the order?', function () {
+    showLoader('Removing…');
+    apiPost('/admin/api/orders/', { action: 'remove_item', order_id: _orderId, item_id: itemId })
+      .done(function (res) {
+        if (res.success) {
+          $(btn).closest('.item-row').remove();
+          recalcSummary();
+          showAlertModal('Item removed.', 'success');
+        } else {
+          showAlertModal(res.message, 'danger');
+        }
+      })
+      .fail(function () { showAlertModal('Request failed.', 'danger'); })
+      .always(hideLoader);
+  });
+}
+
+/* ── Add item ── */
+$('#addItemForm').on('submit', function (e) {
+  e.preventDefault();
+  var flavorId = $('#flavorSelect').val();
+  var qty      = parseInt($('#modalQty').val());
+  var packOpt  = $('#packSelect option:selected');
+  var packId   = packOpt.val() ? parseInt(packOpt.val()) : null;
+  var packLabel = packOpt.val() ? (packOpt.data('label') || null) : null;
+  if (!flavorId || !qty || qty <= 0) { showAlertModal('Select a flavor and enter quantity.', 'warning'); return; }
+  showLoader('Adding…');
+  apiPost('/admin/api/orders/', { action: 'add_item', order_id: _orderId, flavor_id: parseInt(flavorId), quantity: qty, flavor_pack_id: packId, pack_label: packLabel })
+    .done(function (res) {
+      if (res.success) {
+        var item = res.data.item;
+        var priceInfo = '₹' + Number(item.sale_price_per_kg).toLocaleString('en-IN') + '/kg';
+        if (item.price_per_kg != item.sale_price_per_kg) {
+          priceInfo += ' <span style="text-decoration:line-through">₹' + Number(item.price_per_kg).toLocaleString('en-IN') + '</span>';
+        }
+        var packInfo = item.pack_label ? ' <span style="font-size:0.75rem;color:var(--gray-400)">(' + $('<span>').text(item.pack_label).html() + ')</span>' : '';
+        var html = '<div class="item-row" data-item-id="' + item.item_id + '">' +
+          '<div class="item-info">' +
+            '<div style="font-weight:600;font-size:0.9rem">' + $('<span>').text(item.name).html() + packInfo + '</div>' +
+            '<div style="font-size:0.78rem;color:var(--gray-400)">' + priceInfo + '</div>' +
+          '</div>' +
+          '<div style="display:flex;align-items:center;gap:12px;flex-shrink:0">' +
+            '<div>' +
+              '<div style="font-size:0.75rem;color:var(--gray-400);margin-bottom:3px">Qty (grams)</div>' +
+              '<input type="number" class="form-control form-control-sm qty-input"' +
+                ' name="item_quantities[' + item.item_id + ']"' +
+                ' value="' + item.quantity + '" min="0"' +
+                ' data-price="' + item.sale_price_per_kg + '" style="width:100px">' +
+            '</div>' +
+            '<div>' +
+              '<div style="font-size:0.75rem;color:var(--gray-400);margin-bottom:3px">Total</div>' +
+              '<div class="item-total fw-bold" style="font-size:0.9rem">₹' + item.item_total.toFixed(2) + '</div>' +
+            '</div>' +
+            '<button type="button" class="btn-icon delete flex-shrink-0" title="Remove"' +
+              ' onclick="removeItem(this, ' + item.item_id + ')"><i class="fas fa-times"></i></button>' +
+          '</div>' +
+        '</div>';
+        $('#itemsList').append(html);
+        recalcSummary();
+        $('#addItemModal').modal('hide');
+        $('#addItemForm')[0].reset();
+        $('#packSelect').html('<option value="">Custom Weight</option>');
+        $('#modalQty').prop('disabled', false);
+        $('#modalPreview').hide();
+        showAlertModal('Item added.', 'success');
+      } else {
+        showAlertModal(res.message, 'danger');
+      }
+    })
+    .fail(function () { showAlertModal('Request failed.', 'danger'); })
+    .always(hideLoader);
+});
+
+/* ── Pack data + selection ── */
+$('#flavorSelect').on('change', function () {
+  var fid = parseInt(this.value) || 0;
+  var opts = '<option value="">Custom Weight</option>';
+  _editPacks.filter(function (p) { return parseInt(p.flavor_id) === fid; }).forEach(function (p) {
+    opts += '<option value="' + p.id + '" data-weight="' + p.weight_grams + '" data-sp="' + p.selling_price + '" data-label="' + $('<span>').text(p.label).html() + '">' +
+      $('<span>').text(p.label).html() + ' — ₹' + Number(p.selling_price).toLocaleString('en-IN') + '</option>';
+  });
+  $('#packSelect').html(opts);
+  $('#modalQty').prop('disabled', false).val('');
+  updateAddItemPreview();
+});
+
+$('#packSelect').on('change', function () {
+  var opt = $(this).find(':selected');
+  if (opt.val()) {
+    $('#modalQty').val(opt.data('weight')).prop('disabled', true);
+  } else {
+    $('#modalQty').val('').prop('disabled', false);
+  }
+  updateAddItemPreview();
+});
+
+/* ── Add item modal: price preview ── */
+$('#flavorSelect, #modalQty, #packSelect').on('change input', updateAddItemPreview);
+
+function updateAddItemPreview() {
+  var fOpt    = $('#flavorSelect option:selected');
+  var pOpt    = $('#packSelect option:selected');
+  var qty     = parseFloat($('#modalQty').val()) || 0;
+
+  if (pOpt.val() && fOpt.val()) {
+    var sp = parseFloat(pOpt.data('sp')) || 0;
+    $('#modalPreview').text('₹' + sp.toFixed(2) + '  (' + pOpt.data('label') + ')').show();
+  } else if (fOpt.val() && qty > 0) {
+    var price = parseFloat(fOpt.data('price')) || 0;
+    $('#modalPreview').text('₹' + ((qty / 1000) * price).toFixed(2) + '  (' + (qty / 1000).toFixed(3) + ' kg × ₹' + price + '/kg)').show();
+  } else {
+    $('#modalPreview').hide();
+  }
+}
+
+recalcSummary();
+</script>
+{% endblock %}

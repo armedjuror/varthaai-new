@@ -1,0 +1,369 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Settings — Varthaai Admin{% endblock %}
+
+{% block content %}
+
+<div class="page-body">
+
+  <!-- Page header -->
+  <div class="page-header">
+    <div>
+      <h1>Settings</h1>
+      <p>Manage business configuration and admin accounts.</p>
+    </div>
+  </div>
+
+  <div class="row g-4">
+
+    <!-- Vertical nav -->
+    <div class="col-lg-2">
+      <div class="data-card" style="padding:8px">
+        <div class="nav flex-column nav-pills" id="settingsNav" role="tablist">
+          <button class="nav-link active text-start" data-bs-toggle="pill" data-bs-target="#tabBusiness" type="button">
+            <i class="fas fa-building me-2"></i>Business
+          </button>
+          <button class="nav-link text-start" data-bs-toggle="pill" data-bs-target="#tabLoyalty" type="button">
+            <i class="fas fa-coins me-2"></i>Loyalty Points
+          </button>
+          <button class="nav-link text-start" data-bs-toggle="pill" data-bs-target="#tabSecurity" type="button">
+            <i class="fas fa-key me-2"></i>Security
+          </button>
+          {% if is_super_admin %}
+          <button class="nav-link text-start" data-bs-toggle="pill" data-bs-target="#tabAdmins" type="button">
+            <i class="fas fa-users-cog me-2"></i>Admin Users
+          </button>
+          {% endif %}
+          <button class="nav-link text-start" data-bs-toggle="pill" data-bs-target="#tabSystem" type="button">
+            <i class="fas fa-server me-2"></i>System
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab content -->
+    <div class="col-lg-10">
+      <div class="tab-content">
+
+        <!-- Business Settings -->
+        <div class="tab-pane fade show active" id="tabBusiness" role="tabpanel">
+          <div class="data-card">
+            <div class="data-card-header">
+              <h3><i class="fas fa-building me-2" style="color:var(--primary-color)"></i>Business Settings</h3>
+            </div>
+            <form id="businessForm" style="padding:20px">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">Business Name</label>
+                  <input type="text" class="form-control" id="business_name">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Business Email</label>
+                  <input type="email" class="form-control" id="business_email">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Business Phone</label>
+                  <input type="text" class="form-control" id="business_phone">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Default Delivery Charge (₹)</label>
+                  <input type="number" class="form-control" id="delivery_charge" min="0" step="0.01">
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Business Address</label>
+                  <textarea class="form-control" id="business_address" rows="2"></textarea>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Free Delivery Threshold (₹)</label>
+                  <input type="number" class="form-control" id="free_delivery_threshold" min="0" step="0.01">
+                  <div class="form-text">Orders above this amount get free delivery.</div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Min Order Quantity (grams)</label>
+                  <input type="number" class="form-control" id="min_order_quantity" min="1">
+                  <div class="form-text">Minimum quantity a customer can order.</div>
+                </div>
+              </div>
+              <div class="mt-4">
+                <button type="submit" class="btn btn-primary btn-sm">
+                  <i class="fas fa-save me-1"></i>Save Business Settings
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Loyalty Points -->
+        <div class="tab-pane fade" id="tabLoyalty" role="tabpanel">
+          <div class="data-card">
+            <div class="data-card-header">
+              <h3><i class="fas fa-coins me-2" style="color:#f59e0b"></i>Loyalty Points</h3>
+            </div>
+            <form id="loyaltyForm" style="padding:20px">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">Points per Rupee Spent</label>
+                  <input type="number" class="form-control" id="points_per_rupee" min="0" step="0.01">
+                  <div class="form-text">How many points customers earn per ₹1 spent.</div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Review Points</label>
+                  <input type="number" class="form-control" id="review_points" min="0">
+                  <div class="form-text">Points awarded for writing a review.</div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Referral Points</label>
+                  <input type="number" class="form-control" id="referral_points" min="0">
+                  <div class="form-text">Points for successful referrals.</div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Signup Bonus Points</label>
+                  <input type="number" class="form-control" id="signup_bonus" min="0">
+                  <div class="form-text">Welcome bonus for new users.</div>
+                </div>
+              </div>
+              <div class="mt-4">
+                <button type="submit" class="btn btn-primary btn-sm">
+                  <i class="fas fa-save me-1"></i>Save Loyalty Settings
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Security -->
+        <div class="tab-pane fade" id="tabSecurity" role="tabpanel">
+          <div class="data-card">
+            <div class="data-card-header">
+              <h3><i class="fas fa-key me-2" style="color:#dc2626"></i>Change Password</h3>
+            </div>
+            <form id="passwordForm" style="padding:20px">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">Current Password</label>
+                  <input type="password" class="form-control" id="currentPassword" required>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">New Password</label>
+                  <input type="password" class="form-control" id="newPassword" required minlength="6">
+                  <div class="form-text">Minimum 6 characters.</div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Confirm New Password</label>
+                  <input type="password" class="form-control" id="confirmPassword" required>
+                </div>
+              </div>
+              <div class="mt-4">
+                <button type="submit" class="btn btn-danger btn-sm">
+                  <i class="fas fa-key me-1"></i>Change Password
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Admin Users -->
+        {% if is_super_admin %}
+        <div class="tab-pane fade" id="tabAdmins" role="tabpanel">
+          <div class="data-card">
+            <div class="data-card-header">
+              <h3>Admin Users</h3>
+              <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createAdminModal">
+                <i class="fas fa-plus me-1"></i>New Admin
+              </button>
+            </div>
+            <div class="table-responsive">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th>Brand Permissions</th>
+                    <th>Last Login</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="adminsTableBody">
+                  <tr><td colspan="6" class="text-center" style="padding:40px;color:var(--gray-400)">
+                    <div class="admin-loader-spinner" style="margin:0 auto 10px"></div>Loading…
+                  </td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+
+        <!-- System Info -->
+        <div class="tab-pane fade" id="tabSystem" role="tabpanel">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <div class="data-card">
+                <div class="data-card-header"><h3>Application Stats</h3></div>
+                <div id="systemStats" style="padding:4px 20px 16px">
+                  <div style="color:var(--gray-400);padding:20px 0;text-align:center">Loading…</div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="data-card">
+                <div class="data-card-header"><h3>Server Info</h3></div>
+                <div style="padding:4px 20px 16px">
+                  {% for label, val in server_info %}
+                  <div style="display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--gray-100);font-size:0.875rem">
+                    <span style="color:var(--gray-500)">{{ label }}</span>
+                    <strong>{{ val }}</strong>
+                  </div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /.tab-content -->
+    </div><!-- /.col-lg-10 -->
+  </div><!-- /.row -->
+
+</div><!-- /.page-body -->
+
+{% if is_super_admin %}
+<!-- Create Admin Modal -->
+<div class="modal fade" id="createAdminModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-user-plus me-2"></i>New Admin User</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="createAdminForm">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Username *</label>
+              <input type="text" class="form-control" id="newAdminUsername" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Full Name *</label>
+              <input type="text" class="form-control" id="newAdminName" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Role *</label>
+              <select class="form-select" id="newAdminRole" onchange="toggleBrandPermsSection('create')">
+                <option value="admin">Admin</option>
+                <option value="staff">Staff</option>
+                <option value="super_admin">Super Admin</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Password *</label>
+              <input type="password" class="form-control" id="newAdminPassword" required minlength="6">
+              <div class="form-text">Minimum 6 characters.</div>
+            </div>
+            <div class="col-12" id="createBrandPermsSection">
+              <label class="form-label">Brand Permissions</label>
+              <div class="form-text mb-2">Select which pages each brand can access.</div>
+              <div id="createBrandPermsContainer"></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Create Admin</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Admin Modal -->
+<div class="modal fade" id="editAdminModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-pen me-2"></i>Edit Admin User</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="editAdminForm">
+        <input type="hidden" id="editAdminId">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Full Name *</label>
+              <input type="text" class="form-control" id="editAdminName" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Role</label>
+              <select class="form-select" id="editAdminRole" onchange="toggleBrandPermsSection('edit')">
+                <option value="admin">Admin</option>
+                <option value="staff">Staff</option>
+                <option value="super_admin">Super Admin</option>
+              </select>
+            </div>
+            <div class="col-12" id="editBrandPermsSection">
+              <label class="form-label">Brand Permissions</label>
+              <div class="form-text mb-2">Select which pages each brand can access.</div>
+              <div id="editBrandPermsContainer"></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<!-- Reset Password Modal -->
+<div class="modal fade" id="resetPasswordModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-key me-2"></i>Reset Password</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="resetPasswordForm">
+        <input type="hidden" id="resetPwAdminId">
+        <div class="modal-body">
+          <p style="font-size:0.85rem;color:var(--gray-500)">Set a new password for <strong id="resetPwAdminName"></strong>.</p>
+          <div class="mb-3">
+            <label class="form-label">New Password <span class="text-danger">*</span></label>
+            <input type="password" class="form-control" id="resetPwNew" required minlength="6">
+            <div class="form-text">Minimum 6 characters.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Confirm Password <span class="text-danger">*</span></label>
+            <input type="password" class="form-control" id="resetPwConfirm" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger btn-sm"><i class="fas fa-key me-1"></i>Reset Password</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  var CURRENT_ADMIN_ID = {{ admin_user.id }};
+  var IS_SUPER_ADMIN   = {% if is_super_admin %}true{% else %}false{% endif %};
+
+  // Activate a tab from the URL hash (e.g. topbar "Change Password" -> #tabSecurity).
+  $(function () {
+    var hash = window.location.hash;
+    if (hash) {
+      var $btn = $('#settingsNav [data-bs-target="' + hash + '"]');
+      if ($btn.length) new bootstrap.Tab($btn[0]).show();
+    }
+  });
+</script>
+<script src="{% static 'js/admin/settings.js' %}"></script>
+{% endblock %}

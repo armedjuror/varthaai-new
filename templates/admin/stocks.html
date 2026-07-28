@@ -1,0 +1,486 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Stocks{% endblock %}
+
+{% block content %}
+<div class="page-body">
+
+  <div class="page-header">
+    <div>
+      <h1>Stocks</h1>
+      <p>Manage inventory batches, movements, alerts and vendors.</p>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary btn-sm" onclick="openRestockModal()">
+        <i class="fas fa-plus me-1"></i>Restock
+      </button>
+      <button class="btn btn-outline-secondary btn-sm" onclick="openMovementModal()">
+        <i class="fas fa-arrow-right-from-bracket me-1"></i>Record Movement
+      </button>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="row g-3 mb-4">
+    <div class="col-sm-6 col-lg-3">
+      <div class="data-card" style="padding:20px">
+        <div style="font-size:0.78rem;color:var(--gray-500);margin-bottom:2px">Total Stock</div>
+        <div style="font-size:1.7rem;font-weight:700;color:var(--gray-900)" id="statTotalKg">—</div>
+        <div style="font-size:0.75rem;color:var(--gray-400)" id="statBatches">—</div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+      <div class="data-card" style="padding:20px">
+        <div style="font-size:0.78rem;color:var(--gray-500);margin-bottom:2px">Low Stock</div>
+        <div style="font-size:1.7rem;font-weight:700;color:#f59e0b" id="statLowStock">—</div>
+        <div style="font-size:0.75rem;color:var(--gray-400)">batches below reorder level</div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+      <div class="data-card" style="padding:20px">
+        <div style="font-size:0.78rem;color:var(--gray-500);margin-bottom:2px">Out of Stock</div>
+        <div style="font-size:1.7rem;font-weight:700;color:#dc2626" id="statOutOfStock">—</div>
+        <div style="font-size:0.75rem;color:var(--gray-400)">flavors with zero stock</div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+      <div class="data-card" style="padding:20px">
+        <div style="font-size:0.78rem;color:var(--gray-500);margin-bottom:2px">Today's Movements</div>
+        <div style="font-size:1.7rem;font-weight:700;color:var(--primary-color)" id="statTodayMov">—</div>
+        <div style="font-size:0.75rem;color:var(--gray-400)">stock changes today</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="data-card" style="padding:0">
+    <div class="data-card-header" style="padding-bottom:0;border-bottom:none">
+      <ul class="nav nav-tabs" style="margin-bottom:-1px">
+        <li class="nav-item">
+          <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabInventory" type="button">
+            <i class="fas fa-boxes me-1"></i>Inventory
+          </button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabMovements" type="button" id="movementsTabBtn">
+            <i class="fas fa-arrows-up-down me-1"></i>Movements
+          </button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabAlerts" type="button" id="alertsTabBtn">
+            <i class="fas fa-bell me-1"></i>Alerts
+            <span class="badge badge-danger ms-1" id="alertsBadge" style="display:none;font-size:0.65rem"></span>
+          </button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabVendors" type="button" id="vendorsTabBtn">
+            <i class="fas fa-truck me-1"></i>Vendors
+          </button>
+        </li>
+      </ul>
+    </div>
+
+    <div class="tab-content">
+
+      <!-- Inventory Tab -->
+      <div class="tab-pane fade show active" id="tabInventory" role="tabpanel">
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Flavor</th>
+                <th>Batch No.</th>
+                <th>Active</th>
+                <th>Stock (kg)</th>
+                <th>Reserved</th>
+                <th>Available</th>
+                <th>Status</th>
+                <th>Vendor / Supplier</th>
+                <th>Expiry</th>
+                <th>Restocked</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="inventoryTableBody">
+              <tr><td colspan="10" class="text-center" style="padding:40px;color:var(--gray-400)">
+                <div class="admin-loader-spinner" style="margin:0 auto 10px"></div>Loading…
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Movements Tab -->
+      <div class="tab-pane fade" id="tabMovements" role="tabpanel">
+        <div style="padding:16px 20px;border-bottom:1px solid var(--gray-100);display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end">
+          <div>
+            <label style="font-size:0.78rem;color:var(--gray-500);display:block;margin-bottom:3px">Flavor</label>
+            <select class="form-select form-select-sm" id="movFlavorFilter" style="min-width:160px" onchange="loadMovements(1)">
+              <option value="">All Flavors</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:0.78rem;color:var(--gray-500);display:block;margin-bottom:3px">Type</label>
+            <select class="form-select form-select-sm" id="movTypeFilter" onchange="loadMovements(1)">
+              <option value="">All Types</option>
+              <option value="in">In (Restock)</option>
+              <option value="out">Out</option>
+              <option value="adjustment">Adjustment</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:0.78rem;color:var(--gray-500);display:block;margin-bottom:3px">Reference</label>
+            <select class="form-select form-select-sm" id="movRefFilter" onchange="loadMovements(1)">
+              <option value="">All</option>
+              <option value="purchase">Purchase</option>
+              <option value="sale">Sale</option>
+              <option value="wastage">Wastage</option>
+              <option value="adjustment">Adjustment</option>
+              <option value="order_reserve">Order Reserve</option>
+              <option value="order_release">Order Release</option>
+            </select>
+          </div>
+          <div style="margin-left:auto">
+            <label style="font-size:0.78rem;color:var(--gray-500);display:block;margin-bottom:3px">Per page</label>
+            <select class="form-select form-select-sm" id="movPerPage" onchange="loadMovements(1)" style="width:80px">
+              <option value="10">10</option>
+              <option value="20" selected>20</option>
+              <option value="50">50</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Flavor</th>
+                <th>Batch</th>
+                <th>Vendor</th>
+                <th>Type</th>
+                <th>Reference</th>
+                <th>Qty (kg)</th>
+                <th>Notes</th>
+                <th>By</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="movementsTableBody">
+              <tr><td colspan="10" class="text-center" style="padding:40px;color:var(--gray-400)">
+                Click the Movements tab to load.
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="movementsPagination" style="padding:12px 20px;border-top:1px solid var(--gray-100)"></div>
+      </div>
+
+      <!-- Alerts Tab -->
+      <div class="tab-pane fade" id="tabAlerts" role="tabpanel">
+        <div style="padding:20px" id="alertsContainer">
+          <div class="text-center" style="padding:40px;color:var(--gray-400)">Click the Alerts tab to load.</div>
+        </div>
+      </div>
+
+      <!-- Vendors Tab -->
+      <div class="tab-pane fade" id="tabVendors" role="tabpanel">
+        <div class="data-card-header" style="padding:16px 20px">
+          <h3 style="margin:0">Vendors</h3>
+          <button class="btn btn-primary btn-sm" onclick="openAddVendorModal()">
+            <i class="fas fa-plus me-1"></i>Add Vendor
+          </button>
+        </div>
+        <div class="table-responsive">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Code</th>
+                <th>Contact</th>
+                <th>Phone</th>
+                <th>Email</th>
+                <th>FSSAI</th>
+                <th>Active Batches</th>
+                <th>Stock Held</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="vendorsTableBody">
+              <tr><td colspan="8" class="text-center" style="padding:40px;color:var(--gray-400)">
+                Click the Vendors tab to load.
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- /.tab-content -->
+  </div>
+
+</div><!-- /.page-body -->
+
+<!-- Restock Modal -->
+<div class="modal fade" id="restockModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-plus me-2"></i>Restock Inventory</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="restockForm">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Flavor *</label>
+              <select class="form-select" id="restockFlavorId" required></select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Batch Number</label>
+              <input type="text" class="form-control" id="restockBatch" readonly style="background:var(--gray-50);color:var(--gray-500)" placeholder="Select a vendor to generate">
+              <div class="form-text">Auto-generated from vendor code.</div>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Quantity (kg) *</label>
+              <input type="number" class="form-control" id="restockQty" min="0.001" step="0.001" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Vendor</label>
+              <select class="form-select" id="restockVendorId" onchange="generateBatchCode()">
+                <option value="">— Select vendor or enter manually —</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Cost Price / kg (₹)</label>
+              <input type="number" class="form-control" id="restockCostPrice" min="0" step="0.01">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Supplier Name <span style="color:var(--gray-400);font-size:0.78rem">(if no vendor)</span></label>
+              <input type="text" class="form-control" id="restockSupplier">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Supplier Contact</label>
+              <input type="text" class="form-control" id="restockContact">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Expiry Date</label>
+              <input type="date" class="form-control" id="restockExpiry">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Storage Location</label>
+              <input type="text" class="form-control" id="restockLocation">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notes</label>
+              <textarea class="form-control" id="restockNotes" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Add Batch</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Record Movement Modal -->
+<div class="modal fade" id="movementModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-arrow-right-from-bracket me-2"></i>Record Movement</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="movementForm">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">Flavor *</label>
+              <select class="form-select" id="movFlavorId" required onchange="loadBatchesForMovement()">
+                <option value="">Select flavor…</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Batch *</label>
+              <select class="form-select" id="movStockId" required>
+                <option value="">Select flavor first…</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Reason *</label>
+              <select class="form-select" id="movRefType" required>
+                <option value="">Select reason…</option>
+                <option value="wastage">Wastage / Damage</option>
+                <option value="sale">Manual Sale / Sample</option>
+                <option value="adjustment">Stock Adjustment</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Quantity (kg) *</label>
+              <input type="number" class="form-control" id="movQty" min="0.001" step="0.001" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Reference ID <span style="color:var(--gray-400)">(optional)</span></label>
+              <input type="text" class="form-control" id="movRefId" placeholder="Order ID, invoice, etc.">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notes</label>
+              <textarea class="form-control" id="movNotes" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Record</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Batch Settings Modal -->
+<div class="modal fade" id="editSettingsModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-gear me-2"></i>Batch Settings — <span id="editSettingsBatchLabel"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="editSettingsForm">
+        <input type="hidden" id="editSettingsStockId">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-12">
+              <label class="form-label">Storage Location</label>
+              <input type="text" class="form-control" id="editLocation">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notes</label>
+              <textarea class="form-control" id="editNotes" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Save Settings</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Add Vendor Modal -->
+<div class="modal fade" id="addVendorModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-plus me-2"></i>Add Vendor</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="addVendorForm">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-8">
+              <label class="form-label">Vendor Name *</label>
+              <input type="text" class="form-control" id="addVendorName" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Code *</label>
+              <input type="text" class="form-control" id="addVendorCode" required maxlength="10" style="text-transform:uppercase" placeholder="e.g. ABC">
+              <div class="form-text">Short unique code for batch IDs.</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Contact Person</label>
+              <input type="text" class="form-control" id="addVendorContact">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Phone</label>
+              <input type="text" class="form-control" id="addVendorPhone">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Email</label>
+              <input type="email" class="form-control" id="addVendorEmail">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">FSSAI Number</label>
+              <input type="text" class="form-control" id="addVendorFssai" placeholder="Licence number">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Address</label>
+              <input type="text" class="form-control" id="addVendorAddress">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notes</label>
+              <textarea class="form-control" id="addVendorNotes" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Create Vendor</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Vendor Modal -->
+<div class="modal fade" id="editVendorModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-pen me-2"></i>Edit Vendor</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="editVendorForm">
+        <input type="hidden" id="editVendorId">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-8">
+              <label class="form-label">Vendor Name *</label>
+              <input type="text" class="form-control" id="editVendorName" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Code *</label>
+              <input type="text" class="form-control" id="editVendorCode" required maxlength="10" style="text-transform:uppercase">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Contact Person</label>
+              <input type="text" class="form-control" id="editVendorContact">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Phone</label>
+              <input type="text" class="form-control" id="editVendorPhone">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Email</label>
+              <input type="email" class="form-control" id="editVendorEmail">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">FSSAI Number</label>
+              <input type="text" class="form-control" id="editVendorFssai">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Address</label>
+              <input type="text" class="form-control" id="editVendorAddress">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notes</label>
+              <textarea class="form-control" id="editVendorNotes" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}<script src="{% static 'js/admin/stocks.js' %}"></script>{% endblock %}

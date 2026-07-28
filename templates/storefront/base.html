@@ -1,0 +1,73 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Varthaai - Premium Kerala Banana Chips{% endblock %}</title>
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <link rel="canonical" href="https://varthaai.com">
+  <meta name="description"
+        content="Experience the authentic taste of Kerala with Varthaai premium banana chips. Handcrafted with love, our chips bring the tradition and flavor of Kerala banana chips to your special moments.">
+  <meta name="keywords"
+        content="Varthaai, banana chips, Kerala snacks, premium banana chips, authentic Kerala food, snacks, varutha kaaya">
+  <meta name="author" content="Varthaai Foods">
+  <meta property="og:title" content="Varthaai - Premium Kerala Banana Chips">
+  <meta property="og:description"
+        content="Experience the authentic taste of Kerala with Varthaai premium banana chips.">
+  <meta property="og:image" content="https://varthaai.com/images/favicon.png">
+  <meta property="og:url" content="https://varthaai.com">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Varthaai">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/x-icon" href="{% static 'images/favicon.ico' %}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{% static 'images/apple-touch-icon.png' %}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{% static 'images/favicon-32x32.png' %}">
+  <link rel="icon" type="image/png" sizes="16x16" href="{% static 'images/favicon-16x16.png' %}">
+  <meta name="theme-color" content="#86AA4E">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Varthaai">
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Font Awesome -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap"
+        rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/slick-carousel/1.9.0/slick.css"
+        crossorigin="anonymous" referrerpolicy="no-referrer"/>
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="{% static 'css/style.css' %}">
+  <link rel="stylesheet" href="{% static 'css/loader.css' %}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+<div class="loader-overlay" id="loader" style="display:none">
+  <div class="loader-wrapper">
+    <div class="spinner"></div>
+    <div class="mascot">
+      <img src="{% static 'images/mascot.png' %}" alt="Varthaai Mascot" class="img-fluid mascot-image">
+    </div>
+    <div class="speech-bubble">
+      <p id="fact" class="fact"></p>
+    </div>
+  </div>
+</div>
+
+<div class="overlay">
+  <!-- Navigation -->
+  {% include 'storefront/_navbar.html' %}
+
+  {% block content %}{% endblock %}
+
+  {% include 'storefront/_footer.html' %}
+</div>
+
+{% block modals %}{% endblock %}
+
+{% include 'storefront/_foot.html' %}
+
+{% block extra_js %}{% endblock %}
+</body>
+</html>

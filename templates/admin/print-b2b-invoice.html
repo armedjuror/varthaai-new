@@ -1,0 +1,263 @@
+{% load static %}
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>B2B Invoice - {{ order.id }}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background: white; }
+
+  .invoice-container { max-width: 800px; margin: 0 auto; padding: 20px; }
+
+  .invoice-header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    margin-bottom: 30px; border-bottom: 2px solid #85aa4e; padding-bottom: 20px;
+  }
+  .company-info { flex: 1; }
+  .company-info h1 { color: #85aa4e; font-size: 2.5rem; }
+  .company-info .tagline { color: #666; font-style: italic; }
+  .company-details { font-size: 0.9rem; color: #666; }
+
+  .invoice-info { text-align: right; flex: 0 0 220px; }
+  .invoice-number { font-size: 1.2rem; font-weight: bold; margin-bottom: 10px; }
+  .invoice-date { color: #666; margin-bottom: 5px; }
+
+  .status-badge {
+    padding: 5px 12px; border-radius: 20px; font-size: 0.8rem;
+    font-weight: 600; text-transform: uppercase; display: inline-block;
+  }
+  .status-draft      { background: #f3f4f6; color: #6b7280; }
+  .status-confirmed  { background: #eff6ff; color: #3b82f6; }
+  .status-dispatched { background: #f0fdf4; color: #16a34a; }
+  .status-delivered  { background: #ecfdf5; color: #059669; }
+  .status-cancelled  { background: #fef2f2; color: #dc2626; }
+
+  .billing-shipping { display: flex; justify-content: space-between; margin-bottom: 30px; }
+  .billing-info, .shipping-info { flex: 0 0 48%; }
+  .billing-info h3, .shipping-info h3 {
+    color: #85aa4e; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px;
+  }
+  .customer-name { font-weight: bold; font-size: 1.1rem; margin-bottom: 5px; }
+
+  .items-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+  .items-table th, .items-table td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
+  .items-table th {
+    background: #f8f9fa; font-weight: 600; color: #333;
+    text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.5px;
+  }
+  .items-table .qty { text-align: center; width: 60px; }
+  .items-table .price, .items-table .total { text-align: right; width: 100px; }
+  .item-name { font-weight: 600; margin-bottom: 3px; }
+  .free-tag { font-size: 0.72rem; background: #dcfce7; color: #16a34a; padding: 1px 6px; border-radius: 8px; }
+
+  .totals { margin-left: auto; width: 300px; margin-bottom: 30px; }
+  .totals-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+  .totals-row.total { border-bottom: 2px solid #85aa4e; font-weight: bold; font-size: 1.1rem; color: #85aa4e; }
+  .totals-row.balance { color: #dc2626; font-weight: 600; }
+
+  .payment-info { background: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+  .payment-info h4 { margin-bottom: 10px; color: #333; }
+  .payment-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  .payment-table th, .payment-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid #eee; }
+  .payment-table th { font-weight: 600; font-size: 0.8rem; text-transform: uppercase; }
+
+  .footer {
+    margin-top: 40px; text-align: center; font-size: 0.85rem; color: #666;
+    border-top: 1px solid #eee; padding-top: 20px;
+  }
+
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .invoice-container { margin: 0; padding: 0; }
+    .no-print { display: none !important; }
+  }
+
+  @media (max-width: 600px) {
+    .invoice-header { flex-direction: column; }
+    .invoice-info { text-align: left; margin-top: 20px; }
+    .billing-shipping { flex-direction: column; }
+    .billing-info, .shipping-info { flex: 1; margin-bottom: 20px; }
+    .totals { width: 100%; }
+  }
+</style>
+
+<div class="invoice-container">
+
+  <div style="text-align: right; margin-bottom: 20px;" class="no-print">
+    <button onclick="window.print()" style="background: #85aa4e; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">
+      Print Invoice
+    </button>
+  </div>
+
+  <!-- Header -->
+  <div class="invoice-header">
+    <div class="company-info">
+      {% if brand and brand.logo %}
+        <img src="{{ brand.logo.url }}" alt="{{ brand.name }}" style="max-width: 150px">
+      {% else %}
+        <img src="{% static 'images/logo.png' %}" alt="" style="max-width: 150px">
+      {% endif %}
+      <div class="tagline">{{ settings.business_tagline }}</div>
+      <div class="company-details">
+        <div>{{ settings.business_address }}</div>
+        <div>Phone: {{ settings.business_phone }}</div>
+        <div>Email: {{ settings.business_email }}</div>
+      </div>
+    </div>
+    <div class="invoice-info">
+      <div class="invoice-number"><strong>INVOICE #{{ order.id }}</strong></div>
+      <div class="invoice-date">Date: {{ order.order_date|date:"d/m/Y" }}</div>
+      {% if order.due_date %}
+        <div class="invoice-date">Due: {{ order.due_date|date:"d/m/Y" }}</div>
+      {% endif %}
+      <div style="margin-top: 10px;">
+        <span class="status-badge status-{{ order.status }}">{{ order.status|capfirst }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bill To / Ship To -->
+  <div class="billing-shipping">
+    <div class="billing-info">
+      <h3>Bill To:</h3>
+      <div class="customer-name">{{ company.company_name }}</div>
+      {% if company.address %}
+        <div>{{ company.address|linebreaksbr }}</div>
+      {% endif %}
+      {% if company.gst_number %}
+        <div><strong>GSTIN:</strong> {{ company.gst_number }}</div>
+      {% endif %}
+    </div>
+    <div class="shipping-info">
+      <h3>Contact:</h3>
+      {% if contact %}
+        <div class="customer-name">{{ contact.name }}</div>
+        {% if contact.phone %}<div>{{ contact.phone }}</div>{% endif %}
+        {% if contact.email %}<div>{{ contact.email }}</div>{% endif %}
+      {% else %}
+        <div style="color: #999">No contact selected</div>
+      {% endif %}
+      {% if order.notes %}
+        <div style="margin-top: 10px; font-size: 0.9rem;">
+          <strong>Notes:</strong> {{ order.notes }}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Items -->
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th>Item</th>
+        <th class="qty">Qty</th>
+        <th class="price">Weight</th>
+        <th class="price">Price</th>
+        <th class="total">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td>
+          <div class="item-name">
+            {{ item.flavor_name }}
+            {% if item.pack_label %}
+              <span style="font-size:0.85rem;color:#666">({{ item.pack_label }})</span>
+            {% endif %}
+            {% if item.is_free_item %}
+              <span class="free-tag">FREE</span>
+            {% endif %}
+          </div>
+        </td>
+        <td class="qty">{{ item.quantity }}</td>
+        <td class="price">{{ item.total_weight_grams }}g</td>
+        <td class="price">{% if item.is_free_item %}—{% else %}₹{{ item.selling_price|floatformat:2 }}{% endif %}</td>
+        <td class="total">₹{{ item.line_total|floatformat:2 }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Summary -->
+  <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+    <div style="flex: 1;">
+      <div><strong>Total Items:</strong> {{ items|length }}</div>
+      <div><strong>Total Weight:</strong> {{ total_weight }}g ({{ total_weight_kg|floatformat:2 }}kg)</div>
+      {% if order.source_order_id %}
+        <div style="margin-top: 5px;"><strong>Repeated from:</strong> {{ order.source_order_id }}</div>
+      {% endif %}
+    </div>
+
+    <div class="totals">
+      <div class="totals-row">
+        <span>Subtotal:</span>
+        <span>₹{{ order.subtotal|floatformat:2 }}</span>
+      </div>
+
+      {% if order.offer_discount_amount > 0 %}
+      <div class="totals-row">
+        <span>Free items value:</span>
+        <span style="color:#16a34a">-₹{{ order.offer_discount_amount|floatformat:2 }}</span>
+      </div>
+      {% endif %}
+
+      {% if order.discount_amount > 0 %}
+      <div class="totals-row">
+        <span>Discount{% if order.discount_type == 'percentage' %} ({{ order.discount_value|floatformat:"-2" }}%){% endif %}:</span>
+        <span style="color:#3b82f6">-₹{{ order.discount_amount|floatformat:2 }}</span>
+      </div>
+      {% endif %}
+
+      <div class="totals-row total">
+        <span>TOTAL AMOUNT:</span>
+        <span>₹{{ order.total_amount|floatformat:2 }}</span>
+      </div>
+
+      <div class="totals-row">
+        <span>Paid:</span>
+        <span style="color:#16a34a">₹{{ order.paid_amount|floatformat:2 }}</span>
+      </div>
+
+      {% if balance > 0 %}
+      <div class="totals-row balance">
+        <span>Balance Due:</span>
+        <span>₹{{ balance|floatformat:2 }}</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Payment History -->
+  {% if payments %}
+  <div class="payment-info">
+    <h4>Payment History</h4>
+    <table class="payment-table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Amount</th>
+          <th>Method</th>
+          <th>Reference</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in payments %}
+        <tr>
+          <td>{{ p.payment_date|date:"d/m/Y" }}</td>
+          <td>₹{{ p.amount|floatformat:2 }}</td>
+          <td>{{ p.get_payment_method_display }}</td>
+          <td>{% if p.reference_number %}{{ p.reference_number }}{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <!-- Footer -->
+  <div class="footer">
+    <div style="margin-bottom: 10px;"><strong>Thank you for choosing {% if brand %}{{ brand.name }}{% else %}us{% endif %}!</strong></div>
+    <div>For any queries, contact us at {{ settings.business_phone }} or {{ settings.business_email }}</div>
+    <div style="margin-top: 10px; font-size: 0.75rem;">This is a computer-generated invoice. No signature required.</div>
+  </div>
+</div>

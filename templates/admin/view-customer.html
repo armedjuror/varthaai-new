@@ -1,0 +1,245 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}View Customer — Varthaai Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  .info-row { display:flex; justify-content:space-between; align-items:flex-start; padding:10px 0; border-bottom:1px solid var(--gray-200); font-size:0.875rem; }
+  .info-row:last-child { border-bottom:none; }
+  .info-label { color:var(--gray-400); flex-shrink:0; width:110px; }
+  .info-val { color:var(--dark-color); text-align:right; }
+  .pt-row { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border-radius:6px; background:var(--gray-50); margin-bottom:6px; border-left:3px solid var(--gray-200); }
+  .order-row { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; background:var(--gray-50); border-radius:6px; margin-bottom:6px; font-size:0.875rem; }
+  .review-row { padding:14px; background:var(--gray-50); border-radius:6px; margin-bottom:8px; }
+  .stars { color:#f59e0b; font-size:0.8rem; }
+  .stat-mini { text-align:center; padding:16px 8px; }
+  .stat-mini .val { font-size:1.5rem; font-weight:700; color:var(--primary-color); }
+  .stat-mini .lbl { font-size:0.75rem; color:var(--gray-400); margin-top:2px; }
+</style>
+{% endblock %}
+
+{% block page_title %}
+<div class="page-header">
+  <div>
+    <h1>Customer Profile</h1>
+    <nav aria-label="breadcrumb">
+      <ol class="breadcrumb mb-0" style="font-size:0.82rem">
+        <li class="breadcrumb-item"><a href="{% url 'core:dashboard' %}">Dashboard</a></li>
+        <li class="breadcrumb-item"><a href="{% url 'accounts:customers' %}">Customers</a></li>
+        <li class="breadcrumb-item active">{{ customer.name|default:customer.id|stringformat:"s"|default:'Customer' }}</li>
+      </ol>
+    </nav>
+  </div>
+  <div class="page-header-actions">
+    <a href="{% url 'accounts:edit_customer' customer.id %}" class="btn btn-sm btn-primary">
+      <i class="fas fa-pen me-1"></i>Edit
+    </a>
+    <a href="{% url 'accounts:customers' %}" class="btn btn-sm btn-outline-secondary">
+      <i class="fas fa-arrow-left me-1"></i>Customers
+    </a>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+
+  <!-- Left: profile + stats -->
+  <div class="col-lg-4">
+
+    <!-- Profile card -->
+    <div class="data-card mb-4">
+      <div class="data-card-header">
+        <div class="d-flex align-items-center gap-3">
+          <div style="width:48px;height:48px;border-radius:50%;background:#86AA4EFF;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1.2rem;flex-shrink:0">
+            {{ customer.name|default:'C'|first|upper }}
+          </div>
+          <div>
+            <div style="font-weight:700;font-size:1rem">{{ customer.name|default:'—' }}</div>
+            <div style="font-size:0.8rem;color:var(--gray-400)">{{ customer.mobile }}</div>
+          </div>
+        </div>
+        <span style="background:{{ tier.bg }};color:{{ tier.color }};padding:3px 12px;border-radius:20px;font-size:0.75rem;font-weight:700">{{ tier.label }}</span>
+      </div>
+
+      <!-- Info rows -->
+      <div style="padding:16px 20px">
+        <div class="info-row">
+          <span class="info-label">Points</span>
+          <span class="info-val"><strong>{{ loyalty_points }}</strong> pts</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Referral Code</span>
+          <span class="info-val">
+            <code id="refCode" style="cursor:pointer;background:var(--gray-50);padding:2px 8px;border-radius:4px;font-size:0.8rem" title="Click to copy">{{ customer.referral_code|default:'—' }}</code>
+          </span>
+        </div>
+        {% if customer.designation %}
+        <div class="info-row">
+          <span class="info-label">Label</span>
+          <span class="info-val">{{ customer.designation }}</span>
+        </div>
+        {% endif %}
+        {% if customer.address %}
+        <div class="info-row">
+          <span class="info-label">Address</span>
+          <span class="info-val" style="max-width:200px">{{ customer.address|linebreaksbr }}{% if customer.pincode %}, {{ customer.pincode }}{% endif %}</span>
+        </div>
+        {% endif %}
+        <div class="info-row">
+          <span class="info-label">Joined</span>
+          <span class="info-val">{{ customer.created_at|date:"d M Y" }}</span>
+        </div>
+        {% if last_order_date %}
+        <div class="info-row">
+          <span class="info-label">Last Order</span>
+          <span class="info-val">{{ last_order_date|date:"d M Y" }}</span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Stats mini-grid -->
+    <div class="data-card">
+      <div class="row g-0" style="border-bottom:1px solid var(--gray-200)">
+        <div class="col-6 stat-mini" style="border-right:1px solid var(--gray-200)">
+          <div class="val">{{ total_orders }}</div>
+          <div class="lbl">Orders</div>
+        </div>
+        <div class="col-6 stat-mini">
+          <div class="val" style="font-size:1.1rem">₹{{ total_spent|floatformat:0 }}</div>
+          <div class="lbl">Total Spent</div>
+        </div>
+      </div>
+      <div class="row g-0">
+        <div class="col-6 stat-mini" style="border-right:1px solid var(--gray-200)">
+          <div class="val">{{ total_reviews }}</div>
+          <div class="lbl">Reviews</div>
+        </div>
+        <div class="col-6 stat-mini">
+          <div class="val">{% if avg_rating %}{{ avg_rating|floatformat:1 }}{% else %}—{% endif %}</div>
+          <div class="lbl">Avg Rating</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Right: activity -->
+  <div class="col-lg-8 d-flex flex-column gap-4">
+
+    <!-- Recent Orders -->
+    <div class="data-card">
+      <div class="data-card-header">
+        <h3>Recent Orders</h3>
+        {% if total_orders > 10 %}
+          <span class="btn btn-sm btn-outline-primary" style="font-size:0.8rem">{{ total_orders }} total</span>
+        {% endif %}
+      </div>
+      <div style="padding:12px 16px">
+        {% if orders %}
+          {% for o in orders %}
+          <div class="order-row">
+            <div>
+              <span style="font-weight:600;font-size:0.875rem">{{ o.id }}</span>
+              <div style="font-size:0.75rem;color:var(--gray-400);margin-top:2px">
+                {{ o.order_date|date:"d M Y, H:i" }} &nbsp;·&nbsp; {{ o.item_count }} items
+              </div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-weight:600">₹{{ o.total_amount|floatformat:2 }}</div>
+              <span style="font-size:0.72rem;font-weight:600;color:{{ o.status_color }};background:{{ o.status_bg }};padding:2px 8px;border-radius:20px;display:inline-block;margin-top:2px">
+                {{ o.status_label }}
+              </span>
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="text-center py-4" style="color:var(--gray-400)">
+            <i class="fas fa-bag-shopping fa-2x mb-2 d-block"></i>No orders yet
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Points History -->
+    <div class="data-card">
+      <div class="data-card-header">
+        <h3>Points History</h3>
+        <span style="font-size:0.8rem;color:var(--gray-400)">Last 20 transactions</span>
+      </div>
+      <div style="padding:12px 16px;max-height:340px;overflow-y:auto">
+        {% if transactions %}
+          {% for pt in transactions %}
+          <div class="pt-row" style="border-left-color:{{ pt.border_color }}">
+            <div>
+              <div style="font-size:0.875rem;font-weight:600">{{ pt.type_label }}</div>
+              <div style="font-size:0.75rem;color:var(--gray-400);margin-top:2px">
+                {{ pt.transaction_date|date:"d M Y, H:i" }}
+                {% if pt.reference and pt.is_purchase %}
+                  &nbsp;·&nbsp; Order {{ pt.reference }}
+                {% elif pt.reference %}
+                  &nbsp;·&nbsp; Ref: {{ pt.reference }}
+                {% endif %}
+              </div>
+            </div>
+            <div style="font-weight:700;font-size:1rem;color:{{ pt.amt_color }}">
+              {% if pt.points > 0 %}+{% endif %}{{ pt.points }} pts
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="text-center py-4" style="color:var(--gray-400)">
+            <i class="fas fa-coins fa-2x mb-2 d-block"></i>No points activity yet
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Reviews -->
+    {% if reviews %}
+    <div class="data-card">
+      <div class="data-card-header">
+        <h3>Reviews</h3>
+        {% if avg_rating %}
+          <span style="font-size:0.8rem;color:var(--gray-400)">{{ avg_rating|floatformat:1 }} / 5 avg</span>
+        {% endif %}
+      </div>
+      <div style="padding:12px 16px">
+        {% for rev in reviews %}
+        <div class="review-row">
+          <div class="d-flex align-items-center gap-2 mb-1">
+            <span class="stars">
+              {% for i in "12345" %}
+                {% if forloop.counter <= rev.rating %}<i class="fas fa-star"></i>{% else %}<i class="far fa-star"></i>{% endif %}
+              {% endfor %}
+            </span>
+            <span style="font-size:0.78rem;font-weight:600">{{ rev.rating }}/5</span>
+            <span style="font-size:0.72rem;font-weight:600;padding:1px 8px;border-radius:20px;{% if rev.is_approved %}background:#f0fdf4;color:#16a34a{% else %}background:#fffbeb;color:#b45309{% endif %}">
+              {% if rev.is_approved %}Approved{% else %}Pending{% endif %}
+            </span>
+          </div>
+          <p style="font-size:0.875rem;margin:4px 0 4px">{{ rev.review|linebreaksbr }}</p>
+          <div style="font-size:0.75rem;color:var(--gray-400)">{{ rev.created_at|date:"d M Y, H:i" }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Copy referral code
+$('#refCode').on('click', function () {
+  var code = $(this).text().trim();
+  navigator.clipboard.writeText(code).then(function () {
+    showAlertModal('Referral code copied: ' + code, 'success');
+  });
+});
+</script>
+{% endblock %}

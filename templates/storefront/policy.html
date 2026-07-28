@@ -1,0 +1,65 @@
+{% extends 'storefront/base.html' %}
+{% load static %}
+
+{% block title %}Varthaai - Terms and Conditions{% endblock %}
+
+{% block extra_head %}
+<style>
+  .policy-section { padding: 120px 0 60px; }
+  .policy-content { background-color: #fff; border-radius: 15px; padding: 30px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05); }
+  .policy-content h2 { color: var(--dark-color); margin-bottom: 20px; font-weight: 700; }
+  .policy-content h3 { color: var(--primary-color); margin: 25px 0 15px; font-weight: 600; }
+  .policy-content p { margin-bottom: 15px; line-height: 1.8; }
+  .policy-content ul { margin-bottom: 20px; }
+  .policy-content li { margin-bottom: 10px; line-height: 1.8; }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="policy-section">
+  <div class="container">
+    <div class="policy-content">
+      <h2 id="terms">Terms &amp; Conditions</h2>
+      <p>By using our this site, you agree to these terms and conditions. All products are sold as described, with images representing approximate appearance. We reserve the right to modify prices and product availability without prior notice. Payment is required at checkout to confirm your order. We are not responsible for delivery delays caused by shipping partners or circumstances beyond our control. Any disputes will be resolved according to applicable laws in jurisdiction of Kozhikode.</p>
+      <h3 id="privacy">Privacy Policy</h3>
+      <p>We collect and process personal information including your name, address, phone number, and designation solely for order processing and delivery purposes. This information is only shared with our authorized payment and shipping partners as necessary to complete your transaction. We implement appropriate security measures to protect your data and do not sell or share your information with third parties for marketing purposes. You may request access to your personal data or its deletion by contacting our customer service.</p>
+      <p>Don't worry, we value your privacy!</p>
+      <h3 id="shipping">Shipping Policy</h3>
+      <p>We process and ship orders daily at 7:30 PM. Orders before 6:00 PM will be included in the shipping batch. All other orders will be processed in the next available shipping window. Delivery timeframes depend on your location and the availability of shipping facility. Delivery can be expected in 2-3 business days in Bangalore.</p>
+      <p>No delivery charge will be charged for orders above ₹300.</p>
+      <h3 id="cancellation">Cancellation Policy</h3>
+      <p>Orders can be cancelled under the following conditions:</p>
+      <ul>
+        <li>If the order has not been dispatched yet, a full refund will be processed.</li>
+        <li>If the order has been dispatched, cancellation is not possible, but you may refuse to accept the delivery, in which case a refund will be processed after the product is returned to us.</li>
+      </ul>
+      <h3 id="return">Return Policy</h3>
+      <p>Due to the nature of our products being consumable items, we do not accept returns. However, if you face any issues with the product quality or condition, please contact us immediately for a refund as per our refund policy.</p>
+      <p>At Varthaai, we are committed to ensuring your complete satisfaction with our products. This policy outlines our guidelines for refunds and returns.</p>
+      <h3>Refund Policy</h3>
+      <p>We offer a full refund under the following conditions:</p>
+      <ul>
+        <li>If the product received is tampered with or damaged during transit.</li>
+        <li>If the product does not match the description.</li>
+        <li>If there is any issue with the taste or quality of the product.</li>
+      </ul>
+      <p>To process a refund:</p>
+      <ol>
+        <li>Contact us through our business WhatsApp number (<a href="https://wa.me/+919400557445">+91 9400557445</a>) within 1 hour of receiving the product.</li>
+        <li>Provide clear photographs of the damaged/tampered product.</li>
+        <li>Our team will verify the claim and process the refund accordingly.</li>
+        <li>Once approved, the refund amount will be credited back to the original payment method within 5-7 business days.</li>
+      </ol>
+      <h3 id="contact">Contact Us</h3>
+      <p>If you have any questions or concerns regarding our refund and return policy, please feel free to contact us:</p>
+      <ul>
+        <li>WhatsApp: <a href="https://wa.me/+919400557445">+91 9400557445</a></li>
+        <li>Email: <a href="mailto:info@varthaai.com">info@varthaai.com</a></li>
+      </ul>
+      <div class="mt-4">
+        <p><strong>Last Updated:</strong> November 17, 2025</p>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

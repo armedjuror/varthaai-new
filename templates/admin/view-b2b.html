@@ -1,0 +1,389 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}B2B Company — Varthaai Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  .info-row { display:flex; justify-content:space-between; align-items:flex-start; padding:10px 0; border-bottom:1px solid var(--gray-200); font-size:0.875rem; }
+  .info-row:last-child { border-bottom:none; }
+  .info-label { color:var(--gray-400); flex-shrink:0; width:130px; }
+  .info-val { color:var(--dark-color); text-align:right; }
+
+  .stage-badge { font-size:0.75rem; font-weight:600; padding:3px 12px; border-radius:20px; }
+  .stage-badge-lead        { background:#f3f4f6; color:#6b7280; }
+  .stage-badge-contacted   { background:#eff6ff; color:#3b82f6; }
+  .stage-badge-negotiation { background:#fffbeb; color:#b45309; }
+  .stage-badge-converted   { background:#f0fdf4; color:#16a34a; }
+  .stage-badge-lost        { background:#fef2f2; color:#dc2626; }
+
+  .timeline-item { position:relative; padding-left:28px; padding-bottom:20px; border-left:2px solid var(--gray-200); margin-left:8px; }
+  .timeline-item:last-child { border-left-color:transparent; padding-bottom:0; }
+  .timeline-dot { position:absolute; left:-7px; top:2px; width:12px; height:12px; border-radius:50%; border:2px solid #fff; }
+  .timeline-dot-call        { background:#3b82f6; }
+  .timeline-dot-meeting     { background:#8b5cf6; }
+  .timeline-dot-email       { background:#06b6d4; }
+  .timeline-dot-whatsapp    { background:#25d366; }
+  .timeline-dot-note        { background:#6b7280; }
+  .timeline-dot-stage_change { background:#f59e0b; }
+  .timeline-dot-order       { background:#16a34a; }
+  .timeline-dot-payment     { background:#16a34a; }
+  .timeline-dot-return      { background:#dc2626; }
+
+  .type-icon { width:24px; height:24px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:0.65rem; color:#fff; flex-shrink:0; }
+
+  .contact-card { padding:12px 14px; background:var(--gray-50); border-radius:8px; margin-bottom:8px; }
+  .contact-card .contact-actions { opacity:0; transition:opacity .15s; }
+  .contact-card:hover .contact-actions { opacity:1; }
+
+  .nav-tabs .nav-link { font-size:0.85rem; font-weight:600; }
+  .stage-btn { font-size:0.78rem; padding:4px 14px; border-radius:20px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-body">
+
+  <!-- Page header (filled by JS) -->
+  <div class="page-header">
+    <div>
+      <h1 id="companyTitle">Loading…</h1>
+      <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0" style="font-size:0.82rem">
+          <li class="breadcrumb-item"><a href="{% url 'core:dashboard' %}">Dashboard</a></li>
+          <li class="breadcrumb-item"><a href="{% url 'crm:pipeline' %}">B2B Pipeline</a></li>
+          <li class="breadcrumb-item active" id="breadcrumbName">…</li>
+        </ol>
+      </nav>
+    </div>
+    <div class="page-header-actions" id="headerActions"></div>
+  </div>
+
+  <!-- Stage progress -->
+  <div class="d-flex gap-2 mb-4 flex-wrap" id="stageBtns"></div>
+
+  <div class="row g-4">
+
+    <!-- Left column: info + contacts -->
+    <div class="col-lg-4">
+
+      <!-- Company info card -->
+      <div class="data-card mb-4" id="companyInfoCard">
+        <div class="data-card-header"><h3>Company Info</h3></div>
+        <div style="padding:16px 20px" id="companyInfoBody">Loading…</div>
+      </div>
+
+      <!-- Contacts -->
+      <div class="data-card">
+        <div class="data-card-header">
+          <h3>Contacts</h3>
+          <button class="btn btn-sm btn-outline-primary" onclick="openAddContactModal()">
+            <i class="fas fa-plus me-1"></i>Add
+          </button>
+        </div>
+        <div style="padding:12px 16px" id="contactsList">Loading…</div>
+      </div>
+
+    </div>
+
+    <!-- Right column: tabs -->
+    <div class="col-lg-8">
+      <div class="data-card">
+        <ul class="nav nav-tabs px-3 pt-2" role="tablist">
+          <li class="nav-item">
+            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabTimeline">
+              <i class="fas fa-clock-rotate-left me-1"></i>Timeline
+            </button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabOrders" onclick="loadCompanyOrders()">
+              <i class="fas fa-file-invoice me-1"></i>Orders
+            </button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabPayments" onclick="loadCompanyPayments()">
+              <i class="fas fa-indian-rupee-sign me-1"></i>Payments
+            </button>
+          </li>
+        </ul>
+        <div class="tab-content">
+
+          <!-- Timeline tab -->
+          <div class="tab-pane fade show active p-3" id="tabTimeline">
+            <!-- Log activity form -->
+            <div style="background:var(--gray-50);border-radius:8px;padding:14px;margin-bottom:20px">
+              <div class="row g-2">
+                <div class="col-md-3">
+                  <select class="form-select form-select-sm" id="activityType">
+                    <option value="call">Call</option>
+                    <option value="meeting">Meeting</option>
+                    <option value="email">Email</option>
+                    <option value="whatsapp">WhatsApp</option>
+                    <option value="note" selected>Note</option>
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <select class="form-select form-select-sm" id="activityContact">
+                    <option value="">No contact</option>
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <input type="text" class="form-control form-control-sm" id="activitySubject" placeholder="Subject">
+                </div>
+                <div class="col-md-3">
+                  <input type="date" class="form-control form-control-sm" id="activityFollowUp" title="Follow-up date (optional)">
+                </div>
+                <div class="col-12">
+                  <textarea class="form-control form-control-sm" id="activityDesc" rows="2" placeholder="Description / notes…"></textarea>
+                </div>
+                <div class="col-12 text-end">
+                  <button class="btn btn-primary btn-sm" onclick="logActivity()">
+                    <i class="fas fa-plus me-1"></i>Log Activity
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Timeline -->
+            <div id="timelineBody">
+              <div style="text-align:center;color:var(--gray-400);padding:30px">Loading…</div>
+            </div>
+          </div>
+
+          <!-- Orders tab -->
+          <div class="tab-pane fade p-3" id="tabOrders">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h6 class="mb-0">Orders</h6>
+              <a href="/admin/b2b-orders/create/?company={{ company_id }}" class="btn btn-sm btn-primary">
+                <i class="fas fa-plus me-1"></i>New Order
+              </a>
+            </div>
+            <div id="companyOrdersList">
+              <div style="text-align:center;color:var(--gray-400);padding:30px">Click to load…</div>
+            </div>
+          </div>
+
+          <!-- Payments tab -->
+          <div class="tab-pane fade p-3" id="tabPayments">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h6 class="mb-0">Payments</h6>
+              <button class="btn btn-sm btn-outline-primary" onclick="openGeneralPaymentModal()">
+                <i class="fas fa-plus me-1"></i>Record Payment
+              </button>
+            </div>
+            <!-- Balance summary -->
+            <div id="balanceSummary" class="mb-3" style="background:var(--gray-50);border-radius:8px;padding:12px 16px;font-size:0.875rem"></div>
+            <div id="companyPaymentsList">
+              <div style="text-align:center;color:var(--gray-400);padding:30px">Click to load…</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div><!-- /.page-body -->
+
+<!-- Add/Edit Contact Modal -->
+<div class="modal fade" id="contactModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="contactModalTitle">Add Contact</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="contactForm">
+        <input type="hidden" id="contactId">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Name <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="contactName" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Phone</label>
+              <input type="text" class="form-control" id="contactPhone">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Email</label>
+              <input type="email" class="form-control" id="contactEmail">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Designation</label>
+              <input type="text" class="form-control" id="contactDesignation">
+            </div>
+            <div class="col-12">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="contactPrimary">
+                <label class="form-check-label" for="contactPrimary">Primary contact</label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm" id="contactSubmitBtn">
+            <i class="fas fa-save me-1"></i>Save
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Company Modal -->
+<div class="modal fade" id="editCompanyModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-pen me-2"></i>Edit Company</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="editCompanyForm">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Company Name <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="editCompanyName" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Category</label>
+              <select class="form-select" id="editCategory"><option value="">Select…</option></select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Source</label>
+              <select class="form-select" id="editSource">
+                <option value="">Select…</option>
+                <option value="referral">Referral</option>
+                <option value="cold_call">Cold Call</option>
+                <option value="walk_in">Walk In</option>
+                <option value="online">Online</option>
+                <option value="event">Event</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Address</label>
+              <textarea class="form-control" id="editAddress" rows="2"></textarea>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">City</label>
+              <input type="text" class="form-control" id="editCity">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">State</label>
+              <input type="text" class="form-control" id="editState">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Pincode</label>
+              <input type="text" class="form-control" id="editPincode">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">GST Number</label>
+              <input type="text" class="form-control" id="editGst">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Assigned To</label>
+              <select class="form-select" id="editAssignedTo"><option value="">Select…</option></select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Credit Limit (₹)</label>
+              <input type="number" class="form-control" id="editCreditLimit" step="0.01" min="0">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Payment Terms (days)</label>
+              <input type="number" class="form-control" id="editPaymentTerms" min="0">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Discount Type</label>
+              <select class="form-select" id="editDiscountType">
+                <option value="">None</option>
+                <option value="percentage">Percentage</option>
+                <option value="amount">Fixed Amount</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Discount Value</label>
+              <input type="number" class="form-control" id="editDiscountValue" step="0.01" min="0">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notes</label>
+              <textarea class="form-control" id="editNotes" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- General Payment Modal -->
+<div class="modal fade" id="generalPaymentModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-indian-rupee-sign me-2"></i>Record Payment</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="generalPaymentForm">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Amount (₹) <span class="text-danger">*</span></label>
+              <input type="number" class="form-control" id="gpAmount" step="0.01" min="0.01" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Method <span class="text-danger">*</span></label>
+              <select class="form-select" id="gpMethod" required>
+                <option value="cash">Cash</option>
+                <option value="upi">UPI</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="cheque">Cheque</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Against Order (optional)</label>
+              <select class="form-select" id="gpOrderId">
+                <option value="">General payment</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Date</label>
+              <input type="date" class="form-control" id="gpDate">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Reference #</label>
+              <input type="text" class="form-control" id="gpRef">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Type</label>
+              <select class="form-select" id="gpType">
+                <option value="payment">Payment</option>
+                <option value="refund">Refund</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notes</label>
+              <textarea class="form-control" id="gpNotes" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Record</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>var COMPANY_ID = {{ company_id }};</script>
+<script src="{% static 'js/admin/view-b2b.js' %}"></script>
+{% endblock %}

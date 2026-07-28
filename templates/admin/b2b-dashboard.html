@@ -1,0 +1,124 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}B2B Dashboard — Varthaai Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  .b2b-stat { background:#fff; border-radius:12px; padding:20px; border:1px solid var(--gray-200); }
+  .b2b-stat .stat-value { font-size:1.6rem; font-weight:700; }
+  .b2b-stat .stat-label { font-size:0.78rem; color:var(--gray-400); text-transform:uppercase; margin-top:2px; }
+  .b2b-stat .stat-icon { width:42px; height:42px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:1rem; }
+
+  .pipe-bar { display:flex; gap:4px; margin-top:8px; height:8px; border-radius:4px; overflow:hidden; }
+  .pipe-bar span { flex:1; border-radius:4px; }
+
+  .dash-table { font-size:0.85rem; }
+  .dash-table th { font-size:0.72rem; text-transform:uppercase; color:var(--gray-400); font-weight:600; }
+  .dash-table td { vertical-align:middle; }
+
+  .overdue-badge { font-size:0.7rem; font-weight:600; padding:2px 8px; border-radius:12px; background:#fef2f2; color:#dc2626; }
+  .status-badge { font-size:0.7rem; font-weight:600; padding:2px 8px; border-radius:12px; }
+  .status-draft      { background:#f3f4f6; color:#6b7280; }
+  .status-confirmed  { background:#eff6ff; color:#3b82f6; }
+  .status-dispatched { background:#f0fdf4; color:#16a34a; }
+  .status-pending    { background:#fffbeb; color:#b45309; }
+  .status-partial    { background:#fef3c7; color:#92400e; }
+  .status-paid       { background:#f0fdf4; color:#16a34a; }
+
+  .fu-type { width:22px; height:22px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; font-size:0.6rem; color:#fff; }
+  .fu-type-call     { background:#3b82f6; }
+  .fu-type-meeting  { background:#8b5cf6; }
+  .fu-type-email    { background:#06b6d4; }
+  .fu-type-whatsapp { background:#25d366; }
+  .fu-type-note     { background:#6b7280; }
+</style>
+{% endblock %}
+
+{% block page_title %}
+<div class="page-header">
+  <div>
+    <h1>B2B Dashboard</h1>
+    <p>Overview of your B2B operations.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<!-- Stat cards -->
+<div class="row g-3 mb-4" id="statCards">
+  <div class="col-6 col-lg"><div class="b2b-stat"><div class="admin-loader-spinner" style="margin:10px auto"></div></div></div>
+  <div class="col-6 col-lg"><div class="b2b-stat"><div class="admin-loader-spinner" style="margin:10px auto"></div></div></div>
+  <div class="col-6 col-lg"><div class="b2b-stat"><div class="admin-loader-spinner" style="margin:10px auto"></div></div></div>
+  <div class="col-6 col-lg"><div class="b2b-stat"><div class="admin-loader-spinner" style="margin:10px auto"></div></div></div>
+  <div class="col-6 col-lg"><div class="b2b-stat"><div class="admin-loader-spinner" style="margin:10px auto"></div></div></div>
+</div>
+
+<!-- Pipeline bar -->
+<div class="data-card mb-4" id="pipelineCard" style="display:none">
+  <div class="data-card-header"><h3>Pipeline</h3></div>
+  <div style="padding:16px 20px">
+    <div class="d-flex justify-content-between" id="pipelineLabels"></div>
+    <div class="pipe-bar" id="pipelineBar"></div>
+  </div>
+</div>
+
+<div class="row g-4">
+
+  <!-- Left column -->
+  <div class="col-lg-6 d-flex flex-column gap-4">
+
+    <!-- Pending follow-ups -->
+    <div class="data-card">
+      <div class="data-card-header">
+        <h3>Pending Follow-ups</h3>
+        <a href="{% url 'crm:pipeline' %}" class="btn btn-sm btn-outline-primary" style="font-size:0.75rem">View All</a>
+      </div>
+      <div style="padding:0" id="followUpsBody">
+        <div class="text-center py-4" style="color:var(--gray-400)"><div class="admin-loader-spinner" style="margin:0 auto 8px"></div>Loading…</div>
+      </div>
+    </div>
+
+    <!-- Overdue payments -->
+    <div class="data-card">
+      <div class="data-card-header">
+        <h3>Pending Payments</h3>
+      </div>
+      <div style="padding:0" id="overdueBody">
+        <div class="text-center py-4" style="color:var(--gray-400)"><div class="admin-loader-spinner" style="margin:0 auto 8px"></div>Loading…</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Right column -->
+  <div class="col-lg-6 d-flex flex-column gap-4">
+
+    <!-- Pending orders -->
+    <div class="data-card">
+      <div class="data-card-header">
+        <h3>Active Orders</h3>
+      </div>
+      <div style="padding:0" id="pendingOrdersBody">
+        <div class="text-center py-4" style="color:var(--gray-400)"><div class="admin-loader-spinner" style="margin:0 auto 8px"></div>Loading…</div>
+      </div>
+    </div>
+
+    <!-- Top companies -->
+    <div class="data-card">
+      <div class="data-card-header"><h3>Top Companies</h3></div>
+      <div style="padding:0" id="topCompaniesBody">
+        <div class="text-center py-4" style="color:var(--gray-400)"><div class="admin-loader-spinner" style="margin:0 auto 8px"></div>Loading…</div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/admin/b2b-dashboard.js' %}"></script>
+{% endblock %}

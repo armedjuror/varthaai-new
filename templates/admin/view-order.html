@@ -1,0 +1,245 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Order {{ order.id }} — Varthaai Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  .info-row { display:flex; justify-content:space-between; align-items:flex-start; padding:9px 0; border-bottom:1px solid var(--gray-200); font-size:0.875rem; }
+  .info-row:last-child { border-bottom:none; }
+  .info-lbl { color:var(--gray-400); flex-shrink:0; width:120px; }
+  .tl-step { display:flex; gap:12px; align-items:flex-start; padding-bottom:20px; position:relative; }
+  .tl-step:last-child { padding-bottom:0; }
+  .tl-step:not(:last-child)::before { content:''; position:absolute; left:10px; top:22px; width:2px; bottom:0; background:var(--gray-200); }
+  .tl-dot { width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px; }
+  .tl-dot.done { background:var(--primary-color); }
+  .tl-dot.pending-dot { background:var(--gray-200); }
+  .tl-dot.cancelled-dot { background:#dc2626; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-body">
+
+  <!-- Page header -->
+  <div class="page-header">
+    <div>
+      <h1>Order {{ order.id }}</h1>
+      <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0" style="font-size:0.82rem">
+          <li class="breadcrumb-item"><a href="{% url 'core:dashboard' %}">Dashboard</a></li>
+          <li class="breadcrumb-item"><a href="{% url 'orders:orders' %}">Orders</a></li>
+          <li class="breadcrumb-item active">{{ order.id }}</li>
+        </ol>
+      </nav>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-sm btn-outline-secondary" onclick="window.open('{% url 'orders:print_invoice' order.id %}','_blank','width=800,height=600')">
+        <i class="fas fa-print me-1"></i>Print
+      </button>
+      <a href="{% url 'orders:edit_order' order.id %}" class="btn btn-sm btn-primary">
+        <i class="fas fa-pen me-1"></i>Edit
+      </a>
+      <a href="{% url 'orders:orders' %}" class="btn btn-sm btn-outline-secondary">
+        <i class="fas fa-arrow-left me-1"></i>Orders
+      </a>
+    </div>
+  </div>
+
+  <div class="row g-4">
+
+    <!-- Left: items + delivery -->
+    <div class="col-lg-8 d-flex flex-column gap-4">
+
+      <!-- Order Items -->
+      <div class="data-card">
+        <div class="data-card-header">
+          <h3>Order Items</h3>
+          <div style="display:flex;gap:8px">
+            <span style="font-size:0.8rem;font-weight:700;color:{{ sc }};background:{{ sbg }};padding:3px 12px;border-radius:20px">{{ order.get_status_display }}</span>
+            <span style="font-size:0.8rem;font-weight:700;color:{{ pc }};background:{{ pbg }};padding:3px 12px;border-radius:20px">{{ order.get_payment_status_display }}</span>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table" style="margin:0">
+            <thead>
+              <tr>
+                <th>Flavor</th>
+                <th>Qty</th>
+                <th>Price / kg</th>
+                <th style="text-align:right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in items %}
+              <tr>
+                <td>
+                  <strong>{{ item.name }}</strong>
+                  {% if item.pack_label %}<span style="font-size:0.75rem;color:var(--gray-400)">({{ item.pack_label }})</span>{% endif %}
+                  {% if item.description %}<div style="font-size:0.75rem;color:var(--gray-400)">{{ item.description }}</div>{% endif %}
+                </td>
+                <td>{{ item.quantity|floatformat:0 }} g</td>
+                <td>
+                  ₹{{ item.sale_price_per_kg|floatformat:0 }}
+                  {% if item.price_per_kg != item.sale_price_per_kg %}
+                    <br><small style="color:var(--gray-400);text-decoration:line-through">₹{{ item.price_per_kg|floatformat:0 }}</small>
+                  {% endif %}
+                </td>
+                <td style="text-align:right;font-weight:600">₹{{ item.item_total|floatformat:2 }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Summary -->
+        <div style="padding:16px 20px;border-top:1px solid var(--gray-200)">
+          <div style="max-width:280px;margin-left:auto">
+            <div class="info-row">
+              <span class="info-lbl">Subtotal</span>
+              <span>₹{{ subtotal|floatformat:2 }}</span>
+            </div>
+            {% if discount > 0 %}
+            <div class="info-row">
+              <span class="info-lbl">
+                Discount{% if order.coupon_code %} <span style="font-weight:400;font-size:0.75rem">({{ order.coupon_code }})</span>{% endif %}
+              </span>
+              <span style="color:#16a34a">-₹{{ discount|floatformat:2 }}</span>
+            </div>
+            {% endif %}
+            <div class="info-row">
+              <span class="info-lbl">Delivery</span>
+              <span>₹{{ order.delivery_charge|floatformat:2 }}</span>
+            </div>
+            <div class="info-row" style="font-weight:700;font-size:1rem;border-bottom:none;padding-top:10px">
+              <span>Total</span>
+              <span>₹{{ total|floatformat:2 }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Delivery Info -->
+      <div class="data-card">
+        <div class="data-card-header">
+          <h3>Delivery Information</h3>
+        </div>
+        <div style="padding:16px 20px">
+          <div class="info-row">
+            <span class="info-lbl">Address</span>
+            <span style="text-align:right;max-width:300px">{{ order.address|linebreaksbr }}</span>
+          </div>
+          {% if order.pincode %}
+          <div class="info-row">
+            <span class="info-lbl">Pincode</span>
+            <span>{{ order.pincode }}</span>
+          </div>
+          {% endif %}
+          <div class="info-row">
+            <span class="info-lbl">Delivery Charge</span>
+            <span>₹{{ order.delivery_charge|floatformat:2 }}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-lbl">Placed On</span>
+            <span>{{ order.order_date|date:"d M Y, H:i" }}</span>
+          </div>
+          {% if order.updated_at and order.updated_at != order.order_date %}
+          <div class="info-row">
+            <span class="info-lbl">Last Updated</span>
+            <span>{{ order.updated_at|date:"d M Y, H:i" }}</span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right: customer + timeline -->
+    <div class="col-lg-4 d-flex flex-column gap-4">
+
+      <!-- Customer -->
+      <div class="data-card">
+        <div class="data-card-header">
+          <h3>Customer</h3>
+          {% if order.user_id %}
+            <a href="{% url 'accounts:view_customer' order.user_id %}" class="btn btn-sm btn-outline-primary" style="font-size:0.75rem">View Profile</a>
+          {% endif %}
+        </div>
+        <div style="padding:16px 20px">
+          <div class="info-row">
+            <span class="info-lbl">Name</span>
+            <span style="font-weight:600">{% if order.name %}{{ order.name }}{% elif order.user %}{{ order.user.name }}{% else %}Guest{% endif %}</span>
+          </div>
+          <div class="info-row">
+            <span class="info-lbl">Mobile</span>
+            <span>{{ order.mobile }}</span>
+          </div>
+          {% if order.user_id %}
+          <div class="info-row">
+            <span class="info-lbl">Loyalty Pts</span>
+            <span>{{ loyalty_points }} pts</span>
+          </div>
+          {% if order.user.referral_code %}
+          <div class="info-row">
+            <span class="info-lbl">Referral Code</span>
+            <span><code style="font-size:0.8rem">{{ order.user.referral_code }}</code></span>
+          </div>
+          {% endif %}
+          {% endif %}
+          {% if order.referral %}
+          <div class="info-row">
+            <span class="info-lbl">Referred By</span>
+            <span>{{ order.referral.name }}</span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Timeline -->
+      <div class="data-card">
+        <div class="data-card-header">
+          <h3>Order Timeline</h3>
+        </div>
+        <div style="padding:20px">
+          {% if is_cancelled %}
+            <div class="tl-step">
+              <div class="tl-dot done"><i class="fas fa-check" style="color:#fff;font-size:0.6rem"></i></div>
+              <div>
+                <div style="font-size:0.875rem;font-weight:600">Order Placed</div>
+                <div style="font-size:0.75rem;color:var(--gray-400)">{{ order.order_date|date:"d M Y, H:i" }}</div>
+              </div>
+            </div>
+            <div class="tl-step">
+              <div class="tl-dot cancelled-dot"><i class="fas fa-times" style="color:#fff;font-size:0.6rem"></i></div>
+              <div>
+                <div style="font-size:0.875rem;font-weight:600;color:#dc2626">{{ order.get_status_display }}</div>
+                <div style="font-size:0.75rem;color:var(--gray-400)">{{ order.updated_at|date:"d M Y, H:i" }}</div>
+              </div>
+            </div>
+          {% else %}
+            {% for step in timeline %}
+            <div class="tl-step">
+              <div class="tl-dot {% if step.done %}done{% else %}pending-dot{% endif %}">
+                {% if step.done %}<i class="fas fa-check" style="color:#fff;font-size:0.6rem"></i>{% endif %}
+              </div>
+              <div>
+                <div style="font-size:0.875rem;font-weight:{% if step.done %}600{% else %}400{% endif %};color:{% if step.done %}var(--dark-color){% else %}var(--gray-400){% endif %}">
+                  {{ step.label }}
+                </div>
+                {% if step.is_first %}
+                  <div style="font-size:0.75rem;color:var(--gray-400)">{{ order.order_date|date:"d M Y, H:i" }}</div>
+                {% elif step.done and order.updated_at %}
+                  <div style="font-size:0.75rem;color:var(--gray-400)">{{ order.updated_at|date:"d M Y, H:i" }}</div>
+                {% endif %}
+              </div>
+            </div>
+            {% endfor %}
+          {% endif %}
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- /.page-body -->
+{% endblock %}

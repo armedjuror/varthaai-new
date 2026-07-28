@@ -1,0 +1,211 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}{% if edit_order_id %}Edit B2B Order{% else %}Create B2B Order{% endif %} — Varthaai Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  .item-row { background:var(--gray-50); border-radius:8px; padding:12px 14px; margin-bottom:8px; }
+  .item-row.free-item { border-left:3px solid #16a34a; background:#f0fdf4; }
+  .balance-warning { background:#fef2f2; border:1px solid #fecaca; color:#dc2626; border-radius:8px; padding:12px 16px; margin-bottom:16px; }
+  .balance-warning i { margin-right:8px; }
+  .order-summary { background:var(--gray-50); border-radius:8px; padding:16px; }
+  .summary-row { display:flex; justify-content:space-between; font-size:0.875rem; margin-bottom:6px; }
+  .summary-row.total { font-weight:700; font-size:1rem; border-top:2px solid var(--gray-200); padding-top:8px; margin-top:8px; }
+</style>
+{% endblock %}
+
+{% block page_title %}
+<div class="page-header">
+  <div>
+    <h1>{% if edit_order_id %}Edit Order{% elif repeat_order_id %}Repeat Order{% else %}Create B2B Order{% endif %}</h1>
+    <nav aria-label="breadcrumb">
+      <ol class="breadcrumb mb-0" style="font-size:0.82rem">
+        <li class="breadcrumb-item"><a href="{% url 'orders:b2b_orders' %}">B2B Orders</a></li>
+        <li class="breadcrumb-item active">{% if edit_order_id %}Edit{% elif repeat_order_id %}Repeat{% else %}New Order{% endif %}</li>
+      </ol>
+    </nav>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="page-body">
+
+  <!-- Balance warning (shown dynamically) -->
+  <div id="balanceWarning" style="display:none" class="balance-warning">
+    <i class="fas fa-exclamation-triangle"></i>
+    <span id="balanceWarningText"></span>
+  </div>
+
+  <div class="row g-4">
+
+    <!-- Left: company & items -->
+    <div class="col-lg-8">
+
+      <!-- Company selection -->
+      <div class="data-card mb-4">
+        <div class="data-card-header"><h3>Company</h3></div>
+        <div style="padding:16px 20px">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Select Company <span class="text-danger">*</span></label>
+              <select class="form-select" id="orderCompany" onchange="onCompanyChange()">
+                <option value="">Select a converted company…</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Contact</label>
+              <select class="form-select" id="orderContact">
+                <option value="">Select…</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Order items -->
+      <div class="data-card mb-4">
+        <div class="data-card-header">
+          <h3>Items</h3>
+        </div>
+        <div style="padding:16px 20px">
+          <!-- Add item form -->
+          <div style="background:#fff;border:1px solid var(--gray-200);border-radius:8px;padding:14px;margin-bottom:16px">
+            <div class="row g-2 align-items-end">
+              <div class="col-md-3">
+                <label class="form-label" style="font-size:0.78rem">Flavor <span class="text-danger">*</span></label>
+                <select class="form-select form-select-sm" id="itemFlavor" onchange="onFlavorChange()">
+                  <option value="">Select…</option>
+                </select>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" style="font-size:0.78rem">Batch <span class="text-danger">*</span></label>
+                <select class="form-select form-select-sm" id="itemBatch">
+                  <option value="">Select…</option>
+                </select>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" style="font-size:0.78rem">Pack / Custom</label>
+                <select class="form-select form-select-sm" id="itemPack" onchange="onPackChange()">
+                  <option value="custom">Custom Weight</option>
+                </select>
+              </div>
+              <div class="col-md-1">
+                <label class="form-label" style="font-size:0.78rem">Qty</label>
+                <input type="number" class="form-control form-control-sm" id="itemQty" min="1" value="1">
+              </div>
+              <div class="col-md-2">
+                <label class="form-label" style="font-size:0.78rem">Weight (g)</label>
+                <input type="number" class="form-control form-control-sm" id="itemWeight" min="1">
+              </div>
+              <div class="col-md-2">
+                <button class="btn btn-primary btn-sm w-100" onclick="addItem()">
+                  <i class="fas fa-plus me-1"></i>Add
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Items list -->
+          <div id="itemsList">
+            <div style="text-align:center;color:var(--gray-400);padding:20px">
+              <i class="fas fa-box-open fa-2x mb-2 d-block"></i>No items added yet
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Notes & Due Date -->
+      <div class="data-card">
+        <div style="padding:16px 20px">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">Payment Due Date</label>
+              <input type="date" class="form-control" id="orderDueDate">
+              <div class="form-text" id="dueDateHint" style="font-size:0.75rem"></div>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">Order Notes</label>
+              <textarea class="form-control" id="orderNotes" rows="2" placeholder="Internal notes…"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right: summary & offers -->
+    <div class="col-lg-4">
+
+      <!-- Offers -->
+      <div class="data-card mb-4" id="offersCard" style="display:none">
+        <div class="data-card-header"><h3>Available Offers</h3></div>
+        <div style="padding:12px 16px" id="offersList"></div>
+      </div>
+
+      <!-- Discount -->
+      <div class="data-card mb-4">
+        <div class="data-card-header"><h3>Discount</h3></div>
+        <div style="padding:16px 20px">
+          <div class="row g-2">
+            <div class="col-6">
+              <select class="form-select form-select-sm" id="discountType" onchange="recalculate()">
+                <option value="">None</option>
+                <option value="percentage">Percentage</option>
+                <option value="amount">Fixed Amount</option>
+              </select>
+            </div>
+            <div class="col-6">
+              <input type="number" class="form-control form-control-sm" id="discountValue" step="0.01" min="0" placeholder="Value" onchange="recalculate()">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Summary -->
+      <div class="data-card mb-4">
+        <div class="data-card-header"><h3>Summary</h3></div>
+        <div style="padding:16px 20px">
+          <div class="order-summary">
+            <div class="summary-row">
+              <span>Subtotal</span>
+              <span id="summSubtotal">₹0</span>
+            </div>
+            <div class="summary-row" id="summOfferRow" style="display:none">
+              <span style="color:#16a34a">Free items value</span>
+              <span id="summOfferDisc" style="color:#16a34a">-₹0</span>
+            </div>
+            <div class="summary-row" id="summDiscRow" style="display:none">
+              <span style="color:#3b82f6">Discount</span>
+              <span id="summDiscount" style="color:#3b82f6">-₹0</span>
+            </div>
+            <div class="summary-row total">
+              <span>Total</span>
+              <span id="summTotal">₹0</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <button class="btn btn-primary w-100 mb-2" onclick="submitOrder()">
+        <i class="fas fa-save me-1"></i>{% if edit_order_id %}Save Changes{% else %}Create Order (Draft){% endif %}
+      </button>
+      <a href="{% url 'orders:b2b_orders' %}" class="btn btn-outline-secondary w-100">Cancel</a>
+
+    </div>
+
+  </div>
+
+</div><!-- /.page-body -->
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  var REPEAT_ORDER_ID = "{{ repeat_order_id|escapejs }}";
+  var EDIT_ORDER_ID = "{{ edit_order_id|escapejs }}";
+  var PRESELECT_COMPANY = {{ preselect_company|default:0 }};
+</script>
+<script src="{% static 'js/admin/b2b-order-create.js' %}"></script>
+{% endblock %}

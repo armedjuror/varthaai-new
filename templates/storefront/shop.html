@@ -1,0 +1,615 @@
+{% extends 'storefront/base.html' %}
+{% load static %}
+
+{% block title %}Shop - Varthaai Premium Kerala Banana Chips{% endblock %}
+
+{% block extra_head %}
+<style>
+  .order-page { background: url('/static/images/background.svg') fixed no-repeat; min-height: 100vh; padding-top: 2rem; margin: auto 5%; }
+  @media (min-width: 992px) {
+    .invoice-sidebar { position: sticky; top: 120px; max-height: calc(100vh - 140px); overflow-y: auto; transition: top 0.3s ease; }
+    .invoice-sidebar.scrolled-past-nav { top: 20px; max-height: calc(100vh - 40px); }
+  }
+  .invoice-panel { background: white; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); padding: 2rem; margin-bottom: 2rem; }
+  .cart-empty-state { text-align: center; padding: 3rem 1rem; color: #999; }
+  .cart-empty-state i { font-size: 3rem; margin-bottom: 1rem; opacity: 0.5; }
+  .cart-item-row { display: flex; align-items: center; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid #eee; }
+  .cart-item-row:last-child { border-bottom: none; }
+  .cart-item-details { flex: 1; }
+  .cart-item-name { font-weight: 600; margin-bottom: 0.25rem; }
+  .cart-item-specs { font-size: 0.875rem; color: #666; }
+  .cart-item-price { font-weight: 600; color: var(--primary-color, #86AA4E); }
+  .remove-cart-item { background: none; border: none; color: #dc3545; padding: 0.5rem; border-radius: 8px; transition: background-color 0.3s; }
+  .remove-cart-item:hover { background-color: rgba(220, 53, 69, 0.1); }
+  .catalog-section { background: white; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); padding: 2rem; margin-bottom: 2rem; }
+  .products-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 2rem; margin-top: 2rem; }
+  .product-card { border: 2px solid #f0f0f0; border-radius: 16px; padding: 2rem; transition: all 0.3s ease; background: white; position: relative; overflow: hidden; }
+  .product-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 4px; background: linear-gradient(135deg, #86AA4E, #6B8E3A); transform: translateX(-100%); transition: transform 0.3s ease; }
+  .product-card:hover { border-color: var(--primary-color, #86AA4E); transform: translateY(-8px); box-shadow: 0 12px 40px rgba(134, 170, 78, 0.2); }
+  .product-card:hover::before { transform: translateX(0); }
+  .product-visual { text-align: center; margin-bottom: 1.5rem; }
+  .product-emoji { font-size: 4rem; margin-bottom: 1rem; display: block; }
+  .product-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--dark-color, #2c3e50); }
+  .product-subtitle { color: #666; margin-bottom: 1.5rem; font-size: 0.875rem; }
+  .pricing-display { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
+  .current-price { font-size: 1.75rem; font-weight: 700; color: var(--primary-color, #86AA4E); }
+  .original-price { font-size: 1.125rem; color: #999; text-decoration: line-through; }
+  .discount-tag { background: linear-gradient(135deg, #FFD700, #FFA500); color: #333; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
+  .quantity-section { margin-bottom: 2rem; }
+  .quantity-presets { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+  .preset-btn { background: #f8f9fa; border: 2px solid #e9ecef; padding: 0.5rem 1rem; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.3s; font-size: 0.875rem; }
+  .preset-btn:hover, .preset-btn.active { background: var(--primary-color, #86AA4E); color: white; border-color: var(--primary-color, #86AA4E); }
+  .custom-quantity { position: relative; }
+  .quantity-input { width: 100%; padding: 0.75rem 1rem; border: 2px solid #e9ecef; border-radius: 8px; font-size: 1rem; transition: border-color 0.3s; }
+  .quantity-input:focus { outline: none; border-color: var(--primary-color, #86AA4E); box-shadow: 0 0 0 3px rgba(134, 170, 78, 0.1); }
+  .quantity-unit { position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); color: #666; pointer-events: none; }
+  .add-to-cart-button { width: 100%; position: relative; overflow: hidden; }
+  .add-to-cart-button.added { background: var(--primary-color) !important; }
+  .add-to-cart-button .success-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--primary-color); display: flex; align-items: center; justify-content: center; transform: translateY(100%); transition: transform 0.3s ease; }
+  .add-to-cart-button.added .success-overlay { transform: translateY(0); }
+  @media (max-width: 991px) {
+    .mobile-cart-container { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 3px solid var(--primary-color, #86AA4E); z-index: 1050; transition: transform 0.3s ease; max-height: 70vh; }
+    .mobile-cart-container.collapsed { transform: translateY(calc(100% - 80px)); }
+    .mobile-cart-header { padding: 1rem; border-bottom: 1px solid #eee; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+    .mobile-cart-content { max-height: calc(70vh - 80px); overflow-y: auto; padding: 1rem; }
+    .cart-toggle-icon { font-size: 1.25rem; color: var(--primary-color, #86AA4E); transition: transform 0.3s ease; }
+    .mobile-cart-container.collapsed .cart-toggle-icon { transform: rotate(180deg); }
+    .order-page { padding-bottom: 100px; }
+    .products-grid { grid-template-columns: 1fr; gap: 1.5rem; }
+  }
+  .price-breakdown { border-top: 2px solid #eee; margin-top: 1.3rem; padding-top: 1rem; }
+  .price-breakdown-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 0.75rem 0; margin-bottom: 0.5rem; user-select: none; }
+  .price-breakdown-toggle { background: none; border: none; color: var(--primary-color, #86AA4E); font-size: 0.875rem; cursor: pointer; padding: 0.25rem 0.5rem; display: flex; align-items: center; gap: 0.5rem; transition: all 0.3s ease; }
+  .price-breakdown-toggle i { transition: transform 0.3s ease; }
+  .price-breakdown-toggle.expanded i { transform: rotate(180deg); }
+  .price-breakdown-details { max-height: 0; overflow: hidden; transition: max-height 0.3s ease, margin-top 0.3s ease; margin-top: 0; }
+  .price-breakdown-details.expanded { max-height: 500px; margin-top: 0.5rem; }
+  .price-line { display: flex; justify-content: space-between; margin: 0.75rem 0; align-items: center; }
+  .price-line.total { border-top: 1px solid #eee; padding-top: 0.75rem; margin-top: 1rem; font-weight: 700; font-size: 1.125rem; }
+  .coupon-input-section { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #eee; }
+  .coupon-section-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding-top: 0.75rem; margin-bottom: 0.5rem; user-select: none; }
+  .coupon-section-toggle { background: none; border: none; color: var(--primary-color, #86AA4E); font-size: 0.875rem; cursor: pointer; padding: 0.25rem 0.5rem; display: flex; align-items: center; gap: 0.5rem; transition: all 0.3s ease; }
+  .coupon-section-toggle i { transition: transform 0.3s ease; }
+  .coupon-section-toggle.expanded i { transform: rotate(180deg); }
+  .coupon-section-details { max-height: 0; overflow: hidden; transition: max-height 0.3s ease, margin-top 0.3s ease, padding-top 0.3s ease, padding-bottom 0.3s ease; margin-top: 0; padding-top: 0; padding-bottom: 0; }
+  .coupon-section-details.expanded { max-height: 200px; margin-top: 0.5rem; padding-top: 1rem; padding-bottom: 1rem; }
+  .applied-coupon-display { display: none; padding: 0.75rem; background: #f0f9f0; border: 1px solid #86AA4E; border-radius: 8px; margin-bottom: 0.75rem; }
+  .applied-coupon-display.show { display: flex; justify-content: space-between; align-items: center; }
+  .applied-coupon-info { display: flex; align-items: center; gap: 0.5rem; }
+  .applied-coupon-info .badge { background: #86AA4E; color: white; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.875rem; font-weight: 600; }
+  .remove-coupon-btn { background: none; border: none; color: #dc3545; padding: 0.25rem 0.5rem; border-radius: 6px; cursor: pointer; font-size: 0.875rem; transition: background-color 0.3s; display: flex; align-items: center; gap: 0.25rem; }
+  .remove-coupon-btn:hover { background-color: rgba(220, 53, 69, 0.1); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="order-page">
+  <div class="container-fluid">
+    <div class="row">
+      <!-- Product Catalog -->
+      <div class="col-lg-8">
+        <div class="catalog-section">
+          <div class="d-flex justify-content-between align-items-center mb-4">
+            <div>
+              <h2 class="mb-1">Get the chips everyone is talking about!</h2>
+              <p class="text-muted mb-0">Finest chips, flavored with love and fried crispy</p>
+            </div>
+          </div>
+          <div class="products-grid" id="products-container"></div>
+        </div>
+      </div>
+      <!-- Desktop Invoice Sidebar -->
+      <div class="col-lg-4 d-none d-lg-block">
+        <div class="invoice-sidebar">
+          <div class="invoice-panel">
+            <div class="mb-4">
+              <h3 class="mb-1">Your Order</h3>
+              <p class="text-muted mb-0">Review and modify your cart</p>
+            </div>
+            <div id="desktop-cart-items">
+              <div class="cart-empty-state">
+                <i class="fas fa-shopping-cart"></i>
+                <p class="mb-2">Your cart is empty</p>
+                <small class="text-muted">Add some delicious banana chips to get started!</small>
+              </div>
+            </div>
+            <div id="desktop-cart-summary" class="d-none">
+              <div class="coupon-input-section">
+                <div class="coupon-section-header" data-type="desktop">
+                  <span class="fw-bold">Have a coupon?</span>
+                  <button class="coupon-section-toggle" type="button" id="desktop-coupon-toggle">
+                    <span>Apply Coupon</span>
+                    <i class="fas fa-chevron-down"></i>
+                  </button>
+                </div>
+                <div class="coupon-section-details" id="desktop-coupon-details">
+                  <div class="applied-coupon-display" id="desktop-applied-coupon">
+                    <div class="applied-coupon-info">
+                      <i class="fas fa-check-circle text-success"></i>
+                      <span>Coupon Applied:</span>
+                      <span class="badge" id="desktop-applied-coupon-code"></span>
+                    </div>
+                    <button class="remove-coupon-btn" type="button" data-type="desktop" title="Remove coupon">
+                      <i class="fas fa-times"></i><span>Remove</span>
+                    </button>
+                  </div>
+                  <div class="input-group">
+                    <input type="text" class="form-control" id="desktop-coupon-input" placeholder="Enter coupon code">
+                    <button class="btn btn-outline-secondary" type="button" id="desktop-apply-coupon">Apply</button>
+                  </div>
+                  <div id="desktop-coupon-message" class="form-text"></div>
+                </div>
+              </div>
+              <div class="price-breakdown">
+                <div class="price-breakdown-header" data-type="desktop">
+                  <span class="fw-bold">Price Summary</span>
+                  <button class="price-breakdown-toggle" type="button" id="desktop-price-toggle">
+                    <span>View Details</span><i class="fas fa-chevron-down"></i>
+                  </button>
+                </div>
+                <div class="price-breakdown-details" id="desktop-price-details">
+                  <div class="price-line"><span>Subtotal:</span><span id="desktop-subtotal">₹0</span></div>
+                  <div class="price-line d-none" id="desktop-coupon-discount-line"><span>Coupon Discount:</span><span class="text-success" id="desktop-coupon-discount">-₹0</span></div>
+                  <div class="price-line d-none" id="desktop-delivery-charge-line"><span>Delivery Charge:</span><span class="text-danger" id="desktop-delivery-charge">+₹0</span></div>
+                  <div class="price-line d-none" id="desktop-delivery-charge-info-line"><span>Free delivery for orders above ₹300</span></div>
+                  <div class="price-line d-none" id="desktop-total-saving-line" style="border-top: 1px solid #eee;padding-top: 1.5rem"><span>You saved:</span><span class="text-success" id="desktop-total-saving">₹0</span></div>
+                </div>
+                <div class="price-line total"><span>Total:</span><span id="desktop-total">₹0</span></div>
+              </div>
+              <button class="btn btn-primary btn-sm w-100 mt-3" id="desktop-checkout-btn" disabled>
+                <i class="fas fa-shopping-cart me-2"></i>Proceed to Checkout
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+<!-- Mobile Cart (Fixed Bottom) -->
+<div class="mobile-cart-container collapsed d-lg-none" id="mobile-cart">
+  <div class="mobile-cart-header" onclick="toggleMobileCart()">
+    <div>
+      <h5 class="mb-0">Your Order (<span id="mobile-cart-item-count">0</span> items)</h5>
+      <small class="text-muted">Total: <span id="mobile-total-preview">₹0</span></small>
+    </div>
+    <i class="fas fa-chevron-down cart-toggle-icon"></i>
+  </div>
+  <div class="mobile-cart-content">
+    <div id="mobile-cart-items">
+      <div class="cart-empty-state">
+        <p class="mb-2">Your cart is empty</p>
+        <small class="text-muted">Add items to see them here</small>
+      </div>
+    </div>
+    <div id="mobile-cart-summary" class="d-none">
+      <div class="coupon-input-section">
+        <div class="coupon-section-header" data-type="mobile">
+          <span class="fw-bold">Have a coupon?</span>
+          <button class="coupon-section-toggle" type="button" id="mobile-coupon-toggle">
+            <span>Apply Coupon</span><i class="fas fa-chevron-down"></i>
+          </button>
+        </div>
+        <div class="coupon-section-details" id="mobile-coupon-details">
+          <div class="applied-coupon-display" id="mobile-applied-coupon">
+            <div class="applied-coupon-info">
+              <i class="fas fa-check-circle text-success"></i>
+              <span>Coupon Applied:</span>
+              <span class="badge" id="mobile-applied-coupon-code"></span>
+            </div>
+            <button class="remove-coupon-btn" type="button" data-type="mobile" title="Remove coupon">
+              <i class="fas fa-times"></i><span>Remove</span>
+            </button>
+          </div>
+          <div class="input-group">
+            <input type="text" class="form-control" id="mobile-coupon-input" placeholder="Enter coupon code">
+            <button class="btn btn-outline-secondary" type="button" id="mobile-apply-coupon">Apply</button>
+          </div>
+          <div id="mobile-coupon-message" class="form-text"></div>
+        </div>
+      </div>
+      <div class="price-breakdown">
+        <div class="price-breakdown-header" data-type="mobile">
+          <span class="fw-bold">Price Summary</span>
+          <button class="price-breakdown-toggle" type="button" id="mobile-price-toggle">
+            <span>View Details</span><i class="fas fa-chevron-down"></i>
+          </button>
+        </div>
+        <div class="price-breakdown-details" id="mobile-price-details">
+          <div class="price-line"><span>Subtotal:</span><span id="mobile-subtotal">₹0</span></div>
+          <div class="price-line d-none" id="mobile-coupon-discount-line"><span>Coupon Discount:</span><span class="text-success" id="mobile-coupon-discount">-₹0</span></div>
+          <div class="price-line d-none" id="mobile-delivery-charge-line"><span>Delivery Charge:</span><span class="text-danger" id="mobile-delivery-charge">-₹0</span></div>
+          <div class="price-line d-none" id="mobile-delivery-charge-info-line"><span>Free delivery for orders above ₹300</span></div>
+          <div class="price-line d-none" id="mobile-total-saving-line" style="border-top: 1px solid #eee;padding-top: 1.5rem"><span>You saved:</span><span class="text-success" id="mobile-total-saving">-₹0</span></div>
+        </div>
+        <div class="price-line total"><span>Total:</span><span id="mobile-total">₹0</span></div>
+      </div>
+      <button class="btn btn-primary btn-sm w-100 mt-3" id="mobile-checkout-btn" disabled>
+        <i class="fas fa-shopping-cart me-2"></i>Proceed to Checkout
+      </button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Preset quantities in grams
+  const quantityPresets = [100, 200, 500];
+
+  $(document).ready(function() {
+    loadProducts().finally(() => { renderProducts(); });
+    updateAllCartDisplays();
+    $('#loader').fadeOut();
+
+    let scrollHandler = null;
+    function initSidebarScrollHandler() {
+      if (scrollHandler) { $(window).off('scroll', scrollHandler); }
+      if ($(window).width() >= 992) {
+        const navbar = $('.navbar');
+        const sidebar = $('.invoice-sidebar');
+        const navbarHeight = navbar.outerHeight() || 120;
+        scrollHandler = function() {
+          const scrollTop = $(window).scrollTop();
+          if (scrollTop > navbarHeight) { sidebar.addClass('scrolled-past-nav'); }
+          else { sidebar.removeClass('scrolled-past-nav'); }
+        };
+        $(window).on('scroll', scrollHandler);
+        scrollHandler();
+      } else {
+        $('.invoice-sidebar').removeClass('scrolled-past-nav');
+      }
+    }
+    initSidebarScrollHandler();
+    $(window).on('resize', initSidebarScrollHandler);
+
+    $(document).on('click', '.price-breakdown-header', function(e) {
+      if ($(e.target).closest('.price-breakdown-toggle').length) return;
+      togglePriceBreakdown($(this).data('type'));
+    });
+    $(document).on('click', '.price-breakdown-toggle', function(e) {
+      e.stopPropagation();
+      togglePriceBreakdown($(this).closest('.price-breakdown-header').data('type'));
+    });
+    $(document).on('click', '.coupon-section-header', function(e) {
+      if ($(e.target).closest('.coupon-section-toggle').length) return;
+      toggleCouponSection($(this).data('type'));
+    });
+    $(document).on('click', '.coupon-section-toggle', function(e) {
+      e.stopPropagation();
+      toggleCouponSection($(this).closest('.coupon-section-header').data('type'));
+    });
+    $(document).on('click', '.remove-coupon-btn', function(e) {
+      e.stopPropagation();
+      removeCoupon($(this).data('type'));
+    });
+    updateCouponDisplay();
+  });
+
+  function renderProducts() {
+    const container = $('#products-container');
+    container.empty();
+    for (const productId in products) {
+      const product = products[productId];
+      const discountPercent = Math.round(((product.price_per_kg - product.sale_price_per_kg) / product.price_per_kg) * 100);
+      const productHTML = `
+          <div class="product-card">
+            <div class="product-visual">
+              <img alt="${product.name} image" src="${product.image}" style="margin:0 auto; max-width: 200px;" class="product-emoji">
+              <h3 class="product-title">${product.name}</h3>
+              <p class="product-subtitle">${product.description}</p>
+            </div>
+            <div class="pricing-display">
+              <span class="current-price">₹${product.sale_price_per_kg/10}</span>
+              <span class="original-price">₹${product.price_per_kg/10}</span>
+              <span class="discount-tag">${discountPercent}% OFF</span>
+            </div>
+            <div class="quantity-section">
+              <label class="form-label fw-bold mb-3">Select Quantity (grams)</label>
+              <div class="quantity-presets">
+                ${quantityPresets.map(qty => `<button class="preset-btn" onclick="selectPresetQuantity('${product.id}', ${qty})">${qty}g</button>`).join('')}
+              </div>
+              <div class="custom-quantity">
+                <input type="number" class="quantity-input" id="quantity-${product.id}" placeholder="Enter custom quantity" min="100" step="100" value="100">
+                <span class="quantity-unit">grams</span>
+              </div>
+            </div>
+            <button class="btn btn-primary btn-sm add-to-cart-button order-this-flavor" onclick="addItemToCart('${product.id}')">
+              <i class="fas fa-cart-plus me-2"></i>Add to Cart
+              <div class="success-overlay"><i class="fas fa-check me-2"></i>Added!</div>
+            </button>
+          </div>`;
+      container.append(productHTML);
+    }
+  }
+
+  function selectPresetQuantity(productId, quantity) {
+    $(`#quantity-${productId}`).val(quantity);
+    const card = $(`#quantity-${productId}`).closest('.product-card');
+    card.find('.preset-btn').removeClass('active');
+    card.find(`.preset-btn:contains('${quantity}g')`).addClass('active');
+  }
+
+  function addItemToCart(productId) {
+    productId = parseInt(productId);
+    const quantityInput = $(`#quantity-${productId}`);
+    const quantity = parseInt(quantityInput.val()) || 100;
+    if (quantity < 100) {
+      showAlertModal('Minimum quantity is 100 grams', 'warning');
+      quantityInput.val(100);
+      return;
+    }
+    addOrderItem(productId, quantity).then(order => { updateAllCartDisplays(); });
+    const button = $(`#quantity-${productId}`).closest('.product-card').find('.add-to-cart-button');
+    button.addClass('added');
+    setTimeout(() => button.removeClass('added'), 2000);
+  }
+
+  function removeItemFromCart(index) {
+    index = parseInt(index);
+    removeOrderItem(index).then(order => { updateAllCartDisplays(); });
+  }
+
+  function updateAllCartDisplays() {
+    updateDesktopCart();
+    updateMobileCart();
+    updateCouponDisplay();
+  }
+
+  function updateDesktopCart() {
+    const cartItemsContainer = $('#desktop-cart-items');
+    const cartSummary = $('#desktop-cart-summary');
+    if (order.items.length === 0) {
+      cartItemsContainer.html(`
+          <div class="cart-empty-state">
+            <i class="fas fa-shopping-cart"></i>
+            <p class="mb-2">Your cart is empty</p>
+            <small class="text-muted">Add some delicious banana chips to get started!</small>
+          </div>`);
+      cartSummary.addClass('d-none');
+      return;
+    }
+    let cartHTML = '';
+    order.items.forEach((item, i) => {
+      cartHTML += `
+          <div class="cart-item-row">
+            <img src="${item.image}" alt="${item.name} image" style="max-width: 50px;">
+            <div class="cart-item-details">
+              <div class="cart-item-name">${item.name}</div>
+              <div class="cart-item-specs">${item.quantity}g</div>
+            </div>
+            <div class="cart-item-price">
+              <span class="original-price">₹${Math.round(item.price_per_kg * item.quantity/1000)}</span>
+              <span class="sale-price">₹${Math.round(item.sale_price_per_kg * item.quantity/1000)}</span>
+            </div>
+            <button class="remove-cart-item" onclick="removeItemFromCart('${i}')" title="Remove item">
+              <i class="fas fa-trash"></i>
+            </button>
+          </div>`;
+    });
+    cartItemsContainer.html(cartHTML);
+    cartSummary.removeClass('d-none');
+    updatePriceSummary();
+  }
+
+  function updateMobileCart() {
+    const cartItemsContainer = $('#mobile-cart-items');
+    const cartSummary = $('#mobile-cart-summary');
+    const itemCount = $('#mobile-cart-count, #mobile-cart-item-count');
+    itemCount.text(order.items.length);
+    if (order.items.length === 0) {
+      cartItemsContainer.html(`
+          <div class="cart-empty-state">
+            <p class="mb-2">Your cart is empty</p>
+            <small class="text-muted">Add items to see them here</small>
+          </div>`);
+      cartSummary.addClass('d-none');
+      $('#mobile-total-preview').text('₹0');
+      return;
+    }
+    let cartHTML = '';
+    order.items.forEach((item, i) => {
+      cartHTML += `
+          <div class="cart-item-row">
+            <div><img src="${item.image}" alt="${item.name} image" style="max-width: 50px;"></div>
+            <div class="cart-item-details">
+              <div class="cart-item-name">${item.name}</div>
+              <div class="cart-item-specs">${item.quantity}g</div>
+            </div>
+            <div class="cart-item-price">
+              <span class="original-price">₹${Math.round(item.price_per_kg * item.quantity/1000)}</span>
+              <span class="sale-price">₹${Math.round(item.sale_price_per_kg * item.quantity/1000)}</span>
+            </div>
+            <button class="remove-cart-item" onclick="removeItemFromCart('${i}')" title="Remove item">
+              <i class="fas fa-trash"></i>
+            </button>
+          </div>`;
+    });
+    cartItemsContainer.html(cartHTML);
+    cartSummary.removeClass('d-none');
+    updatePriceSummary();
+  }
+
+  function togglePriceBreakdown(type) {
+    const prefix = type === 'desktop' ? 'desktop' : 'mobile';
+    const toggleBtn = $(`#${prefix}-price-toggle`);
+    const details = $(`#${prefix}-price-details`);
+    const span = toggleBtn.find('span');
+    if (details.hasClass('expanded')) {
+      details.removeClass('expanded'); toggleBtn.removeClass('expanded'); span.text('View Details');
+    } else {
+      details.addClass('expanded'); toggleBtn.addClass('expanded'); span.text('Hide Details');
+    }
+  }
+
+  function toggleCouponSection(type) {
+    const prefix = type === 'desktop' ? 'desktop' : 'mobile';
+    const toggleBtn = $(`#${prefix}-coupon-toggle`);
+    const details = $(`#${prefix}-coupon-details`);
+    const span = toggleBtn.find('span');
+    if (details.hasClass('expanded')) {
+      details.removeClass('expanded'); toggleBtn.removeClass('expanded'); span.text('Apply Coupon');
+    } else {
+      details.addClass('expanded'); toggleBtn.addClass('expanded'); span.text('Hide');
+    }
+  }
+
+  function updateCouponDisplay() {
+    const hasCoupon = order.coupon && order.coupon.trim() !== '';
+    const desktopApplied = $('#desktop-applied-coupon');
+    const desktopInput = $('#desktop-coupon-input');
+    const desktopApplyBtn = $('#desktop-apply-coupon');
+    if (hasCoupon) {
+      desktopApplied.addClass('show');
+      $('#desktop-applied-coupon-code').text(order.coupon);
+      desktopInput.prop('disabled', true).val(order.coupon);
+      desktopApplyBtn.text('Applied').prop('disabled', true);
+    } else {
+      desktopApplied.removeClass('show');
+      desktopInput.prop('disabled', false).val('');
+      desktopApplyBtn.text('Apply').prop('disabled', false);
+    }
+    const mobileApplied = $('#mobile-applied-coupon');
+    const mobileInput = $('#mobile-coupon-input');
+    const mobileApplyBtn = $('#mobile-apply-coupon');
+    if (hasCoupon) {
+      mobileApplied.addClass('show');
+      $('#mobile-applied-coupon-code').text(order.coupon);
+      mobileInput.prop('disabled', true).val(order.coupon);
+      mobileApplyBtn.text('Applied').prop('disabled', true);
+    } else {
+      mobileApplied.removeClass('show');
+      mobileInput.prop('disabled', false).val('');
+      mobileApplyBtn.text('Apply').prop('disabled', false);
+    }
+  }
+
+  function removeCoupon(type) {
+    order.coupon = null;
+    order.couponDiscount = 0;
+    const prefix = type === 'desktop' ? 'desktop' : 'mobile';
+    $(`#${prefix}-coupon-message`).text('').removeClass('valid-coupon invalid-coupon');
+    updateCouponDisplay();
+    processOrder().then(order => { updateAllCartDisplays(); });
+  }
+
+  function updatePriceSummary() {
+    let savings = order.saleDiscount + order.couponDiscount;
+    $('#desktop-subtotal').html(`<span class="original-price">₹${order.total}</span> <span class="sale-price">₹${order.saleTotal}</span>`);
+    $('#desktop-coupon-discount').text('-₹' + order.couponDiscount);
+    $('#desktop-delivery-charge').text('+₹' + order.deliveryCharge);
+    $('#desktop-total-saving').text('₹' + savings);
+    $('#desktop-total').text('₹' + order.final);
+    $('#mobile-subtotal').html(`<span class="original-price">₹${order.total}</span> <span class="sale-price">₹${order.saleTotal}</span>`);
+    $('#mobile-total-saving').text('₹' + savings);
+    $('#mobile-coupon-discount').text('-₹' + order.couponDiscount);
+    $('#mobile-delivery-charge').text('+₹' + order.deliveryCharge);
+    $('#mobile-total').text('₹' + order.final);
+    $('#mobile-total-preview').text('₹' + order.final);
+    if (savings > 0) {
+      $('#desktop-total-saving-line, #mobile-total-saving-line').removeClass('d-none');
+    } else {
+      $('#desktop-total-saving-line, #desktop-total-saving-line').addClass('d-none');
+    }
+    if (order.couponDiscount > 0) {
+      $('#desktop-coupon-discount-line, #mobile-coupon-discount-line').removeClass('d-none');
+    } else {
+      $('#desktop-coupon-discount-line, #mobile-coupon-discount-line').addClass('d-none');
+    }
+    if (order.deliveryCharge > 0) {
+      $('#desktop-delivery-charge-line, #mobile-delivery-charge-line, #mobile-delivery-charge-info-line, #desktop-delivery-charge-info-line').removeClass('d-none');
+    } else {
+      $('#desktop-delivery-charge-line, #mobile-delivery-charge-line, #mobile-delivery-charge-info-line, #desktop-delivery-charge-info-line').addClass('d-none');
+    }
+    const hasItems = order.items.length > 0;
+    $('#desktop-checkout-btn, #mobile-checkout-btn').prop('disabled', !hasItems);
+  }
+
+  function toggleMobileCart() {
+    $('#mobile-cart').toggleClass('collapsed');
+  }
+
+  function triggerValidationOfCoupon() {
+    const isDesktop = $(this).attr('id') ? $(this).attr('id').includes('desktop') : true;
+    const couponInput = isDesktop ? $('#desktop-coupon-input') : $('#mobile-coupon-input');
+    const messageEl = isDesktop ? $('#desktop-coupon-message') : $('#mobile-coupon-message');
+    const couponCode = couponInput.val().trim().toUpperCase();
+    if (!couponCode) {
+      showCouponMessage(messageEl, 'Please enter a coupon code', 'error');
+      const type = isDesktop ? 'desktop' : 'mobile';
+      const details = $(`#${type}-coupon-details`);
+      const toggleBtn = $(`#${type}-coupon-toggle`);
+      const span = toggleBtn.find('span');
+      if (!details.hasClass('expanded')) { details.addClass('expanded'); toggleBtn.addClass('expanded'); span.text('Hide'); }
+      return;
+    }
+    validateCoupon(couponCode).then(response => {
+      const type = isDesktop ? 'desktop' : 'mobile';
+      if (response.success) {
+        showCouponMessage(messageEl, response.message, 'success');
+        order.coupon = couponCode;
+        order.couponDiscount = response.discount_amount;
+        updateCouponDisplay();
+      } else {
+        showCouponMessage(messageEl, response.message, 'error');
+      }
+      const details = $(`#${type}-coupon-details`);
+      const toggleBtn = $(`#${type}-coupon-toggle`);
+      const span = toggleBtn.find('span');
+      if (!details.hasClass('expanded')) { details.addClass('expanded'); toggleBtn.addClass('expanded'); span.text('Hide'); }
+      processOrder().then(order => { updateAllCartDisplays(); });
+    }).catch(response => {
+      showCouponMessage(messageEl, 'Unable to validate the coupon', 'error');
+      processOrder().then(order => updateAllCartDisplays());
+    });
+  }
+
+  $('#desktop-apply-coupon, #mobile-apply-coupon').click(function() { triggerValidationOfCoupon.call(this); });
+
+  $('#desktop-checkout-btn, #mobile-checkout-btn').click(function() {
+    if (order.items.length === 0) return;
+    $('#deliveryModal').modal('show');
+  });
+
+  $('#mobile').on('blur', function() {
+    const mobile = $(this).val().trim();
+    if (mobile) { checkUserByMobile(mobile); }
+  });
+
+  function validateDeliveryForm() {
+    let isValid = true;
+    const formData = {
+      name: $('#name').val().trim(),
+      mobile: $('#mobile').val().trim(),
+      address: $('#address').val().trim(),
+      pincode: $('#pincode').val().trim()
+    };
+    $('.form-control').removeClass('is-invalid');
+    $('.invalid-feedback').remove();
+    if (!formData.name) { showValidationError('#name', 'Please enter your full name'); isValid = false; }
+    if (!formData.mobile || !formData.mobile.match(/^\d{10}$/)) { showValidationError('#mobile', 'Please enter a valid 10-digit mobile number'); isValid = false; }
+    if (!formData.address) { showValidationError('#address', 'Please enter your delivery address'); isValid = false; }
+    if (!formData.pincode || !formData.pincode.match(/^\d{6}$/)) { showValidationError('#pincode', 'Please enter a valid 6-digit pincode'); isValid = false; }
+    return isValid;
+  }
+
+  function showValidationError(selector, message) {
+    $(selector).addClass('is-invalid');
+    $(selector).after(`<div class="invalid-feedback">${message}</div>`);
+  }
+
+  $(document).on('input', '.quantity-input', function() {
+    const value = parseInt($(this).val()) || 0;
+    if (value > 0 && value < 100) { $(this).val(100); }
+  });
+
+  $(document).on('click', '.preset-btn', function() {
+    const card = $(this).closest('.product-card');
+    card.find('.preset-btn').removeClass('active');
+    $(this).addClass('active');
+  });
+</script>
+{% endblock %}

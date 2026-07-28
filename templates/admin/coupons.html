@@ -1,0 +1,216 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Coupons — Varthaai Admin{% endblock %}
+
+{% block content %}
+<div class="page-body">
+
+  <!-- Page header -->
+  <div class="page-header">
+    <div>
+      <h1>Coupons</h1>
+      <p>Create and manage discount coupons.</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addCouponModal">
+        <i class="fas fa-plus me-1"></i>New Coupon
+      </button>
+    </div>
+  </div>
+
+  <!-- Stat cards -->
+  <div class="row g-3 mb-4">
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat-card">
+        <div class="stat-icon blue"><i class="fas fa-ticket"></i></div>
+        <div class="stat-body"><h2 id="statTotal">—</h2><p>Total Coupons</p></div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat-card">
+        <div class="stat-icon green"><i class="fas fa-check-circle"></i></div>
+        <div class="stat-body"><h2 id="statActive">—</h2><p>Active</p></div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat-card">
+        <div class="stat-icon teal"><i class="fas fa-star"></i></div>
+        <div class="stat-body"><h2 id="statValid">—</h2><p>Currently Valid</p></div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat-card">
+        <div class="stat-icon amber"><i class="fas fa-clock"></i></div>
+        <div class="stat-body"><h2 id="statExpired">—</h2><p>Expired</p></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Coupons grid -->
+  <div class="row g-3" id="couponsGrid">
+    <div class="col-12">
+      <div class="empty-state">
+        <div class="admin-loader-spinner" style="margin:0 auto 10px"></div>
+        Loading coupons…
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.page-body -->
+
+<!-- Add Coupon Modal -->
+<div class="modal fade" id="addCouponModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-plus me-2"></i>Create New Coupon</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="addCouponForm">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">Coupon Code *</label>
+              <input type="text" class="form-control" id="addCode" required maxlength="20" style="text-transform:uppercase" placeholder="e.g. SAVE50">
+              <div class="form-text">Letters and numbers only. Converted to uppercase.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Discount Type *</label>
+              <select class="form-select" id="discountType">
+                <option value="">Select Type</option>
+                <option value="amount">Fixed Amount (₹)</option>
+                <option value="percentage">Percentage (%)</option>
+              </select>
+            </div>
+            <div class="col-md-4" id="amountField" style="display:none">
+              <label class="form-label">Discount Amount (₹)</label>
+              <input type="number" class="form-control" id="addDiscountAmount" min="1" step="0.01">
+            </div>
+            <div class="col-md-4" id="percentageField" style="display:none">
+              <label class="form-label">Discount Percentage (%)</label>
+              <input type="number" class="form-control" id="addDiscountPct" min="1" max="100">
+            </div>
+            <div class="col-md-4" id="maxDiscountField" style="display:none">
+              <label class="form-label">Max Discount (₹)</label>
+              <input type="number" class="form-control" id="addMaxDiscount" min="1" step="0.01">
+              <div class="form-text">Cap for percentage discounts.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Min Order Value (₹) *</label>
+              <input type="number" class="form-control" id="addMinOrder" min="0" step="0.01" value="0" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Min Quantity (grams)</label>
+              <input type="number" class="form-control" id="addMinQty" min="0" value="0">
+              <div class="form-text">0 = no minimum.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Max Uses</label>
+              <input type="number" class="form-control" id="addMaxUses" min="1">
+              <div class="form-text">Leave empty for unlimited.</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Start Date *</label>
+              <input type="datetime-local" class="form-control" id="addStartDate" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Expiry Date *</label>
+              <input type="datetime-local" class="form-control" id="addExpiryDate" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Valid for Flavors (optional)</label>
+              <select class="form-select" id="addValidFlavors" multiple>
+              </select>
+              <div class="form-text">Leave empty to apply to all flavors. Hold Ctrl/Cmd to select multiple.</div>
+            </div>
+          </div>
+          <div class="alert alert-info mt-3 mb-0" style="font-size:0.82rem">
+            <i class="fas fa-info-circle me-1"></i>Quantities are in grams (1kg = 1000g).
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-plus me-1"></i>Create Coupon</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Coupon Modal -->
+<div class="modal fade" id="editCouponModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-pen me-2"></i>Edit Coupon</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="editCouponForm">
+        <input type="hidden" id="editCouponId">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">Coupon Code *</label>
+              <input type="text" class="form-control" id="editCode" required maxlength="20" style="text-transform:uppercase" placeholder="e.g. SAVE50">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Discount Type *</label>
+              <select class="form-select" id="editDiscountType">
+                <option value="">Select Type</option>
+                <option value="amount">Fixed Amount (₹)</option>
+                <option value="percentage">Percentage (%)</option>
+              </select>
+            </div>
+            <div class="col-md-4" id="editAmountField" style="display:none">
+              <label class="form-label">Discount Amount (₹)</label>
+              <input type="number" class="form-control" id="editDiscountAmount" min="1" step="0.01">
+            </div>
+            <div class="col-md-4" id="editPercentageField" style="display:none">
+              <label class="form-label">Discount Percentage (%)</label>
+              <input type="number" class="form-control" id="editDiscountPct" min="1" max="100">
+            </div>
+            <div class="col-md-4" id="editMaxDiscountField" style="display:none">
+              <label class="form-label">Max Discount (₹)</label>
+              <input type="number" class="form-control" id="editMaxDiscount" min="1" step="0.01">
+              <div class="form-text">Cap for percentage discounts.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Min Order Value (₹)</label>
+              <input type="number" class="form-control" id="editMinOrder" min="0" step="0.01" value="0">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Min Quantity (grams)</label>
+              <input type="number" class="form-control" id="editMinQty" min="0" value="0">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Max Uses</label>
+              <input type="number" class="form-control" id="editMaxUses" min="1">
+              <div class="form-text">Leave empty for unlimited.</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Start Date</label>
+              <input type="datetime-local" class="form-control" id="editStartDate">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Expiry Date</label>
+              <input type="datetime-local" class="form-control" id="editExpiryDate">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Valid for Flavors (optional)</label>
+              <select class="form-select" id="editValidFlavors" multiple></select>
+              <div class="form-text">Leave empty to apply to all flavors. Hold Ctrl/Cmd to select multiple.</div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}<script src="{% static 'js/admin/coupons.js' %}"></script>{% endblock %}

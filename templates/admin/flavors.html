@@ -1,0 +1,261 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Flavors{% endblock %}
+
+{% block content %}
+<div class="page-body">
+
+  <!-- Page header -->
+  <div class="page-header">
+    <div>
+      <h1>Flavors</h1>
+      <p>Manage your product flavors and pricing.</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addFlavorModal">
+        <i class="fas fa-plus me-1"></i>Add Flavor
+      </button>
+    </div>
+  </div>
+
+  <!-- Stat cards -->
+  <div class="row g-3 mb-4">
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat-card">
+        <div class="stat-icon green"><i class="fas fa-pepper-hot"></i></div>
+        <div class="stat-body"><h2 id="statTotal">—</h2><p>Total Flavors</p></div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat-card">
+        <div class="stat-icon teal"><i class="fas fa-check-circle"></i></div>
+        <div class="stat-body"><h2 id="statActive">—</h2><p>Active</p></div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat-card">
+        <div class="stat-icon blue"><i class="fas fa-indian-rupee-sign"></i></div>
+        <div class="stat-body"><h2 id="statAvgPrice">—</h2><p>Avg Sale Price</p></div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat-card">
+        <div class="stat-icon amber"><i class="fas fa-chart-line"></i></div>
+        <div class="stat-body"><h2 id="statMaxPrice">—</h2><p>Max Price</p></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Flavors grid -->
+  <div class="row g-3" id="flavorsGrid">
+    <div class="col-12">
+      <div class="empty-state">
+        <div class="admin-loader-spinner" style="margin:0 auto 10px"></div>
+        Loading flavors…
+      </div>
+    </div>
+  </div>
+
+</div><!-- /.page-body -->
+
+<!-- Add Flavor Modal -->
+<div class="modal fade" id="addFlavorModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-plus me-2"></i>Add New Flavor</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="addFlavorForm">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Flavor Name *</label>
+              <input type="text" class="form-control" id="addName" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Status</label>
+              <div class="form-check mt-2">
+                <input class="form-check-input" type="checkbox" id="addIsActive" checked>
+                <label class="form-check-label" for="addIsActive">Active (available for orders)</label>
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Description</label>
+              <textarea class="form-control" id="addDescription" rows="2" placeholder="Describe this flavor…"></textarea>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Original Price per kg (₹) *</label>
+              <input type="number" class="form-control" id="addPrice" step="0.01" min="0" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Sale Price per kg (₹) *</label>
+              <input type="number" class="form-control" id="addSalePrice" step="0.01" min="0" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Reorder Level (kg)</label>
+              <input type="number" class="form-control" id="addReorderKg" step="0.1" min="0" value="5">
+              <div class="form-text">Alert when stock falls below this.</div>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Image URL</label>
+              <input type="text" class="form-control" id="addImage" placeholder="https://… or /images/flavor.jpg">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Ingredients</label>
+              <textarea class="form-control" id="addIngredients" rows="2" placeholder="List ingredients…"></textarea>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Nutritional Facts</label>
+              <div id="addNutritionRows" style="display:flex;flex-direction:column;gap:6px"></div>
+              <button type="button" class="btn btn-outline-secondary btn-sm mt-2" onclick="addNutritionRow('add','','')">
+                <i class="fas fa-plus me-1"></i>Add Row
+              </button>
+            </div>
+          </div>
+          <div class="alert alert-info mt-3 mb-0" style="font-size:0.82rem">
+            <i class="fas fa-info-circle me-1"></i>Set original price higher than sale price to show discount badges to customers.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-plus me-1"></i>Add Flavor</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Flavor Modal -->
+<div class="modal fade" id="editFlavorModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-pen me-2"></i>Edit Flavor</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="editFlavorForm">
+        <input type="hidden" id="editFlavorId">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Flavor Name *</label>
+              <input type="text" class="form-control" id="editName" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Status</label>
+              <div class="form-check mt-2">
+                <input class="form-check-input" type="checkbox" id="editIsActive">
+                <label class="form-check-label" for="editIsActive">Active (available for orders)</label>
+              </div>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Description</label>
+              <textarea class="form-control" id="editDescription" rows="2"></textarea>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Original Price per kg (₹) *</label>
+              <input type="number" class="form-control" id="editPrice" step="0.01" min="0" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Sale Price per kg (₹) *</label>
+              <input type="number" class="form-control" id="editSalePrice" step="0.01" min="0" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Reorder Level (kg)</label>
+              <input type="number" class="form-control" id="editReorderKg" step="0.1" min="0">
+              <div class="form-text">Alert when stock falls below this.</div>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Image URL</label>
+              <input type="text" class="form-control" id="editImage" placeholder="https://… or /images/flavor.jpg">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Ingredients</label>
+              <textarea class="form-control" id="editIngredients" rows="2"></textarea>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Nutritional Facts</label>
+              <div id="editNutritionRows" style="display:flex;flex-direction:column;gap:6px"></div>
+              <button type="button" class="btn btn-outline-secondary btn-sm mt-2" onclick="addNutritionRow('edit','','')">
+                <i class="fas fa-plus me-1"></i>Add Row
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Packs Modal -->
+<div class="modal fade" id="packsModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-box me-2"></i>Packs — <span id="packsFlavorName"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Add pack form -->
+        <div style="background:var(--gray-50);border-radius:8px;padding:14px;margin-bottom:16px">
+          <div class="row g-2 align-items-end">
+            <div class="col-md-2">
+              <label class="form-label" style="font-size:0.78rem">Weight (g) *</label>
+              <input type="number" class="form-control form-control-sm" id="packWeight" min="1">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label" style="font-size:0.78rem">Label *</label>
+              <input type="text" class="form-control form-control-sm" id="packLabel" placeholder="e.g. 250g">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label" style="font-size:0.78rem">MRP (₹)</label>
+              <input type="number" class="form-control form-control-sm" id="packMrp" step="0.01" min="0">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label" style="font-size:0.78rem">Selling (₹)</label>
+              <input type="number" class="form-control form-control-sm" id="packSelling" step="0.01" min="0">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label" style="font-size:0.78rem">Cost (₹)</label>
+              <input type="number" class="form-control form-control-sm" id="packCost" step="0.01" min="0">
+            </div>
+            <div class="col-md-2">
+              <button class="btn btn-primary btn-sm w-100" onclick="addPack()">
+                <i class="fas fa-plus me-1"></i>Add
+              </button>
+            </div>
+          </div>
+        </div>
+        <!-- Packs table -->
+        <div class="table-responsive">
+          <table class="table table-sm" style="font-size:0.85rem">
+            <thead>
+              <tr>
+                <th>Weight</th>
+                <th>Label</th>
+                <th>MRP</th>
+                <th>Selling</th>
+                <th>Cost</th>
+                <th>SKU</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="packsTableBody">
+              <tr><td colspan="8" class="text-center" style="color:var(--gray-400);padding:20px">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}<script src="{% static 'js/admin/flavors.js' %}"></script>{% endblock %}

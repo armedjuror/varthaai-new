@@ -1,0 +1,125 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}B2B Offers — Varthaai Admin{% endblock %}
+
+{% block page_title %}
+<div class="page-header">
+  <div>
+    <h1>B2B Offers &amp; Schemes</h1>
+    <p>Manage promotional offers for B2B clients.</p>
+  </div>
+  <div class="page-header-actions">
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#offerModal" onclick="resetOfferForm()">
+      <i class="fas fa-plus me-1"></i>New Offer
+    </button>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="page-body">
+
+  <!-- Offers list -->
+  <div class="data-card">
+    <div class="data-card-header">
+      <h3>Offers</h3>
+    </div>
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Type</th>
+            <th>Details</th>
+            <th>Scope</th>
+            <th>Validity</th>
+            <th>Stackable</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="offersTableBody">
+          <tr><td colspan="8" class="text-center" style="padding:40px;color:var(--gray-400)">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /.page-body -->
+
+<!-- Offer Modal (add/edit) -->
+<div class="modal fade" id="offerModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="offerModalTitle">New Offer</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="offerForm">
+        <input type="hidden" id="offerId">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Name <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="offerName" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Type <span class="text-danger">*</span></label>
+              <select class="form-select" id="offerType" onchange="toggleOfferFields()">
+                <option value="buy_x_get_y">Buy X Get Y Free</option>
+                <option value="discount_percent">Discount %</option>
+                <option value="flat_discount">Flat Discount</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Description</label>
+              <textarea class="form-control" id="offerDesc" rows="2"></textarea>
+            </div>
+            <div class="col-md-4" id="minQtyWrap">
+              <label class="form-label">Min Packs (Buy)</label>
+              <input type="number" class="form-control" id="offerMinQty" min="1">
+            </div>
+            <div class="col-md-4" id="freeQtyWrap">
+              <label class="form-label">Free Packs (Get)</label>
+              <input type="number" class="form-control" id="offerFreeQty" min="1">
+            </div>
+            <div class="col-md-4" id="discValWrap" style="display:none">
+              <label class="form-label">Discount Value</label>
+              <input type="number" class="form-control" id="offerDiscVal" step="0.01" min="0">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Company (optional)</label>
+              <select class="form-select" id="offerCompany">
+                <option value="">Global (all clients)</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Valid From</label>
+              <input type="date" class="form-control" id="offerFrom">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Valid To</label>
+              <input type="date" class="form-control" id="offerTo">
+            </div>
+            <div class="col-md-6">
+              <div class="form-check mt-2">
+                <input class="form-check-input" type="checkbox" id="offerStackable">
+                <label class="form-check-label" for="offerStackable">Stackable (can combine with other offers)</label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/admin/b2b-offers.js' %}"></script>
+{% endblock %}

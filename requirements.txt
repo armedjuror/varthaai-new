@@ -1,0 +1,17 @@
+asgiref==3.12.1
+certifi==2026.6.17
+charset-normalizer==3.4.9
+Django==5.2.16
+djangorestframework==3.17.1
+idna==3.18
+pillow==12.3.0
+psycopg==3.3.4
+psycopg-binary==3.3.4
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.2
+razorpay==2.0.1
+requests==2.34.2
+six==1.17.0
+sqlparse==0.5.5
+typing_extensions==4.16.0
+urllib3==2.7.0

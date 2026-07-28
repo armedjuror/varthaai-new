@@ -1,0 +1,372 @@
+{% extends 'storefront/base.html' %}
+{% load static %}
+
+{% block title %}Varthaai - Premium Kerala Banana Chips{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<header class="hero-section">
+  <div class="container">
+    <div class="row align-items-center">
+      <div class="col-lg-12 col-md-12">
+        <div class="row">
+          <div class="col-md-2 col-lg-2 d-none d-md-block">
+            <div class="mascot-container text-center">
+              <img src="{% static 'images/mascot.png' %}" alt="Varthaai Mascot" class="img-fluid mascot-image">
+            </div>
+          </div>
+          <div class="col-md-10 col-lg-10">
+            <div class="hero-content">
+              <h1 class="mb-3">The crunch that tells you a tale of 💛</h1>
+              <p class="lead mb-4">Get the banana chips everyone's talking about!</p>
+              <div class="hero-buttons">
+                <a href="#reviews" class="btn btn-outline-primary order-this-flavor">Hear what our customers say</a>
+                <a href="/shop/" class="btn btn-primary order-this-flavor"><i class="fas fa-shopping-cart me-2"></i>Order Now</a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- About Section -->
+<section id="about" class="about-section">
+  <div class="container">
+    <div class="section-heading">
+      <h2>Cooked with love</h2>
+      <div class="separator"></div>
+    </div>
+    <div class="row">
+      <div class="col-md-6 order-md-1 order-2">
+        <div class="about-content">
+          <p class="mb-4" align="justify">Varthaai was born from a cherished childhood memory—the golden afternoon
+            light filtering through kitchen windows as grandmother transformed raw bananas into crisp, delectable
+            "varutha kaaya" or banana chips. More than just a snack, these moments represented love, tradition, and
+            the simple joy of something made with care. Today, we've preserved this legacy while elevating it to
+            extraordinary heights, creating premium banana chips that honor Kerala's culinary heritage with
+            uncompromising quality.</p>
+          <p align="justify">In a world of mass production, we stand apart—selecting single-origin bananas at perfect
+            ripeness, sliced into finest chips, fried with turmeric powder, coconut oil and our secret ingredient
+            "<span class="red">love</span>". It's the golden token of love. You deserve nothing less than the best in
+            your golden moments and it's our promise.</p>
+        </div>
+      </div>
+      <div class="col-md-6 order-md-2 order-1 mb-4 mb-md-0">
+        <div class="about-image">
+          <img src="{% static 'images/pack.png' %}" alt="Varthaai Products" class="img-fluid">
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Product Catalogue Section -->
+<section id="products" class="products-section">
+  <div class="container">
+    <div class="section-heading">
+      <h2>Crafted with Kerala's soul</h2>
+      <div class="separator"></div>
+    </div>
+
+    <div class="product-showcase">
+      <div class="row align-items-center">
+        <div class="col-lg-6">
+          <div class="product-display">
+            <div class="product-image-container">
+              <div class="floating-elements">
+                <div class="ingredient-bubble bubble-1">
+                  <img src="{% static 'images/banana.png' %}" style="max-width: 30px" alt="Fresh Bananas">
+                  <span>High Quality Bananas</span>
+                </div>
+                <div class="ingredient-bubble bubble-2">
+                  <img src="{% static 'images/coconut.png' %}" alt="Coconut Oil">
+                  <span>Pure Coconut Oil</span>
+                </div>
+                <div class="ingredient-bubble bubble-3">
+                  <img src="{% static 'images/chips.png' %}" alt="Turmeric">
+                  <span>Finest Chips</span>
+                </div>
+                <div class="ingredient-bubble bubble-4">
+                  <img src="{% static 'images/love.png' %}" alt="Love">
+                  <span>Fried With Love</span>
+                </div>
+              </div>
+              <div class="main-product-image">
+                <img id="active-product-image" src="{% static 'images/favicon-16x16.png' %}" alt="Varthaai Classic" class="img-fluid" style="max-width: 320px">
+                <div class="glow-effect"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-lg-6">
+          <div class="product-selector">
+            <div class="flavor-tabs" id="flavor-tabs"></div>
+
+            <div class="product-info">
+              <h3 id="active-product-name">Classic Banana Chips</h3>
+              <p id="active-product-tagline">Where tradition meets perfection in golden Kerala style</p>
+
+              <div class="interactive-details">
+                <div class="detail-card ingredients-card">
+                  <div class="card-header" data-bs-toggle="collapse" data-bs-target="#ingredients-collapse">
+                    <i class="fas fa-leaf"></i>
+                    <span>Ingredients</span>
+                    <i class="fas fa-chevron-down arrow"></i>
+                  </div>
+                  <div class="collapse" id="ingredients-collapse">
+                    <div class="card-content">
+                      <div id="active-ingredients">Fresh Raw Bananas, Pure Coconut Oil, Golden Turmeric, Rock Salt</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="detail-card nutrition-card">
+                  <div class="card-header" data-bs-toggle="collapse" data-bs-target="#nutrition-collapse">
+                    <i class="fas fa-chart-pie"></i>
+                    <span>Nutrition Facts</span>
+                    <i class="fas fa-chevron-down arrow"></i>
+                  </div>
+                  <div class="collapse" id="nutrition-collapse">
+                    <div class="card-content">
+                      <div class="nutrition-grid" id="active-nutrition">
+                        <div class="nutrition-item"><span class="value">518</span><span class="label">kcal</span></div>
+                        <div class="nutrition-item"><span class="value">30.2g</span><span class="label">Fat</span></div>
+                        <div class="nutrition-item"><span class="value">58.4g</span><span class="label">Carbs</span></div>
+                        <div class="nutrition-item"><span class="value">2.3g</span><span class="label">Protein</span></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="product-actions mt-4">
+                <a class="btn btn-primary btn-lg order-this-flavor" href="/shop/">
+                  <i class="fas fa-shopping-cart me-2"></i>Order Now
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Reviews Section -->
+<section id="reviews" class="reviews-section">
+  <div class="container">
+    <div class="section-heading">
+      <h2>They experienced, what about you?</h2>
+      <div class="separator"></div>
+    </div>
+    <div class="row">
+      <div class="col-12">
+        <div class="reviews-slider">
+          <div class="review-empty text-center d-none">
+            <p>No reviews yet. Be the first to review!</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="row mt-4">
+      <div class="col-12 text-center">
+        <button type="button" id="add-review-btn" class="btn btn-outline-primary">Add Your Review</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- OruVarthaai Campaign Section -->
+<section id="campaign" class="campaign-section">
+  <div class="container">
+    <div class="section-heading">
+      <h2>Share your Varthaai moment</h2>
+      <div class="separator"></div>
+    </div>
+    <div class="row g-4 justify-content-center">
+      <div class="col-lg-12 col-md-12">
+        <div class="campaign-content text-center">
+          <p class="lead mb-4">Join thousands of satisfied customers sharing their Varthaai moments on social media.</p>
+          <div class="hashtag-display mb-4">#OruVarthaaiVarthaanm</div>
+          <p>Share your Varthaai experience on Instagram with our hashtag and get featured!</p>
+          <div class="mt-4">
+            <a href="https://instagram.com/varthaai" target="_blank" class="btn btn-primary me-2">
+              <i class="fab fa-instagram me-2"></i>Instagram
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Blog Section -->
+<section id="blog" class="blog-section" style="display: none;">
+  <div class="container">
+    <div class="section-heading">
+      <h2>Latest from our blog</h2>
+      <div class="separator"></div>
+    </div>
+    <div class="row g-4" id="blog-posts"></div>
+    <div class="row mt-4">
+      <div class="col-12 text-center">
+        <a href="/blog/" class="btn btn-outline-primary">View All Blogs</a>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block modals %}
+<!-- Modal: Add Review -->
+<div class="modal fade" id="reviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add Your Review</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="review-form">
+          <div class="mb-3">
+            <label for="review-name" class="form-label">Your Name</label>
+            <input type="text" class="form-control" id="review-name" required>
+          </div>
+          <div class="mb-3">
+            <label for="review-mobile" class="form-label">Mobile Number</label>
+            <input type="tel" class="form-control" id="review-mobile" pattern="[0-9]{10}" required>
+          </div>
+          <div class="mb-3">
+            <label for="designation" class="form-label">Designation</label>
+            <input type="text" class="form-control" id="designation" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Rating</label>
+            <div class="rating">
+              <i class="far fa-star" data-rating="1"></i>
+              <i class="far fa-star" data-rating="2"></i>
+              <i class="far fa-star" data-rating="3"></i>
+              <i class="far fa-star" data-rating="4"></i>
+              <i class="far fa-star" data-rating="5"></i>
+              <input type="hidden" id="rating-value" value="0">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label for="review-text" class="form-label">Your Review</label>
+            <textarea class="form-control" id="review-text" rows="3" required></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" id="submit-review-btn" class="btn btn-primary">Submit Review</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="reviewSuccessModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Review Submitted Successfully!</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body text-center">
+        <div class="success-icon mb-4">
+          <i class="fas fa-check-circle"></i>
+        </div>
+        <h4>Thank You for Your Review</h4>
+        <p>It will get featured once approved!</p>
+        <div class="order-details mt-4">
+          <p>Woohoo, You earned <span id="review-points-earned"></span> points!<br>Each point is equivalent to one rupee :)</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  $(document).ready(function() {
+    // Track UTM parameters and referrals
+    trackSource();
+
+    // Load flavors from database
+    loadProducts().finally(() => {
+      $('#loader').fadeIn();
+      renderFlavorsHome();
+      $('#loader').fadeOut();
+    });
+
+    // Load reviews
+    loadReviews();
+
+    // Load latest blogs
+    loadLatestBlogs();
+
+    $(document).on('click', '.delete-invoice-item', function() {
+      let index = $(this).attr('data-item-index');
+      removeOrderItem(index);
+    });
+
+    // Add Review button
+    $('#add-review-btn').on('click', function() {
+      $('#reviewModal').modal('show');
+    });
+
+    // Rating stars
+    $('.rating i').on('click', function() {
+      const rating = $(this).data('rating');
+      $('#rating-value').val(rating);
+      $('.rating i').removeClass('fas').addClass('far');
+      for (let i = 1; i <= rating; i++) {
+        $(`.rating i[data-rating="${i}"]`).removeClass('far').addClass('fas');
+      }
+    });
+
+    // Submit Review button
+    $('#submit-review-btn').on('click', function() {
+      if (validateReviewForm()) {
+        submitReview();
+      }
+    });
+
+    // Flavor tab switching
+    $(document).on('click', '.flavor-tab', function() {
+      const flavorId = $(this).data('flavor');
+      const product = products[flavorId];
+      if (!product) return;
+
+      $('.flavor-tab').removeClass('active');
+      $(this).addClass('active');
+
+      $('#active-product-image').fadeOut(200, function() {
+        $(this).attr('src', product.image).fadeIn(200);
+      });
+      $('#active-product-name').fadeOut(200, function() {
+        $(this).text(product.name).fadeIn(200);
+      });
+      $('#active-product-tagline').fadeOut(200, function() {
+        $(this).text(product.description).fadeIn(200);
+      });
+      $('#active-ingredients').fadeOut(200, function() {
+        $(this).text(product.ingredients).fadeIn(200);
+      });
+      $('#active-nutrition').fadeOut(200, function() {
+        const nutritionHtml = Object.keys(product.nutrition_fact).map(key =>
+          `<div class="nutrition-item"><span class="value">${product.nutrition_fact[key]}</span><span class="label">${key}</span></div>`
+        ).join('');
+        $(this).html(nutritionHtml).fadeIn(200);
+      });
+    });
+  });
+</script>
+{% endblock %}

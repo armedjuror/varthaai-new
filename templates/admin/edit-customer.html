@@ -1,0 +1,213 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Edit Customer — Varthaai Admin{% endblock %}
+
+{% block content %}
+<div class="page-body">
+
+  <!-- Page header -->
+  <div class="page-header">
+    <div>
+      <h1>Edit Customer</h1>
+      <nav aria-label="breadcrumb">
+        <ol class="breadcrumb mb-0" style="font-size:0.82rem">
+          <li class="breadcrumb-item"><a href="{% url 'core:dashboard' %}">Dashboard</a></li>
+          <li class="breadcrumb-item"><a href="{% url 'accounts:customers' %}">Customers</a></li>
+          <li class="breadcrumb-item"><a href="{% url 'accounts:view_customer' customer.id %}">{{ customer.name|default:customer.mobile }}</a></li>
+          <li class="breadcrumb-item active">Edit</li>
+        </ol>
+      </nav>
+    </div>
+    <div class="page-header-actions">
+      <a href="{% url 'accounts:view_customer' customer.id %}" class="btn btn-sm btn-outline-primary">
+        <i class="fas fa-eye me-1"></i>View
+      </a>
+      <a href="{% url 'accounts:customers' %}" class="btn btn-sm btn-outline-secondary">
+        <i class="fas fa-arrow-left me-1"></i>Customers
+      </a>
+    </div>
+  </div>
+
+  <div class="row g-4">
+
+    <!-- Profile form -->
+    <div class="col-lg-8">
+      <div class="data-card">
+        <div class="data-card-header">
+          <div class="d-flex align-items-center gap-3">
+            <div style="width:44px;height:44px;border-radius:50%;background:var(--primary-color);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1.1rem;flex-shrink:0">
+              {{ customer.name|default:"C"|slice:":1"|upper }}
+            </div>
+            <div>
+              <h3 style="margin:0">{{ customer.name|default:"—" }}</h3>
+              <div style="font-size:0.8rem;color:var(--gray-400)">
+                ID: {{ customer.id }} &nbsp;·&nbsp;
+                {{ customer.mobile }} &nbsp;·&nbsp;
+                Since {{ customer.created_at|date:"d M Y" }}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="padding:24px">
+          <form id="editCustomerForm">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label">Full Name</label>
+                <input type="text" class="form-control" name="name" value="{{ customer.name|default:'' }}">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Mobile Number <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" name="mobile" value="{{ customer.mobile|default:'' }}" required>
+              </div>
+              <div class="col-12">
+                <label class="form-label">Address</label>
+                <textarea class="form-control" name="address" rows="2">{{ customer.address|default:'' }}</textarea>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Pincode</label>
+                <input type="text" class="form-control" name="pincode" value="{{ customer.pincode|default:'' }}">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Designation / Label</label>
+                <input type="text" class="form-control" name="designation" value="{{ customer.designation|default:'' }}" placeholder="e.g. Wholesale, VIP">
+              </div>
+            </div>
+
+            <div class="mt-3 pt-3 d-flex gap-4" style="border-top:1px solid var(--gray-200);font-size:0.8rem;color:var(--gray-400)">
+              <span><i class="fas fa-tag me-1"></i>Referral: <strong>{{ customer.referral_code|default:"—" }}</strong></span>
+              <span><i class="fas fa-calendar me-1"></i>Joined: <strong>{{ customer.created_at|date:"d M Y" }}</strong></span>
+            </div>
+
+            <div class="mt-4">
+              <button type="submit" class="btn btn-primary btn-sm">
+                <i class="fas fa-save me-1"></i>Save Changes
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right column -->
+    <div class="col-lg-4 d-flex flex-column gap-4">
+
+      <!-- Loyalty Points -->
+      <div class="data-card">
+        <div class="data-card-header">
+          <h3>Loyalty Points</h3>
+        </div>
+        <div style="padding:24px">
+          <div style="text-align:center;margin-bottom:20px">
+            <div id="pointsBalance" style="font-size:2.5rem;font-weight:700;color:var(--primary-color);line-height:1">
+              {{ loyalty_points|default:0 }}
+            </div>
+            <div style="font-size:0.8rem;color:var(--gray-400);margin-top:4px">Current Balance</div>
+          </div>
+
+          <form id="adjustPointsForm">
+            <div class="row g-2">
+              <div class="col-6">
+                <label class="form-label">Action</label>
+                <select class="form-select form-select-sm" id="pointsAction">
+                  <option value="add">Add</option>
+                  <option value="subtract">Subtract</option>
+                </select>
+              </div>
+              <div class="col-6">
+                <label class="form-label">Amount</label>
+                <input type="number" class="form-control form-control-sm" id="pointsValue" min="1" placeholder="e.g. 100">
+              </div>
+            </div>
+            <div id="pointsPreview" style="display:none;margin-top:10px;padding:8px 12px;border-radius:6px;background:var(--gray-50);border:1px solid var(--gray-200);font-size:0.82rem;color:var(--gray-500);text-align:center"></div>
+            <button type="submit" class="btn btn-primary btn-sm w-100 mt-3">
+              <i class="fas fa-coins me-1"></i>Apply
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Quick Links -->
+      <div class="data-card">
+        <div class="data-card-header">
+          <h3>Quick Links</h3>
+        </div>
+        <div style="padding:16px;display:flex;flex-direction:column;gap:8px">
+          <a href="/admin/orders/?search={{ customer.mobile|urlencode }}" class="btn btn-sm btn-outline-primary w-100 text-start">
+            <i class="fas fa-bag-shopping me-2"></i>Orders by this customer
+          </a>
+          <a href="{% url 'marketing:reviews' %}?search={{ customer.name|urlencode }}" class="btn btn-sm btn-outline-secondary w-100 text-start">
+            <i class="fas fa-star me-2"></i>Reviews by this customer
+          </a>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- /.page-body -->
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var _customerId    = {{ customer.id }};
+var _currentPoints = {{ loyalty_points|default:0 }};
+
+/* ── Save profile ── */
+$('#editCustomerForm').on('submit', function (e) {
+  e.preventDefault();
+  showLoader('Saving…');
+  apiPost('/admin/api/customers/', {
+    action:      'update',
+    id:          _customerId,
+    name:        $('[name="name"]').val().trim(),
+    mobile:      $('[name="mobile"]').val().trim(),
+    address:     $('[name="address"]').val().trim(),
+    pincode:     $('[name="pincode"]').val().trim(),
+    designation: $('[name="designation"]').val().trim()
+  })
+    .done(function (res) { showAlertModal(res.message, res.success ? 'success' : 'danger'); })
+    .fail(function () { showAlertModal('Request failed.', 'danger'); })
+    .always(hideLoader);
+});
+
+/* ── Live points preview ── */
+$('#pointsAction, #pointsValue').on('change input', function () {
+  var action = $('#pointsAction').val();
+  var val    = parseInt($('#pointsValue').val()) || 0;
+  if (val <= 0) { $('#pointsPreview').hide(); return; }
+  var newBal = action === 'add' ? _currentPoints + val : Math.max(0, _currentPoints - val);
+  $('#pointsPreview')
+    .text(_currentPoints.toLocaleString('en-IN') + ' → ' + newBal.toLocaleString('en-IN') + ' pts')
+    .show();
+});
+
+/* ── Adjust points ── */
+$('#adjustPointsForm').on('submit', function (e) {
+  e.preventDefault();
+  var action = $('#pointsAction').val();
+  var value  = parseInt($('#pointsValue').val());
+  if (!value || value <= 0) { showAlertModal('Enter a valid amount.', 'warning'); return; }
+  confirmThen((action === 'add' ? 'Add ' : 'Subtract ') + value + ' points for this customer?', function () {
+    showLoader('Updating points…');
+    apiPost('/admin/api/customers/', {
+      action:        'adjust_points',
+      user_id:       _customerId,
+      points_action: action,
+      points_value:  value
+    })
+      .done(function (res) {
+        showAlertModal(res.message, res.success ? 'success' : 'danger');
+        if (res.success) {
+          _currentPoints = (res.data && res.data.new_balance != null) ? res.data.new_balance : _currentPoints;
+          $('#pointsBalance').text(_currentPoints.toLocaleString('en-IN'));
+          $('#pointsValue').val('');
+          $('#pointsPreview').hide();
+        }
+      })
+      .fail(function () { showAlertModal('Request failed.', 'danger'); })
+      .always(hideLoader);
+  });
+});
+</script>
+{% endblock %}

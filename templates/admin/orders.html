@@ -1,0 +1,204 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Orders — Varthaai Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* Status/payment dropdown toggle — badge + caret inline */
+  .status-dd-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  .status-dd-toggle::after {
+    vertical-align: middle;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-body">
+
+  <!-- Page header -->
+  <div class="page-header">
+    <div>
+      <h1>Orders</h1>
+      <p>Manage and track all customer orders.</p>
+    </div>
+    <div class="page-header-actions">
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+          Bulk Actions
+        </button>
+        <ul class="dropdown-menu">
+          <li><a class="dropdown-item" href="#" onclick="bulkStatusUpdate('confirmed');return false">Confirmed</a></li>
+          <li><a class="dropdown-item" href="#" onclick="bulkStatusUpdate('processing');return false">Processing</a></li>
+          <li><a class="dropdown-item" href="#" onclick="bulkStatusUpdate('shipped');return false">Shipped</a></li>
+          <li><a class="dropdown-item" href="#" onclick="bulkStatusUpdate('delivered');return false">Delivered</a></li>
+          <li><a class="dropdown-item" href="#" onclick="bulkStatusUpdate('cancelled');return false">Cancelled</a></li>
+        </ul>
+      </div>
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createOrderModal">
+        <i class="fas fa-plus me-1"></i>New Order
+      </button>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="filter-bar mb-3">
+    <form id="orderFilterForm">
+      <div class="row g-3">
+        <div class="col-md-2">
+          <label class="form-label">Status</label>
+          <select class="form-select" id="filterStatus">
+            <option value="">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="processing">Processing</option>
+            <option value="shipped">Shipped</option>
+            <option value="delivered">Delivered</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Search</label>
+          <input type="text" class="form-control" id="filterSearch" placeholder="ID, name, mobile…">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">From</label>
+          <input type="date" class="form-control" id="filterDateFrom">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">To</label>
+          <input type="date" class="form-control" id="filterDateTo">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Per Page</label>
+          <select class="form-select" id="perPageOrders">
+            <option value="10">10</option>
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+        <div class="col-md-1 d-flex align-items-end">
+          <button type="reset" class="btn btn-sm btn-outline-secondary w-100">
+            <i class="fas fa-xmark me-1"></i>Clear
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- Table -->
+  <div class="data-card">
+    <div class="data-card-header">
+      <h3>Orders (<span id="ordersCount">…</span>)</h3>
+    </div>
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th><input type="checkbox" id="selectAllOrders"></th>
+            <th>Order ID</th>
+            <th>Customer</th>
+            <th>Contact</th>
+            <th>Items</th>
+            <th>Amount</th>
+            <th>Status</th>
+            <th>Payment</th>
+            <th>Date</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="ordersTableBody">
+          <tr><td colspan="10" class="text-center" style="padding:40px;color:var(--gray-400)">
+            <div class="admin-loader-spinner" style="margin:0 auto 10px"></div>Loading…
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div id="ordersPagination" style="padding:16px 20px"></div>
+  </div>
+
+</div><!-- /.page-body -->
+
+<!-- Create Order Modal -->
+<div class="modal fade" id="createOrderModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-plus me-2"></i>Create New Order</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="createOrderForm">
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Customer Name *</label>
+              <input type="text" class="form-control" name="name" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Mobile Number *</label>
+              <input type="text" class="form-control" name="mobile" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Delivery Address</label>
+              <textarea class="form-control" name="address" rows="2"></textarea>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Pincode</label>
+              <input type="text" class="form-control" name="pincode">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Delivery Charge</label>
+              <input type="number" class="form-control" name="delivery_charge" value="0" min="0" step="0.01">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Coupon</label>
+              <select class="form-select" name="coupon_code">
+                <option value="">No Coupon</option>
+              </select>
+            </div>
+          </div>
+
+          <h6 class="mt-4 mb-2">Order Items</h6>
+          <div id="orderItems"></div>
+          <button type="button" id="addOrderItemBtn" class="btn btn-outline-primary btn-sm mt-2">
+            <i class="fas fa-plus me-1"></i>Add Item
+          </button>
+
+          <div class="mt-4 p-3 rounded" style="background:var(--gray-50);border:1px solid var(--gray-200)">
+            <h6 style="font-size:0.85rem;font-weight:700;margin-bottom:10px">Order Summary</h6>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:0.85rem">
+              <span>Subtotal</span><span id="modalSubtotal">₹0.00</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:0.85rem">
+              <span>Delivery</span><span id="modalDelivery">₹0.00</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px;font-size:0.85rem">
+              <span>Discount</span><span id="modalDiscount" style="color:#16a34a">-₹0.00</span>
+            </div>
+            <hr style="margin:8px 0;border-color:var(--gray-200)">
+            <div style="display:flex;justify-content:space-between;font-weight:700">
+              <span>Total</span><span id="modalTotal">₹0.00</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm">
+            <i class="fas fa-save me-1"></i>Create Order
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}<script src="{% static 'js/admin/orders.js' %}"></script>{% endblock %}

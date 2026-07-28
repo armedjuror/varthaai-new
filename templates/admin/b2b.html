@@ -1,0 +1,207 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}B2B Pipeline — Varthaai Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  :root { --primary-color:#85AA4E; --dark-color:#111827; }
+  .stage-card { cursor:pointer; transition:box-shadow .15s, border-color .15s; border-left:4px solid var(--gray-200); }
+  .stage-card:hover, .stage-card.active { box-shadow:0 2px 8px rgba(0,0,0,.08); }
+  .stage-card.active { border-left-color:var(--primary-color); background:#f9fdf5; }
+  .stage-lead        { border-left-color:#6b7280; }
+  .stage-contacted   { border-left-color:#3b82f6; }
+  .stage-negotiation { border-left-color:#f59e0b; }
+  .stage-converted   { border-left-color:#16a34a; }
+  .stage-lost        { border-left-color:#dc2626; }
+  .stage-badge { font-size:0.72rem; font-weight:600; padding:2px 10px; border-radius:20px; display:inline-block; }
+  .stage-badge-lead        { background:#f3f4f6; color:#6b7280; }
+  .stage-badge-contacted   { background:#eff6ff; color:#3b82f6; }
+  .stage-badge-negotiation { background:#fffbeb; color:#b45309; }
+  .stage-badge-converted   { background:#f0fdf4; color:#16a34a; }
+  .stage-badge-lost        { background:#fef2f2; color:#dc2626; }
+  .company-row { display:flex; justify-content:space-between; align-items:center; padding:14px 16px; border-bottom:1px solid var(--gray-100); cursor:pointer; transition:background .1s; }
+  .company-row:hover { background:var(--gray-50); }
+  .company-row:last-child { border-bottom:none; }
+  .followup-item { padding:10px 14px; border-left:3px solid #f59e0b; background:#fffbeb; border-radius:0 6px 6px 0; margin-bottom:6px; font-size:0.85rem; }
+  .followup-item.overdue { border-left-color:#dc2626; background:#fef2f2; }
+</style>
+{% endblock %}
+
+{% block page_title %}
+<div class="page-header">
+  <div>
+    <h1>B2B Pipeline</h1>
+    <p>Manage leads, clients and sales pipeline.</p>
+  </div>
+  <div class="page-header-actions">
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addCompanyModal">
+      <i class="fas fa-plus me-1"></i>Add Lead
+    </button>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<!-- Pipeline stats -->
+<div class="row g-3 mb-4" id="pipelineStats">
+  <div class="col-6 col-md">
+    <div class="stat-card stage-card" data-stage="" onclick="filterStage('')">
+      <div class="stat-body"><h2 id="statTotal">—</h2><p>All</p></div>
+    </div>
+  </div>
+  <div class="col-6 col-md">
+    <div class="stat-card stage-card stage-lead" data-stage="lead" onclick="filterStage('lead')">
+      <div class="stat-body"><h2 id="statLead">—</h2><p>Leads</p></div>
+    </div>
+  </div>
+  <div class="col-6 col-md">
+    <div class="stat-card stage-card stage-contacted" data-stage="contacted" onclick="filterStage('contacted')">
+      <div class="stat-body"><h2 id="statContacted">—</h2><p>Contacted</p></div>
+    </div>
+  </div>
+  <div class="col-6 col-md">
+    <div class="stat-card stage-card stage-negotiation" data-stage="negotiation" onclick="filterStage('negotiation')">
+      <div class="stat-body"><h2 id="statNegotiation">—</h2><p>Negotiation</p></div>
+    </div>
+  </div>
+  <div class="col-6 col-md">
+    <div class="stat-card stage-card stage-converted" data-stage="converted" onclick="filterStage('converted')">
+      <div class="stat-body"><h2 id="statConverted">—</h2><p>Converted</p></div>
+    </div>
+  </div>
+  <div class="col-6 col-md">
+    <div class="stat-card stage-card stage-lost" data-stage="lost" onclick="filterStage('lost')">
+      <div class="stat-body"><h2 id="statLost">—</h2><p>Lost</p></div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+
+  <!-- Company list -->
+  <div class="col-lg-8">
+    <div class="mb-3">
+      <input type="text" class="form-control" id="b2bSearch" placeholder="Search companies...">
+    </div>
+
+    <div class="data-card">
+      <div class="data-card-header">
+        <h3>Companies (<span id="companiesCount">…</span>)</h3>
+      </div>
+      <div id="companiesListBody">
+        <div style="padding:40px;text-align:center;color:var(--gray-400)">
+          <div class="admin-loader-spinner" style="margin:0 auto 10px"></div>Loading…
+        </div>
+      </div>
+      <div id="companiesPagination" style="padding:12px 16px"></div>
+    </div>
+  </div>
+
+  <!-- Follow-ups sidebar -->
+  <div class="col-lg-4">
+    <div class="data-card">
+      <div class="data-card-header">
+        <h3><i class="fas fa-bell me-2" style="color:#f59e0b"></i>Pending Follow-ups</h3>
+      </div>
+      <div id="followUpsList" style="padding:12px 16px">
+        <div style="text-align:center;color:var(--gray-400);padding:20px">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Add Company Modal -->
+<div class="modal fade" id="addCompanyModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-plus me-2"></i>Add New Lead</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="addCompanyForm">
+        <div class="modal-body">
+          <h6 class="mb-3" style="font-size:0.82rem;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px">Company Details</h6>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Company Name <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="addCompanyName" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Category</label>
+              <select class="form-select" id="addCategory"><option value="">Select…</option></select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Source</label>
+              <select class="form-select" id="addSource">
+                <option value="">Select…</option>
+                <option value="referral">Referral</option>
+                <option value="cold_call">Cold Call</option>
+                <option value="walk_in">Walk In</option>
+                <option value="online">Online</option>
+                <option value="event">Event</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Address</label>
+              <textarea class="form-control" id="addAddress" rows="2"></textarea>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">City</label>
+              <input type="text" class="form-control" id="addCity">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">State</label>
+              <input type="text" class="form-control" id="addState">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Pincode</label>
+              <input type="text" class="form-control" id="addPincode">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">GST Number</label>
+              <input type="text" class="form-control" id="addGst">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Assigned To</label>
+              <select class="form-select" id="addAssignedTo"><option value="">Select…</option></select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notes</label>
+              <textarea class="form-control" id="addNotes" rows="2" placeholder="Initial notes about this lead…"></textarea>
+            </div>
+          </div>
+
+          <hr class="my-3">
+          <h6 class="mb-3" style="font-size:0.82rem;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px">Primary Contact (optional)</h6>
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label">Contact Name</label>
+              <input type="text" class="form-control" id="addContactName">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Phone</label>
+              <input type="text" class="form-control" id="addContactPhone">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Designation</label>
+              <input type="text" class="form-control" id="addContactDesignation">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-plus me-1"></i>Add Lead</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/admin/b2b.js' %}"></script>
+{% endblock %}

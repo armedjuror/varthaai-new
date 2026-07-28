@@ -1,0 +1,217 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Invoice - {{ order.id }}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background: white; }
+    .invoice-container { max-width: 800px; margin: 0 auto; padding: 20px; }
+    .invoice-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 2px solid #85aa4e; padding-bottom: 20px; }
+    .company-info { flex: 1; }
+    .company-info h1 { color: #85aa4e; font-size: 2.5rem; }
+    .company-info .tagline { color: #666; font-style: italic; }
+    .company-details { font-size: 0.9rem; color: #666; }
+    .invoice-info { text-align: right; flex: 0 0 200px; }
+    .invoice-number { font-size: 1.2rem; font-weight: bold; margin-bottom: 10px; }
+    .invoice-date { color: #666; margin-bottom: 5px; }
+    .status-badge { padding: 5px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; }
+    .status-pending { background-color: #ffecb3; color: #e6a700; }
+    .status-confirmed { background-color: #b3e5fc; color: #0288d1; }
+    .status-processing { background-color: #c8e6c9; color: #388e3c; }
+    .status-shipped { background-color: #bbdefb; color: #1976d2; }
+    .status-delivered { background-color: #dcedc8; color: #689f38; }
+    .status-cancelled { background-color: #ffcdd2; color: #d32f2f; }
+    .billing-shipping { display: flex; justify-content: space-between; margin-bottom: 30px; }
+    .billing-info, .shipping-info { flex: 0 0 48%; }
+    .billing-info h3, .shipping-info h3 { color: #85aa4e; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+    .customer-name { font-weight: bold; font-size: 1.1rem; margin-bottom: 5px; }
+    .items-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+    .items-table th, .items-table td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
+    .items-table th { background-color: #f8f9fa; font-weight: 600; color: #333; text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.5px; }
+    .items-table .qty { text-align: center; width: 80px; }
+    .items-table .price, .items-table .total { text-align: right; width: 100px; }
+    .item-name { font-weight: 600; margin-bottom: 3px; }
+    .item-description { font-size: 0.85rem; color: #666; }
+    .price-per-kg { font-size: 0.85rem; color: #666; }
+    .totals { margin-left: auto; width: 300px; margin-bottom: 30px; }
+    .totals-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+    .totals-row.total { border-bottom: 2px solid #85aa4e; font-weight: bold; font-size: 1.1rem; color: #85aa4e; }
+    .footer { margin-top: 40px; text-align: center; font-size: 0.85rem; color: #666; border-top: 1px solid #eee; padding-top: 20px; }
+    .payment-info { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+    .payment-info h4 { margin-bottom: 10px; color: #333; }
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .invoice-container { margin: 0; padding: 0; }
+      .no-print { display: none !important; }
+    }
+    @media (max-width: 600px) {
+      .invoice-header { flex-direction: column; text-align: left; }
+      .invoice-info { text-align: left; margin-top: 20px; }
+      .billing-shipping { flex-direction: column; }
+      .billing-info, .shipping-info { flex: 1; margin-bottom: 20px; }
+      .items-table { font-size: 0.85rem; }
+      .totals { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+<div class="invoice-container">
+  <!-- Print Button -->
+  <div style="text-align: right; margin-bottom: 20px;" class="no-print">
+    <button onclick="window.print()" style="background: #85aa4e; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">
+      Print Invoice
+    </button>
+  </div>
+
+  <!-- Invoice Header -->
+  <div class="invoice-header">
+    <div class="company-info">
+      {% if brand and brand.logo %}
+        <img src="{{ brand.logo.url }}" alt="{{ brand.name }}" style="max-width: 150px">
+      {% else %}
+        <img src="{% static 'images/logo.png' %}" alt="" style="max-width: 150px">
+      {% endif %}
+      <div class="tagline">{{ settings_map.business_tagline }}</div>
+      <div class="company-details">
+        <div>{{ settings_map.business_address }}</div>
+        <div>Phone: {{ settings_map.business_phone }}</div>
+        <div>Email: {{ settings_map.business_email }}</div>
+      </div>
+    </div>
+
+    <div class="invoice-info">
+      <div class="invoice-number">
+        <strong>INVOICE #{{ order.id }}</strong>
+      </div>
+      <div class="invoice-date">
+        Date: {{ order.order_date|date:"d/m/Y" }}
+      </div>
+      <div class="invoice-date">
+        Time: {{ order.order_date|date:"H:i" }}
+      </div>
+      <div style="margin-top: 10px;">
+        <span class="status-badge status-{{ order.status }}">
+          {{ order.get_status_display }}
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Billing and Shipping Information -->
+  <div class="billing-shipping">
+    <div class="billing-info">
+      <h3>Bill To:</h3>
+      <div class="customer-name">{% if order.name %}{{ order.name }}{% elif order.user %}{{ order.user.name }}{% else %}Guest Customer{% endif %}</div>
+      <div>{{ order.mobile }}</div>
+      {% if order.user_id %}
+        <div style="font-size: 0.85rem; color: #666; margin-top: 5px;">
+          Customer ID: {{ order.user_id }}<br>
+          Loyalty Points: {{ loyalty_points }}
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="shipping-info">
+      <h3>Ship To:</h3>
+      <div class="customer-name">{% if order.name %}{{ order.name }}{% elif order.user %}{{ order.user.name }}{% else %}Guest Customer{% endif %}</div>
+      <div>{{ order.address|linebreaksbr }}</div>
+      <div>{{ order.pincode }}</div>
+      <div>{{ order.mobile }}</div>
+    </div>
+  </div>
+
+  <!-- Items Table -->
+  <table class="items-table">
+    <thead>
+    <tr>
+      <th>Item Details</th>
+      <th class="qty">Quantity</th>
+      <th class="price">Price/kg</th>
+      <th class="total">Total</th>
+    </tr>
+    </thead>
+    <tbody>
+    {% for item in items %}
+      <tr>
+        <td>
+          <div class="item-name">{{ item.name }}{% if item.pack_label %} <span style="font-size:0.85em;color:#666">({{ item.pack_label }})</span>{% endif %}</div>
+          {% if item.description %}<div class="item-description">{{ item.description }}</div>{% endif %}
+        </td>
+        <td class="qty">
+          {{ item.quantity|floatformat:0 }}g
+          <br><small>({{ item.quantity_kg|floatformat:2 }}kg)</small>
+        </td>
+        <td class="price">
+          ₹{{ item.sale_price_per_kg|floatformat:0 }}
+          {% if item.price_per_kg != item.sale_price_per_kg %}<br><small style="text-decoration: line-through; color: #999;">₹{{ item.price_per_kg|floatformat:0 }}</small>{% endif %}
+        </td>
+        <td class="total">₹{{ item.item_total|floatformat:2 }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- Order Summary -->
+  <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+    <div style="flex: 1;">
+      <div><strong>Total Quantity:</strong> {{ total_quantity|floatformat:0 }}g</div>
+      <div><strong>Items Count:</strong> {{ items|length }}</div>
+
+      {% if order.referral %}
+        <div style="margin-top: 10px;"><strong>Referred By:</strong> {{ order.referral.name }}</div>
+      {% endif %}
+      {% if order.coupon_code %}
+        <div style="margin-top: 5px;"><strong>Coupon Applied:</strong> {{ order.coupon_code }}</div>
+      {% endif %}
+    </div>
+
+    <!-- Totals -->
+    <div class="totals">
+      <div class="totals-row">
+        <span>Subtotal:</span>
+        <span>₹{{ subtotal|floatformat:2 }}</span>
+      </div>
+      {% if discount > 0 %}
+        <div class="totals-row">
+          <span>Discount{% if order.coupon_code %} ({{ order.coupon_code }}){% endif %}:</span>
+          <span>-₹{{ discount|floatformat:2 }}</span>
+        </div>
+      {% endif %}
+      <div class="totals-row">
+        <span>Delivery Charge:</span>
+        <span>{% if order.delivery_charge > 0 %}₹{{ order.delivery_charge|floatformat:2 }}{% else %}FREE{% endif %}</span>
+      </div>
+      <div class="totals-row total">
+        <span>TOTAL AMOUNT:</span>
+        <span>₹{{ total|floatformat:2 }}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Payment Information -->
+  <div class="payment-info">
+    <h4>Payment Information</h4>
+    <div><strong>Payment Status:</strong> {{ order.get_payment_status_display }}</div>
+    {% if order.payment_status == 'paid' %}
+      <div><strong>Payment Date:</strong> {{ order.order_date|date:"d/m/Y H:i" }}</div>
+    {% endif %}
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <div style="margin-bottom: 10px;">
+      <strong>Thank you for choosing {% if brand %}{{ brand.name }}{% else %}us{% endif %}!</strong>
+    </div>
+    <div>
+      For any queries, contact us at {{ settings_map.business_phone }} or {{ settings_map.business_email }}
+    </div>
+    <div style="margin-top: 10px; font-size: 0.75rem;">
+      This is a computer-generated invoice. No signature required.
+    </div>
+  </div>
+</div>
+</body>
+</html>
