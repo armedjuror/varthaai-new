@@ -67,6 +67,8 @@ def _company_detail(c):
         'state': c.state,
         'pincode': c.pincode,
         'gst_number': c.gst_number,
+        'location_url': c.location_url,
+        'photo': c.photo.url if c.photo else '',
         'stage': c.stage,
         'source': c.source,
         'assigned_to': c.assigned_to_id,
@@ -280,6 +282,8 @@ class B2BAPI(APIView):
             state=(body.get('state') or '').strip(),
             pincode=(body.get('pincode') or '').strip(),
             gst_number=(body.get('gst_number') or '').strip(),
+            location_url=(body.get('location_url') or '').strip(),
+            photo=request.FILES.get('photo') or None,
             stage=body.get('stage') or 'lead',
             source=(body.get('source') or '').strip(),
             assigned_to_id=_int_or_none(body.get('assigned_to')),
@@ -313,6 +317,12 @@ class B2BAPI(APIView):
         company.state = (body.get('state') or '').strip()
         company.pincode = (body.get('pincode') or '').strip()
         company.gst_number = (body.get('gst_number') or '').strip()
+        company.location_url = (body.get('location_url') or '').strip()
+        photo = request.FILES.get('photo')
+        if photo:
+            company.photo = photo
+        elif _int_or_none(body.get('remove_photo')) == 1:
+            company.photo = None
         company.source = (body.get('source') or '').strip()
         company.assigned_to_id = _int_or_none(body.get('assigned_to'))
         company.discount_type = body.get('discount_type') or ''

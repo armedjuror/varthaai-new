@@ -102,6 +102,9 @@ function renderInfo() {
     ['City', escHtml([c.city, c.state].filter(Boolean).join(', ') || '—')],
     ['Pincode', escHtml(c.pincode || '—')],
     ['GST', escHtml(c.gst_number || '—')],
+    ['Location', c.location_url
+      ? '<a href="' + encodeURI(c.location_url) + '" target="_blank" rel="noopener"><i class="fas fa-map-marker-alt me-1"></i>View</a>'
+      : '—'],
     ['Source', capitalize(c.source || '—')],
     ['Assigned To', escHtml(c.assigned_name || '—')],
     ['Credit Limit', c.credit_limit > 0 ? formatCurrency(c.credit_limit) : '—'],
@@ -120,6 +123,10 @@ function renderInfo() {
   }
   if (c.notes) {
     html += '<div style="margin-top:8px;font-size:0.82rem;color:var(--gray-500)"><strong>Notes:</strong> ' + escHtml(c.notes) + '</div>';
+  }
+  if (c.photo) {
+    html += '<div style="margin-top:10px"><a href="' + encodeURI(c.photo) + '" target="_blank" rel="noopener">' +
+      '<img src="' + encodeURI(c.photo) + '" alt="Lead photo" style="max-width:100%;border-radius:10px;border:1px solid var(--gray-200)"></a></div>';
   }
   $('#companyInfoBody').html(html);
 }
@@ -331,32 +338,46 @@ function openEditCompanyModal() {
   $('#editPaymentTerms').val(c.payment_terms_days || '');
   $('#editDiscountType').val(c.discount_type || '');
   $('#editDiscountValue').val(c.discount_value || '');
+  $('#editLocationUrl').val(c.location_url || '');
+  // Photo is a file input — can't be pre-filled. Reset it and preview current.
+  $('#editPhoto').val('');
+  $('#editRemovePhoto').prop('checked', false);
+  if (c.photo) {
+    $('#editPhotoPreview').attr('src', c.photo).show();
+    $('#editRemovePhotoWrap').show();
+  } else {
+    $('#editPhotoPreview').attr('src', '').hide();
+    $('#editRemovePhotoWrap').hide();
+  }
   $('#editNotes').val(c.notes || '');
   $('#editCompanyModal').modal('show');
 }
 
 $('#editCompanyForm').on('submit', function (e) {
   e.preventDefault();
-  var data = {
-    action:             'edit_company',
-    id:                 COMPANY_ID,
-    company_name:       $('#editCompanyName').val(),
-    category_id:        $('#editCategory').val(),
-    source:             $('#editSource').val(),
-    address:            $('#editAddress').val(),
-    city:               $('#editCity').val(),
-    state:              $('#editState').val(),
-    pincode:            $('#editPincode').val(),
-    gst_number:         $('#editGst').val(),
-    assigned_to:        $('#editAssignedTo').val(),
-    credit_limit:       $('#editCreditLimit').val(),
-    payment_terms_days: $('#editPaymentTerms').val(),
-    discount_type:      $('#editDiscountType').val(),
-    discount_value:     $('#editDiscountValue').val(),
-    notes:              $('#editNotes').val()
-  };
+  var fd = new FormData();
+  fd.append('action',             'edit_company');
+  fd.append('id',                 COMPANY_ID);
+  fd.append('company_name',       $('#editCompanyName').val());
+  fd.append('category_id',        $('#editCategory').val());
+  fd.append('source',             $('#editSource').val());
+  fd.append('address',            $('#editAddress').val());
+  fd.append('city',               $('#editCity').val());
+  fd.append('state',              $('#editState').val());
+  fd.append('pincode',            $('#editPincode').val());
+  fd.append('gst_number',         $('#editGst').val());
+  fd.append('location_url',       $('#editLocationUrl').val());
+  fd.append('assigned_to',        $('#editAssignedTo').val());
+  fd.append('credit_limit',       $('#editCreditLimit').val());
+  fd.append('payment_terms_days', $('#editPaymentTerms').val());
+  fd.append('discount_type',      $('#editDiscountType').val());
+  fd.append('discount_value',     $('#editDiscountValue').val());
+  fd.append('notes',              $('#editNotes').val());
+  var editPhoto = $('#editPhoto')[0].files[0];
+  if (editPhoto) fd.append('photo', editPhoto);
+  if ($('#editRemovePhoto').is(':checked')) fd.append('remove_photo', 1);
   showLoader('Saving…');
-  apiPost('/admin/api/b2b/', data)
+  apiPostForm('/admin/api/b2b/', fd)
     .done(function (res) {
       showAlertModal(res.message, res.success ? 'success' : 'danger');
       if (res.success) { $('#editCompanyModal').modal('hide'); loadCompany(); }
