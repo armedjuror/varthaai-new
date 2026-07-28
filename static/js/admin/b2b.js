@@ -17,24 +17,26 @@ $(function () {
 
   $('#addCompanyForm').on('submit', function (e) {
     e.preventDefault();
-    var data = {
-      action:       'add_company',
-      company_name: $('#addCompanyName').val(),
-      category_id:  $('#addCategory').val(),
-      source:       $('#addSource').val(),
-      address:      $('#addAddress').val(),
-      city:         $('#addCity').val(),
-      state:        $('#addState').val(),
-      pincode:      $('#addPincode').val(),
-      gst_number:   $('#addGst').val(),
-      assigned_to:  $('#addAssignedTo').val(),
-      notes:        $('#addNotes').val(),
-      contact_name:        $('#addContactName').val(),
-      contact_phone:       $('#addContactPhone').val(),
-      contact_designation: $('#addContactDesignation').val()
-    };
+    var fd = new FormData();
+    fd.append('action',              'add_company');
+    fd.append('company_name',        $('#addCompanyName').val());
+    fd.append('category_id',         $('#addCategory').val());
+    fd.append('source',              $('#addSource').val());
+    fd.append('address',             $('#addAddress').val());
+    fd.append('city',                $('#addCity').val());
+    fd.append('state',               $('#addState').val());
+    fd.append('pincode',             $('#addPincode').val());
+    fd.append('gst_number',          $('#addGst').val());
+    fd.append('location_url',        $('#addLocationUrl').val());
+    fd.append('assigned_to',         $('#addAssignedTo').val());
+    fd.append('notes',               $('#addNotes').val());
+    fd.append('contact_name',        $('#addContactName').val());
+    fd.append('contact_phone',       $('#addContactPhone').val());
+    fd.append('contact_designation', $('#addContactDesignation').val());
+    var addPhoto = $('#addPhoto')[0].files[0];
+    if (addPhoto) fd.append('photo', addPhoto);
     showLoader('Adding lead…');
-    apiPost('/admin/api/b2b/', data)
+    apiPostForm('/admin/api/b2b/', fd)
       .done(function (res) {
         showAlertModal(res.message, res.success ? 'success' : 'danger');
         if (res.success) {
