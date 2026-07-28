@@ -1,0 +1,35 @@
+# systemd unit for the Varthaai Django app (gunicorn on 127.0.0.1:8007).
+# Install:  sudo cp deploy/varthaai.service /etc/systemd/system/varthaai.service
+#           sudo systemctl daemon-reload
+#           sudo systemctl enable --now varthaai
+# Logs:     sudo journalctl -u varthaai -f
+[Unit]
+Description=Varthaai Django (gunicorn)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=notify
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/varthaai-new
+
+# .env is read by settings.py via python-dotenv, so no extra EnvironmentFile
+# is strictly needed — but pinning the settings module here is cheap insurance.
+Environment=DJANGO_SETTINGS_MODULE=Varthaai.settings
+
+ExecStart=/home/ubuntu/varthaai-new/venv/bin/gunicorn \
+    -c /home/ubuntu/varthaai-new/deploy/gunicorn.conf.py \
+    Varthaai.wsgi:application
+
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+
+# Light hardening — the app only needs to write to its own media/staticfiles.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

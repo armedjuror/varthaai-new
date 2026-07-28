@@ -42,6 +42,10 @@ DEBUG = env_bool('DJANGO_DEBUG', True)
 
 ALLOWED_HOSTS = [h for h in env('DJANGO_ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',') if h]
 
+# Hosts trusted for unsafe (POST) requests. Django 4+ requires the scheme.
+# e.g. DJANGO_CSRF_TRUSTED_ORIGINS=http://varthaai.com,http://www.varthaai.com
+CSRF_TRUSTED_ORIGINS = [o for o in env('DJANGO_CSRF_TRUSTED_ORIGINS', '').split(',') if o]
+
 
 # Application definition
 
