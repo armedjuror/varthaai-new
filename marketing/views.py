@@ -284,8 +284,6 @@ class BlogsAPI(APIView):
             published_at = parse_datetime(raw_published)
         elif is_published:
             published_at = timezone.now()
-        featured_image = (data.get('featured_image') or '').strip() or None
-
         if action == 'create':
             blog = Blog(created_by=request.user)
         else:
@@ -299,8 +297,13 @@ class BlogsAPI(APIView):
         blog.slug = _unique_slug(title, exclude_id=blog.id)
         blog.is_published = is_published
         blog.published_at = published_at
-        if featured_image is not None:
-            blog.featured_image = featured_image
+        # Featured image: replace only when a new file is uploaded; clear on
+        # explicit remove; otherwise keep the existing one.
+        image = request.FILES.get('featured_image')
+        if image:
+            blog.featured_image = image
+        elif str(data.get('remove_featured_image') or '') == '1':
+            blog.featured_image = None
 
         blog.save()
         message = 'Blog created successfully!' if action == 'create' else 'Blog updated successfully!'

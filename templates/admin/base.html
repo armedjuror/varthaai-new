@@ -79,6 +79,10 @@
       <i class="fas fa-star"></i>
       <span>Reviews</span>
     </a>
+    <a href="{% url 'marketing:blogs' %}" class="nav-item{% if url_name == 'blogs' %} active{% endif %}">
+      <i class="fas fa-blog"></i>
+      <span>Blogs</span>
+    </a>
     {% endif %}
 
     {% if 'b2b' in nav_perms %}

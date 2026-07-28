@@ -119,10 +119,14 @@
               placeholder="You can use Markdown formatting: **bold**, *italic*, # headings, lists, links…"></textarea>
           </div>
           <div class="mb-3">
-            <label for="blogFeaturedImage" class="form-label">Featured Image URL</label>
-            <input type="text" class="form-control" id="blogFeaturedImage" name="featured_image"
-              placeholder="images/blogs/example.jpg">
+            <label for="blogFeaturedImage" class="form-label">Featured Image</label>
+            <input type="file" class="form-control" id="blogFeaturedImage" name="featured_image" accept="image/*">
+            <div class="form-text">Upload a cover image (JPG/PNG/WebP). Leave empty to keep the current one.</div>
             <div id="existingImage" class="mt-2"></div>
+            <div class="form-check mt-2" id="removeImageWrap" style="display:none;">
+              <input class="form-check-input" type="checkbox" id="blogRemoveImage">
+              <label class="form-check-label" for="blogRemoveImage">Remove current image</label>
+            </div>
           </div>
           <div class="mb-3">
             <div class="form-check">
@@ -235,6 +239,8 @@ function showAddBlogModal() {
   $('#blogForm')[0].reset();
   $('#blogId').val('');
   $('#existingImage').html('');
+  $('#removeImageWrap').hide();
+  $('#blogRemoveImage').prop('checked', false);
   $('#publishDateContainer').hide();
   $('#blogModal').modal('show');
 }
@@ -249,7 +255,10 @@ function editBlog(id) {
   $('#blogTitle').val(b.title);
   $('#blogExcerpt').val(b.excerpt);
   $('#blogContent').val(b.content);
-  $('#blogFeaturedImage').val(b.featured_image || '');
+  // Featured image is a file input — can't be pre-filled. Reset it and show
+  // the current image (if any) plus a "remove" checkbox.
+  $('#blogFeaturedImage').val('');
+  $('#blogRemoveImage').prop('checked', false);
   $('#blogIsPublished').prop('checked', parseInt(b.is_published) === 1);
   $('#publishDateContainer').toggle(parseInt(b.is_published) === 1);
   if (b.published_at) {
@@ -258,8 +267,10 @@ function editBlog(id) {
   if (b.featured_image) {
     $('#existingImage').html('<div class="alert alert-info"><p class="mb-1">Current Image:</p>' +
       '<img src="' + escHtml(b.featured_image) + '" class="preview-image" alt="Current image"></div>');
+    $('#removeImageWrap').show();
   } else {
     $('#existingImage').html('');
+    $('#removeImageWrap').hide();
   }
   $('#blogModal').modal('show');
 }
@@ -267,18 +278,19 @@ function editBlog(id) {
 function saveBlog() {
   var form = document.getElementById('blogForm');
   if (!form.checkValidity()) { form.reportValidity(); return; }
-  var payload = {
-    action: currentBlogId ? 'update' : 'create',
-    id: currentBlogId,
-    title: $('#blogTitle').val(),
-    excerpt: $('#blogExcerpt').val(),
-    content: $('#blogContent').val(),
-    featured_image: $('#blogFeaturedImage').val(),
-    is_published: $('#blogIsPublished').is(':checked') ? 1 : 0,
-    published_at: $('#blogPublishedAt').val()
-  };
+  var fd = new FormData();
+  fd.append('action',       currentBlogId ? 'update' : 'create');
+  fd.append('id',           currentBlogId || '');
+  fd.append('title',        $('#blogTitle').val());
+  fd.append('excerpt',      $('#blogExcerpt').val());
+  fd.append('content',      $('#blogContent').val());
+  fd.append('is_published', $('#blogIsPublished').is(':checked') ? 1 : 0);
+  fd.append('published_at', $('#blogPublishedAt').val());
+  var blogImage = $('#blogFeaturedImage')[0].files[0];
+  if (blogImage) fd.append('featured_image', blogImage);
+  if ($('#blogRemoveImage').is(':checked')) fd.append('remove_featured_image', 1);
   showLoader();
-  apiPost('/admin/api/blogs/', payload)
+  apiPostForm('/admin/api/blogs/', fd)
     .done(function (res) {
       showAlertModal(res.message, res.success ? 'success' : 'danger');
       if (res.success) { $('#blogModal').modal('hide'); loadBlogs(); }
