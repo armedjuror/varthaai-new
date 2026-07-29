@@ -7,7 +7,7 @@ from core.api import BRAND_SESSION_KEY
 # Nav modules used to gate sidebar items (mirror of the PHP sidebar checks).
 NAV_MODULES = [
     'dashboard', 'orders', 'coupons', 'flavors', 'customers', 'reviews',
-    'b2b', 'stocks', 'expenses',
+    'b2b', 'stocks', 'expenses', 'blogs',
 ]
 
 

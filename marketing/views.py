@@ -36,7 +36,7 @@ def reviews_page(request):
 
 
 @admin_login_required
-@require_module('reviews')
+@require_module('blogs')
 @ensure_csrf_cookie
 def blogs_page(request):
     return render(request, 'admin/blogs.html')
@@ -198,7 +198,7 @@ def _serialize_blog(b):
 
 class BlogsAPI(APIView):
     permission_classes = [HasModulePermission]
-    permission_module = 'reviews'
+    permission_module = 'blogs'
 
     def get(self, request):
         blog_id = request.query_params.get('id')

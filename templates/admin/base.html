@@ -79,10 +79,6 @@
       <i class="fas fa-star"></i>
       <span>Reviews</span>
     </a>
-    <a href="{% url 'marketing:blogs' %}" class="nav-item{% if url_name == 'blogs' %} active{% endif %}">
-      <i class="fas fa-blog"></i>
-      <span>Blogs</span>
-    </a>
     {% endif %}
 
     {% if 'b2b' in nav_perms %}
@@ -106,6 +102,13 @@
     {% endif %}
 
     <p class="nav-section-label" style="margin-top:12px">General</p>
+
+    {% if 'blogs' in nav_perms %}
+      <a href="{% url 'marketing:blogs' %}" class="nav-item{% if url_name == 'blogs' %} active{% endif %}">
+        <i class="fas fa-blog"></i>
+        <span>Blogs</span>
+      </a>
+    {% endif %}
 
     {% if 'stocks' in nav_perms %}
       <a href="{% url 'products:stocks' %}" class="nav-item{% if url_name == 'stocks' %} active{% endif %}">
