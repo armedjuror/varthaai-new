@@ -106,7 +106,7 @@ function renderKPIs(data) {
       label: 'Pending Orders',
       sub: 'Awaiting action',
       trend: null,
-      href: 'orders.php?status=pending',
+      href: '/admin/orders/?status=pending',
       badge: data.order_status.pending || 0,
       badgeCls: 'urgent',
     },
@@ -116,7 +116,7 @@ function renderKPIs(data) {
       label: 'Pending Reviews',
       sub: 'Awaiting moderation',
       trend: null,
-      href: 'reviews.php?status=pending',
+      href: '/admin/reviews/?status=pending',
       badge: data.pending_reviews,
       badgeCls: 'danger',
     },
@@ -302,7 +302,7 @@ function renderOrderStatus(status) {
     var count = status[item.key] || 0;
     var pct   = total > 0 ? Math.round((count / total) * 100) : 0;
     html +=
-      '<div class="os-row" onclick="window.location=\'orders.php?status=' + item.key + '\'">' +
+      '<div class="os-row" onclick="window.location=\'/admin/orders/?status=' + item.key + '\'">' +
         '<div class="os-dot" style="background:' + item.color + '"></div>' +
         '<span class="os-label">' + item.label + '</span>' +
         '<div class="os-bar-wrap">' +
@@ -350,7 +350,7 @@ function renderRecentOrders(orders) {
         '</div>' +
         '<div class="ro-meta">' +
           '<span class="ro-time">' + ago + '</span>' +
-          '<a href="view-order.php?id=' + encodeURIComponent(o.id) + '" class="btn-icon view" title="View">' +
+          '<a href="/admin/orders/' + encodeURIComponent(o.id) + '/" class="btn-icon view" title="View">' +
             '<i class="fas fa-eye"></i></a>' +
         '</div>' +
       '</div>';

@@ -255,7 +255,7 @@
     <div class="data-card">
       <div class="data-card-header">
         <h3>Recent Orders</h3>
-        <a href="orders.php" class="btn-view-all">View All</a>
+        <a href="{% url 'orders:orders' %}" class="btn-view-all">View All</a>
       </div>
       <div id="recentOrdersContainer">
         <div class="empty-state">
@@ -283,7 +283,7 @@
         <h3 style="color:#dc2626">
           <i class="fas fa-triangle-exclamation me-1" style="font-size:.85rem"></i>Low Stock
         </h3>
-        <a href="stocks.php" class="btn-view-all">Manage</a>
+        <a href="{% url 'products:stocks' %}" class="btn-view-all">Manage</a>
       </div>
       <div id="lowStockContainer"></div>
     </div>
