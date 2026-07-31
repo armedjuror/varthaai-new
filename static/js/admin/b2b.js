@@ -105,9 +105,10 @@ function loadCompanies() {
   apiGet('/admin/api/b2b/', params)
     .done(function (res) {
       if (!res.success) { showAlertModal(res.message, 'danger'); return; }
-      $('#companiesCount').text(res.total);
-      renderCompanies(res.data || []);
-      renderPagination(res.total, res.page, res.per_page);
+      var d = res.data || {};
+      $('#companiesCount').text(d.total || 0);
+      renderCompanies(d.companies || []);
+      renderPagination(d.total || 0, d.page || 1, d.per_page || 25);
     })
     .fail(function () { showAlertModal('Failed to load companies.', 'danger'); });
 }
