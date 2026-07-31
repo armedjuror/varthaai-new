@@ -188,7 +188,7 @@ async def _pretooluse_hook(input_data, tool_use_id, context):
 # --------------------------------------------------------------------------- #
 # Prompt building                                                             #
 # --------------------------------------------------------------------------- #
-def build_system_prompt(request):
+def build_system_prompt(request, mode=None):
     from debugger.models import DebugLearning
 
     learnings = DebugLearning.objects.filter(kind=request.kind).order_by('-created_at')[:15]
@@ -220,6 +220,21 @@ def build_system_prompt(request):
             'to change. Do not propose a diff until the admin approves the plan.'
         ),
     }[request.kind]
+
+    if mode == 'review':
+        # The cwd is the PR branch worktree, not main — the code already has the
+        # previously proposed fix applied. Produce a DELTA on top of it.
+        kind_instructions = (
+            'A pull request is already open for this thread and a reviewer has '
+            'left feedback (see the SYSTEM "PR review" entries in the '
+            'conversation). The code you are reading here is the PR BRANCH — it '
+            'ALREADY contains your earlier fix. Address the review comments. If '
+            'code changes are needed, call propose_fix with a unified diff that '
+            'applies ON TOP of the current branch state (a delta, not a fresh '
+            'diff against main). If a comment is a question or you disagree, '
+            'explain your reasoning and ask the admin — do NOT propose a diff in '
+            'that case.'
+        )
 
     return (
         "You are the Varthaai Debugger Agent — a senior engineer embedded in the "
@@ -269,18 +284,20 @@ def build_prompt(request):
 # --------------------------------------------------------------------------- #
 # Runner                                                                       #
 # --------------------------------------------------------------------------- #
-def run_agent(request):
+def run_agent(request, cwd=None, mode=None):
     """
     Synchronous entry point (called from the Celery task). Returns a dict:
       {text, proposals: [...], usage: {...}, tools_used: [...]}
+    `cwd` overrides the code checkout (used for review mode, where the agent
+    reads the PR-branch worktree). `mode='review'` switches the prompt.
     Raises RuntimeError if the SDK/CLI is unavailable.
     """
     if not SDK_AVAILABLE:
         raise RuntimeError(f'claude-agent-sdk unavailable: {SDK_IMPORT_ERROR}')
-    return asyncio.run(_run_agent_async(request))
+    return asyncio.run(_run_agent_async(request, cwd=cwd, mode=mode))
 
 
-async def _run_agent_async(request):
+async def _run_agent_async(request, cwd=None, mode=None):
     proposals = []
     server = _register_tools(proposals)
 
@@ -288,14 +305,19 @@ async def _run_agent_async(request):
     if settings.ANTHROPIC_API_KEY:
         env['ANTHROPIC_API_KEY'] = settings.ANTHROPIC_API_KEY
 
+    # build_system_prompt / build_prompt touch the ORM; Django forbids sync DB
+    # access from inside a running event loop, so run them in a worker thread.
+    system_prompt = await asyncio.to_thread(build_system_prompt, request, mode)
+    user_prompt = await asyncio.to_thread(build_prompt, request)
+
     options = ClaudeAgentOptions(
-        system_prompt=build_system_prompt(request),
+        system_prompt=system_prompt,
         allowed_tools=ALLOWED_TOOLS,
         disallowed_tools=DISALLOWED_TOOLS,
         mcp_servers={MCP_SERVER_NAME: server},
         hooks={'PreToolUse': [HookMatcher(matcher='*', hooks=[_pretooluse_hook])]},
         permission_mode='default',
-        cwd=settings.DEBUGGER_CODE_DIR,
+        cwd=cwd or settings.DEBUGGER_CODE_DIR,
         model=settings.DEBUGGER_MODEL,
         max_turns=40,
         setting_sources=[],   # hermetic: ignore ~/.claude and project settings
@@ -306,7 +328,7 @@ async def _run_agent_async(request):
     tools_used = []
     usage = {}
 
-    async for message in query(prompt=build_prompt(request), options=options):
+    async for message in query(prompt=user_prompt, options=options):
         if isinstance(message, AssistantMessage):
             for block in message.content:
                 if isinstance(block, TextBlock):
