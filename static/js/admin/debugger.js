@@ -12,7 +12,8 @@
     new: 'Queued', analyzing: 'Analyzing…', awaiting_input: 'Your turn',
     ready: 'Ready', pr_requested: 'PR requested', pr_open: 'PR open',
     changes_requested: 'Changes requested', revising: 'Revising',
-    pr_updated: 'PR updated', closed: 'Closed', failed: 'Failed',
+    pr_updated: 'PR updated', finalizing: 'Summarizing…',
+    learning_review: 'Review learning', closed: 'Closed', failed: 'Failed',
   };
 
   // Render Markdown safely. marked → DOMPurify; falls back to escaped text with
@@ -125,9 +126,26 @@
       prLink.classList.add('d-none'); prLink.classList.remove('d-flex');
     }
 
+    // Learning-review panel (shown when closing)
+    const learnPanel = document.getElementById('learningPanel');
+    const reviewing = d.status === 'learning_review';
+    learnPanel.style.display = reviewing ? 'block' : 'none';
+    if (reviewing) {
+      // Only (re)fill when switching into review, so admin edits aren't clobbered
+      // by polling.
+      if (learnPanel.dataset.for !== String(d.id)) {
+        document.getElementById('learnTitle').value = d.learning_title || '';
+        document.getElementById('learnContent').value = d.learning_draft || '';
+        learnPanel.dataset.for = String(d.id);
+      }
+    } else {
+      learnPanel.dataset.for = '';
+    }
+
     // Action buttons
     const closed = d.status === 'closed';
-    document.getElementById('closeBtn').style.display = closed ? 'none' : '';
+    document.getElementById('closeBtn').style.display =
+      (closed || reviewing || d.status === 'finalizing') ? 'none' : '';
     // Feature: approve the plan so the agent generates a diff.
     document.getElementById('approvePlanBtn').style.display =
       (d.kind === 'feature' && d.rca && !d.proposed_diff && !d.pr_url
@@ -139,8 +157,9 @@
     document.getElementById('syncPrBtn').style.display =
       (d.pr_url && !closed) ? '' : 'none';
 
-    document.getElementById('replyInput').disabled = closed;
-    document.getElementById('sendBtn').disabled = closed || d.is_live;
+    const busyClosing = reviewing || d.status === 'finalizing';
+    document.getElementById('replyInput').disabled = closed || busyClosing;
+    document.getElementById('sendBtn').disabled = closed || d.is_live || busyClosing;
   }
 
   function shortTool(t) {
@@ -221,6 +240,17 @@
 
   document.getElementById('syncPrBtn').addEventListener('click', () =>
     postAction({ action: 'sync_pr' }));
+
+  document.getElementById('saveLearnBtn').addEventListener('click', () =>
+    postAction({
+      action: 'finalize_close',
+      title: document.getElementById('learnTitle').value.trim(),
+      content: document.getElementById('learnContent').value.trim(),
+    }));
+
+  document.getElementById('discardLearnBtn').addEventListener('click', () =>
+    postAction({ action: 'finalize_close', discard: true },
+      'Close without saving a learning?'));
 
   document.getElementById('refreshBtn').addEventListener('click', loadList);
   document.getElementById('filterKind').addEventListener('change', loadList);

@@ -216,6 +216,46 @@ def sync_pr_reviews(self, request_id):
 
 
 @shared_task(bind=True, max_retries=0)
+def finalize_learning(self, request_id):
+    """
+    On close, have the agent distil a reusable lesson from the thread and stage
+    it for the admin to review/edit before it is saved as a DebugLearning.
+    """
+    from debugger.agent import run_agent
+    from debugger.models import DebugMessage, DebugRequest
+
+    request = DebugRequest.objects.filter(id=request_id).first()
+    if not request or request.status == DebugRequest.Status.CLOSED:
+        return
+
+    request.status = DebugRequest.Status.FINALIZING
+    request.save(update_fields=['status', 'updated_at'])
+
+    title, draft = '', ''
+    try:
+        result = run_agent(request, mode='finalize')
+        text = result.get('text') or ''
+        if text.strip():
+            DebugMessage.objects.create(
+                request=request, role=DebugMessage.Role.AGENT, content=text,
+                meta={'mode': 'finalize', 'usage': result.get('usage')})
+        learnings = result.get('learnings') or []
+        if learnings:
+            title = learnings[-1].get('title', '')
+            draft = learnings[-1].get('content', '')
+    except Exception as exc:
+        logger.exception('finalize_learning failed for %s', request_id)
+        _sys(request, f'Could not draft a learning automatically ({exc}). '
+                      'You can write one or close without saving.')
+
+    request.learning_title = (title or request.title)[:200]
+    request.learning_draft = draft
+    request.status = DebugRequest.Status.LEARNING_REVIEW
+    request.save(update_fields=['learning_title', 'learning_draft', 'status', 'updated_at'])
+    return {'request_id': request_id, 'has_draft': bool(draft)}
+
+
+@shared_task(bind=True, max_retries=0)
 def poll_open_prs(self):
     """Beat task: pull new review activity for every live PR thread."""
     from debugger.models import DebugRequest

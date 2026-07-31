@@ -30,6 +30,8 @@ class DebugRequest(models.Model):
         CHANGES_REQUESTED = 'changes_requested', 'Changes requested'  # PR review came in (Phase 2)
         REVISING = 'revising', 'Revising'        # agent addressing PR review (Phase 2)
         PR_UPDATED = 'pr_updated', 'PR updated'  # revision pushed (Phase 2)
+        FINALIZING = 'finalizing', 'Finalizing'  # agent drafting the learning (Phase 3)
+        LEARNING_REVIEW = 'learning_review', 'Learning review'  # draft awaiting admin (Phase 3)
         CLOSED = 'closed', 'Closed'
         FAILED = 'failed', 'Failed'
 
@@ -54,6 +56,10 @@ class DebugRequest(models.Model):
     # PR-review ingestion bookkeeping (Phase 2) — highest GitHub ids already seen.
     last_seen_review_id = models.BigIntegerField(null=True, blank=True)
     last_seen_comment_id = models.BigIntegerField(null=True, blank=True)
+
+    # Learning draft the agent proposes on close (Phase 3); admin edits then saves.
+    learning_title = models.CharField(max_length=200, blank=True)
+    learning_draft = models.TextField(blank=True)
 
     error = models.TextField(blank=True)             # last failure detail, if any
     created_at = models.DateTimeField(auto_now_add=True)

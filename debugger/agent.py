@@ -49,8 +49,9 @@ MCP_SERVER_NAME = 'varthaai_debugger'
 DB_TOOL = f'mcp__{MCP_SERVER_NAME}__db_query_ro'
 LOGS_TOOL = f'mcp__{MCP_SERVER_NAME}__read_logs'
 FIX_TOOL = f'mcp__{MCP_SERVER_NAME}__propose_fix'
+LEARN_TOOL = f'mcp__{MCP_SERVER_NAME}__record_learning'
 
-ALLOWED_TOOLS = ['Read', 'Grep', 'Glob', 'Bash', DB_TOOL, LOGS_TOOL, FIX_TOOL]
+ALLOWED_TOOLS = ['Read', 'Grep', 'Glob', 'Bash', DB_TOOL, LOGS_TOOL, FIX_TOOL, LEARN_TOOL]
 DISALLOWED_TOOLS = list(guards.BLOCKED_TOOLS) + ['WebFetch', 'WebSearch', 'TodoWrite']
 
 
@@ -65,8 +66,13 @@ def _error(s):
     return {'content': [{'type': 'text', 'text': s}], 'is_error': True}
 
 
-def _register_tools(proposals):
-    """Build the SDK tool set. `proposals` collects propose_fix calls (a list)."""
+def _register_tools(proposals, learnings=None):
+    """
+    Build the SDK tool set. `proposals` collects propose_fix calls; `learnings`
+    (optional list) collects record_learning calls.
+    """
+    if learnings is None:
+        learnings = []
 
     @tool('db_query_ro', 'Run ONE read-only SQL SELECT against the production '
                          'database (SELECT/WITH only). Returns rows as JSON.',
@@ -134,9 +140,23 @@ def _register_tools(proposals):
         return _text('Fix proposal recorded. It will be shown to the admin with '
                      'a "Create PR" button; no PR has been opened.')
 
+    @tool('record_learning', 'Record ONE reusable lesson from this thread as a '
+                             'title + content. Used when finalizing a thread on '
+                             'close so future investigations benefit. Records '
+                             'only — the admin reviews it before it is saved.',
+          {'title': str, 'content': str})
+    async def record_learning(args):
+        args = args or {}
+        learnings.append({
+            'title': (args.get('title', '') or '')[:200],
+            'content': args.get('content', '') or '',
+        })
+        return _text('Learning drafted. The admin will review and edit it before '
+                     'it is saved to memory.')
+
     return create_sdk_mcp_server(
         name=MCP_SERVER_NAME, version='1.0.0',
-        tools=[db_query_ro, read_logs, propose_fix],
+        tools=[db_query_ro, read_logs, propose_fix, record_learning],
     )
 
 
@@ -189,12 +209,7 @@ async def _pretooluse_hook(input_data, tool_use_id, context):
 # Prompt building                                                             #
 # --------------------------------------------------------------------------- #
 def build_system_prompt(request, mode=None):
-    from debugger.models import DebugLearning
-
-    learnings = DebugLearning.objects.filter(kind=request.kind).order_by('-created_at')[:15]
-    learnings_txt = '\n'.join(
-        f'- ({l.kind}) {l.title}: {l.content}' for l in learnings
-    ) or '(no learnings recorded yet)'
+    learnings_txt = _relevant_learnings(request)
 
     claude_md = _read_project_map()
 
@@ -220,6 +235,19 @@ def build_system_prompt(request, mode=None):
             'to change. Do not propose a diff until the admin approves the plan.'
         ),
     }[request.kind]
+
+    if mode == 'finalize':
+        kind_instructions = (
+            'This thread is being CLOSED. Distil the single most useful, reusable '
+            'lesson from it and call record_learning(title, content). The content '
+            'should be concise (a short paragraph or a few bullets): what the '
+            'issue/feature was, the root cause or key insight, the fix or outcome, '
+            'and — most importantly — a GENERAL rule or pointer that will help a '
+            'future investigation of a similar problem (name the relevant files / '
+            'modules / tables). Do not use any other tools; just reflect on the '
+            'conversation above and record the learning. If there is genuinely '
+            'nothing reusable, say so briefly and do not call record_learning.'
+        )
 
     if mode == 'review':
         # The cwd is the PR branch worktree, not main — the code already has the
@@ -254,6 +282,32 @@ def build_system_prompt(request, mode=None):
         "PRIOR LEARNINGS (your memory from past threads — apply them):\n"
         f"{learnings_txt}\n"
     )
+
+
+def _relevant_learnings(request, limit=12):
+    """
+    The agent's memory: past learnings, ranked by keyword overlap with this
+    request (falling back to recency). Same-kind learnings are preferred but not
+    exclusive, so a bug can still benefit from a related feature/query lesson.
+    """
+    import re as _re
+    from debugger.models import DebugLearning
+
+    def words(text):
+        return {w for w in _re.findall(r'[a-z0-9_]{3,}', (text or '').lower())}
+
+    q = words(f'{request.title} {request.body}')
+    rows = list(DebugLearning.objects.order_by('-created_at')[:80])
+    scored = []
+    for l in rows:
+        overlap = len(q & (words(' '.join(l.tags or [])) | words(l.title)))
+        kind_bonus = 1 if l.kind == request.kind else 0
+        scored.append((overlap * 2 + kind_bonus, l.id, l))
+    scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    top = [l for _, _, l in scored[:limit]]
+    if not top:
+        return '(no learnings recorded yet)'
+    return '\n'.join(f'- ({l.kind}) {l.title}: {l.content}' for l in top)
 
 
 def _read_project_map():
@@ -299,7 +353,8 @@ def run_agent(request, cwd=None, mode=None):
 
 async def _run_agent_async(request, cwd=None, mode=None):
     proposals = []
-    server = _register_tools(proposals)
+    learnings = []
+    server = _register_tools(proposals, learnings)
 
     env = {}
     if settings.ANTHROPIC_API_KEY:
@@ -345,6 +400,7 @@ async def _run_agent_async(request, cwd=None, mode=None):
     return {
         'text': '\n\n'.join(t for t in text_parts if t.strip()).strip(),
         'proposals': proposals,
+        'learnings': learnings,
         'tools_used': tools_used,
         'usage': usage,
     }
