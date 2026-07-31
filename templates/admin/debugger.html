@@ -28,6 +28,8 @@
   .st-ready{ background:#e6f6ea; color:#1e7a3a;}
   .st-pr_open,.st-pr_updated{ background:#efe7fb; color:#6a3fb3;}
   .st-changes_requested{ background:#fdecea; color:#c0392b;}
+  .st-finalizing{ background:#fff4d6; color:#8a6d00;}
+  .st-learning_review{ background:#eef7e6; color:#5a7a2e;}
   .st-closed{ background:#e9ecef; color:#666;}
   .st-failed{ background:#fdecea; color:#c0392b;}
 
@@ -144,6 +146,23 @@
 
         <div class="dbg-msgs" id="msgList"></div>
 
+        <!-- Learning review (shown on close) -->
+        <div id="learningPanel" style="display:none; border-top:1px solid #eef0f3; padding:14px 18px; background:#fbfdf7;">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <i class="fas fa-brain" style="color:#85AA4E"></i>
+            <strong style="font-size:.92rem">Save a learning before closing</strong>
+          </div>
+          <p class="text-muted" style="font-size:.8rem; margin-bottom:8px">
+            The agent drafted the lesson below. Edit it, then save it to the agent’s memory — or discard it.
+          </p>
+          <input type="text" class="form-control form-control-sm mb-2" id="learnTitle" placeholder="Learning title">
+          <textarea class="form-control form-control-sm" id="learnContent" rows="5" placeholder="What to remember next time…" style="resize:vertical"></textarea>
+          <div class="d-flex gap-2 mt-2">
+            <button class="btn btn-primary btn-sm" id="saveLearnBtn"><i class="fas fa-floppy-disk me-1"></i>Save &amp; close</button>
+            <button class="btn btn-outline-secondary btn-sm" id="discardLearnBtn">Discard &amp; close</button>
+          </div>
+        </div>
+
         <div class="dbg-composer">
           <form id="replyForm" class="d-flex gap-2 align-items-end">
             <textarea class="form-control" id="replyInput" rows="2" placeholder="Reply to the agent…" style="resize:vertical"></textarea>
@@ -198,5 +217,5 @@
 {% block extra_js %}
 <script src="{% static 'js/vendor/marked.min.js' %}"></script>
 <script src="{% static 'js/vendor/purify.min.js' %}"></script>
-<script src="{% static 'js/admin/debugger.js' %}?v=p2md2"></script>
+<script src="{% static 'js/admin/debugger.js' %}?v=p3"></script>
 {% endblock %}

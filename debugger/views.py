@@ -6,6 +6,8 @@ non-super-admins, and the API re-checks is_super_admin on every request (the
 shared HasModulePermission never *excludes* a regular admin, so an explicit
 gate is required). Responses use the standard {success, message, data} envelope.
 """
+import re
+
 from django.shortcuts import redirect, render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.permissions import BasePermission
@@ -37,7 +39,7 @@ class IsSuperAdmin(BasePermission):
 LIVE_STATUSES = {
     DebugRequest.Status.NEW, DebugRequest.Status.ANALYZING,
     DebugRequest.Status.PR_REQUESTED, DebugRequest.Status.REVISING,
-    DebugRequest.Status.CHANGES_REQUESTED,
+    DebugRequest.Status.CHANGES_REQUESTED, DebugRequest.Status.FINALIZING,
 }
 
 
@@ -73,6 +75,8 @@ def _req_detail(r):
         'pr_title': r.pr_title,
         'pr_body': r.pr_body,
         'pr_branch': r.pr_branch,
+        'learning_title': r.learning_title,
+        'learning_draft': r.learning_draft,
         'error': r.error,
         'is_live': r.status in LIVE_STATUSES,
         'messages': [_msg_dict(m) for m in r.messages.all()],
@@ -96,6 +100,23 @@ def _enqueue_task(task, *args):
         return True
     except Exception:
         return False
+
+
+_STOPWORDS = {
+    'the', 'and', 'for', 'with', 'from', 'that', 'this', 'when', 'into', 'not',
+    'are', 'was', 'but', 'has', 'have', 'you', 'your', 'its', 'via', 'per',
+}
+
+
+def _keywords(text, limit=8):
+    """Cheap tag extraction for learning recall — distinct lowercased words."""
+    seen = []
+    for w in re.findall(r'[a-zA-Z_][a-zA-Z0-9_]{2,}', (text or '').lower()):
+        if w not in _STOPWORDS and w not in seen:
+            seen.append(w)
+        if len(seen) >= limit:
+            break
+    return seen
 
 
 class DebuggerAPI(APIView):
@@ -125,6 +146,7 @@ class DebuggerAPI(APIView):
             'create': self._create,
             'reply': self._reply,
             'close': self._close,
+            'finalize_close': self._finalize_close,
             'request_pr': self._request_pr,
             'approve_plan': self._approve_plan,
             'sync_pr': self._sync_pr,
@@ -173,16 +195,52 @@ class DebuggerAPI(APIView):
         return ok({'queued': queued}, message='Reply sent.')
 
     def _close(self, request, body):
+        """Start closing: the agent drafts a learning for the admin to review."""
+        from debugger.tasks import finalize_learning
         r = DebugRequest.objects.filter(id=body.get('id')).first()
         if not r:
             return err('Request not found.', status=404)
-        # Phase 3 will run finalize_learning here before closing.
-        r.status = DebugRequest.Status.CLOSED
+        if r.status == DebugRequest.Status.CLOSED:
+            return err('This thread is already closed.')
+        if r.status in (DebugRequest.Status.FINALIZING,
+                        DebugRequest.Status.LEARNING_REVIEW):
+            return ok(message='Already finalizing.')
+        r.status = DebugRequest.Status.FINALIZING
         r.save(update_fields=['status', 'updated_at'])
         DebugMessage.objects.create(
-            request=r, role=DebugMessage.Role.SYSTEM, content='Thread closed.',
-        )
-        return ok(message='Thread closed.')
+            request=r, role=DebugMessage.Role.SYSTEM,
+            content='Closing — summarizing what to remember from this thread…')
+        queued = _enqueue_task(finalize_learning, r.id)
+        return ok({'queued': queued}, message='Summarizing the learning…')
+
+    def _finalize_close(self, request, body):
+        """Save the (edited) learning to memory, or discard, then close."""
+        r = DebugRequest.objects.filter(id=body.get('id')).first()
+        if not r:
+            return err('Request not found.', status=404)
+        discard = bool(body.get('discard'))
+        title = (body.get('title') or '').strip()
+        content = (body.get('content') or '').strip()
+        saved = False
+        if not discard and content:
+            DebugLearning.objects.create(
+                kind=r.kind,
+                title=(title or r.title)[:200],
+                content=content,
+                source_request=r,
+                tags=_keywords(f'{title} {r.title}'),
+            )
+            saved = True
+        r.learning_title = title
+        r.learning_draft = content
+        r.status = DebugRequest.Status.CLOSED
+        r.save(update_fields=['learning_title', 'learning_draft', 'status', 'updated_at'])
+        DebugMessage.objects.create(
+            request=r, role=DebugMessage.Role.SYSTEM,
+            content='Learning saved to memory. Thread closed.' if saved
+                    else 'Thread closed (no learning saved).')
+        return ok({'saved': saved},
+                  message='Learning saved.' if saved else 'Thread closed.')
 
     def _request_pr(self, request, body):
         from debugger.tasks import create_pr

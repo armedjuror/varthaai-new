@@ -11,7 +11,7 @@ from django.urls import reverse
 
 from accounts.models import AdminUser
 from debugger import guards, pr
-from debugger.models import DebugMessage, DebugRequest
+from debugger.models import DebugLearning, DebugMessage, DebugRequest
 
 
 class SqlGuardTests(TestCase):
@@ -148,14 +148,16 @@ class ApiPermissionTests(TestCase):
             content_type='application/json')
         self.assertFalse(res.json()['success'])
 
-    def test_close_thread(self, _enq):
+    @mock.patch('debugger.tasks.finalize_learning.delay')
+    def test_close_starts_finalization(self, delay, _enq):
         self.client.force_login(self.superuser)
         r = DebugRequest.objects.create(kind='query', title='q', created_by=self.superuser)
         res = self.client.post(
             self.api, {'action': 'close', 'id': r.id}, content_type='application/json')
         self.assertTrue(res.json()['success'])
         r.refresh_from_db()
-        self.assertEqual(r.status, DebugRequest.Status.CLOSED)
+        self.assertEqual(r.status, DebugRequest.Status.FINALIZING)
+        delay.assert_called_once_with(r.id)
 
 
 @override_settings(GITHUB_DEFAULT_BRANCH='main')
@@ -241,3 +243,55 @@ class PrApiTests(TestCase):
             self.api, {'action': 'sync_pr', 'id': r.id}, content_type='application/json')
         self.assertFalse(res.json()['success'])
         delay.assert_not_called()
+
+
+class LearningTests(TestCase):
+    def setUp(self):
+        self.superuser = AdminUser.objects.create_user(
+            'boss', 'pw', role=AdminUser.Role.SUPER_ADMIN)
+        self.api = reverse('debugger:api')
+        self.client.force_login(self.superuser)
+
+    def _reviewing(self):
+        return DebugRequest.objects.create(
+            kind='bug', title='coupon bug',
+            status=DebugRequest.Status.LEARNING_REVIEW,
+            learning_title='Coupon applied after total',
+            learning_draft='Apply coupons inside _total().',
+            created_by=self.superuser)
+
+    def test_finalize_close_saves_learning(self):
+        r = self._reviewing()
+        res = self.client.post(self.api, {
+            'action': 'finalize_close', 'id': r.id,
+            'title': 'Coupon ordering', 'content': 'Apply coupon inside _total() and persist.',
+        }, content_type='application/json')
+        self.assertTrue(res.json()['data']['saved'])
+        r.refresh_from_db()
+        self.assertEqual(r.status, DebugRequest.Status.CLOSED)
+        lrn = DebugLearning.objects.get(source_request=r)
+        self.assertEqual(lrn.kind, 'bug')
+        self.assertIn('coupon', ' '.join(lrn.tags))
+
+    def test_finalize_close_discard_saves_nothing(self):
+        r = self._reviewing()
+        res = self.client.post(self.api, {
+            'action': 'finalize_close', 'id': r.id, 'discard': True,
+        }, content_type='application/json')
+        self.assertFalse(res.json()['data']['saved'])
+        r.refresh_from_db()
+        self.assertEqual(r.status, DebugRequest.Status.CLOSED)
+        self.assertFalse(DebugLearning.objects.filter(source_request=r).exists())
+
+    def test_recall_prefers_keyword_match(self):
+        from debugger.agent import _relevant_learnings
+        DebugLearning.objects.create(kind='bug', title='Unrelated caching note',
+                                     content='x', tags=['cache', 'redis'])
+        DebugLearning.objects.create(kind='bug', title='Coupon math',
+                                     content='apply inside _total', tags=['coupon', 'total', 'orders'])
+        req = DebugRequest.objects.create(
+            kind='bug', title='coupon discount wrong', body='orders total off',
+            created_by=self.superuser)
+        out = _relevant_learnings(req)
+        # The coupon learning should rank above the caching one.
+        self.assertLess(out.index('Coupon math'), out.index('Unrelated caching note'))
