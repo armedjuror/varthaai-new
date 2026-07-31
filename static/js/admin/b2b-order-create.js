@@ -7,7 +7,7 @@ var itemCounter = 0;
 
 $(function () {
   showLoader('Loading…');
-  apiGet('api/b2b-orders.php', { view: 'order_form_data' })
+  apiGet('/admin/api/b2b-orders/', { view: 'order_form_data' })
     .done(function (res) {
       if (!res.success) { showAlertModal(res.message, 'danger'); return; }
       formData.flavors   = res.flavors   || [];
@@ -90,7 +90,7 @@ function onCompanyChange() {
 }
 
 function checkBalance(companyId) {
-  apiGet('api/b2b-orders.php', { view: 'company_balance', company_id: companyId })
+  apiGet('/admin/api/b2b-orders/', { view: 'company_balance', company_id: companyId })
     .done(function (res) {
       if (!res.success) return;
       var d = res.data;
@@ -115,7 +115,7 @@ function checkBalance(companyId) {
 }
 
 function loadOffers(companyId) {
-  apiGet('api/b2b-orders.php', { view: 'offers', company_id: companyId })
+  apiGet('/admin/api/b2b-orders/', { view: 'offers', company_id: companyId })
     .done(function (res) {
       offers = res.data || [];
       if (!offers.length) { $('#offersCard').hide(); return; }
@@ -432,11 +432,11 @@ function submitOrder() {
   if (isEdit) data.order_id = EDIT_ORDER_ID;
 
   showLoader(isEdit ? 'Saving…' : 'Creating order…');
-  apiPost('api/b2b-orders.php', data)
+  apiPost('/admin/api/b2b-orders/', data)
     .done(function (res) {
       if (res.success) {
         showAlertModal(res.message, 'success');
-        setTimeout(function () { window.location.href = 'b2b-orders.php'; }, 1200);
+        setTimeout(function () { window.location.href = '/admin/b2b-orders/'; }, 1200);
       } else {
         showAlertModal(res.message, 'danger');
       }
@@ -448,7 +448,7 @@ function submitOrder() {
 /* ── Edit order ── */
 function loadEditOrder() {
   showLoader('Loading order…');
-  apiPost('api/b2b-orders.php', { action: 'repeat_order', source_order_id: EDIT_ORDER_ID })
+  apiPost('/admin/api/b2b-orders/', { action: 'repeat_order', source_order_id: EDIT_ORDER_ID })
     .done(function (res) {
       if (!res.success) { showAlertModal(res.message, 'danger'); return; }
 
@@ -487,7 +487,7 @@ function loadEditOrder() {
 /* ── Repeat order ── */
 function loadRepeatOrder() {
   showLoader('Loading order…');
-  apiPost('api/b2b-orders.php', { action: 'repeat_order', source_order_id: REPEAT_ORDER_ID })
+  apiPost('/admin/api/b2b-orders/', { action: 'repeat_order', source_order_id: REPEAT_ORDER_ID })
     .done(function (res) {
       if (!res.success) { showAlertModal(res.message, 'danger'); return; }
 
