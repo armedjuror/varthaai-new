@@ -156,7 +156,7 @@ function loadFlavors(cb) {
   apiGet('/admin/api/flavors/')
     .done(function (res) {
       if (res.success) {
-        _allFlavors = res.data || [];
+        _allFlavors = (res.data && res.data.flavors) || [];
         populateFlavorSelects();
       }
     })
