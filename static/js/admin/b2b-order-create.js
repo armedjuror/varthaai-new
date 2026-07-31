@@ -10,10 +10,11 @@ $(function () {
   apiGet('/admin/api/b2b-orders/', { view: 'order_form_data' })
     .done(function (res) {
       if (!res.success) { showAlertModal(res.message, 'danger'); return; }
-      formData.flavors   = res.flavors   || [];
-      formData.packs     = res.packs     || [];
-      formData.batches   = res.batches   || [];
-      formData.companies = res.companies || [];
+      var d = res.data || {};
+      formData.flavors   = d.flavors   || [];
+      formData.packs     = d.packs     || [];
+      formData.batches   = d.batches   || [];
+      formData.companies = d.companies || [];
       populateCompanies();
       populateFlavors();
 
