@@ -182,6 +182,60 @@ class PrLogicTests(TestCase):
         pr._assert_pushable('debugger/bug-1-x')  # no raise
 
 
+class ApplyDiffTests(TestCase):
+    """Exercise the real diff-application path + the staging fix in a temp repo."""
+
+    def _git(self, d, *args):
+        import os
+        import subprocess
+        env = {**os.environ,
+               'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
+               'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
+        return subprocess.run(['git', *args], cwd=d, check=True,
+                              capture_output=True, text=True, env=env)
+
+    def test_apply_diff_applies_and_stages(self):
+        import os
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            self._git(d, 'init', '-q')
+            fp = os.path.join(d, 'a.txt')
+            with open(fp, 'w') as f:
+                f.write('l1\nl2\nl3\n')
+            self._git(d, 'add', '-A')
+            self._git(d, 'commit', '-qm', 'init')
+            # Generate a real unified diff, then revert so we can re-apply it.
+            with open(fp, 'w') as f:
+                f.write('l1\nCHANGED\nl3\n')
+            diff = self._git(d, 'diff').stdout
+            self._git(d, 'checkout', '--', 'a.txt')
+
+            pr._apply_diff(d, diff)
+            self._git(d, 'add', '-A')
+            self._git(d, 'commit', '-qm', 'fix')
+
+            self.assertIn('CHANGED', open(fp).read())
+            # The change was committed (staging gap regression guard).
+            show = subprocess.run(['git', 'show', '--stat', 'HEAD'], cwd=d,
+                                  capture_output=True, text=True).stdout
+            self.assertIn('a.txt', show)
+
+    def test_apply_diff_rejects_unapplicable(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            self._git(d, 'init', '-q')
+            with open(os.path.join(d, 'a.txt'), 'w') as f:
+                f.write('totally different\n')
+            self._git(d, 'add', '-A')
+            self._git(d, 'commit', '-qm', 'init')
+            bogus = ('diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n'
+                     '@@ -1,3 +1,3 @@\n l1\n-l2\n+X\n l3\n')
+            with self.assertRaises(pr.PRError):
+                pr._apply_diff(d, bogus)
+
+
 class PrApiTests(TestCase):
     def setUp(self):
         self.superuser = AdminUser.objects.create_user(

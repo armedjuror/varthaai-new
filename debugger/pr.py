@@ -108,23 +108,88 @@ def ensure_clone():
     return repo
 
 
+def _prod_head_sha():
+    """The exact commit the agent read when it generated the diff (prod checkout).
+
+    Branching the isolated clone from THIS commit — rather than origin/<default>
+    — makes the diff apply cleanly (matching context) and gives `git apply
+    --3way` the blobs it needs, avoiding the "lacks the necessary blob" failure.
+    """
+    try:
+        out = subprocess.run(
+            ['git', '-C', settings.DEBUGGER_CODE_DIR, 'rev-parse', 'HEAD'],
+            capture_output=True, text=True, timeout=15)
+        if out.returncode == 0:
+            return out.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
+def _base_ref(repo, default_branch):
+    """Prefer the prod-HEAD commit (if present on origin); else origin/<default>."""
+    sha = _prod_head_sha()
+    if sha:
+        exists = _run(['git', 'cat-file', '-e', f'{sha}^{{commit}}'], cwd=repo, check=False)
+        if exists.returncode != 0:
+            _run(['git', 'fetch', 'origin', sha], cwd=repo, check=False)
+            exists = _run(['git', 'cat-file', '-e', f'{sha}^{{commit}}'], cwd=repo, check=False)
+        if exists.returncode == 0:
+            return sha
+    return f'origin/{default_branch}'
+
+
 def _apply_diff(repo, diff):
-    """Apply a unified diff; try a plain apply then a 3-way merge."""
+    """
+    Apply a unified diff to the working tree, trying progressively more lenient
+    strategies and resetting to a clean base between attempts (git apply is
+    atomic, but --3way/patch can leave partial state). The caller stages the
+    result with `git add -A`. Raises PRError if nothing applies.
+    """
     if not diff or not diff.strip():
         raise PRError('empty diff — nothing to apply.')
+    text = diff if diff.endswith('\n') else diff + '\n'
     with tempfile.NamedTemporaryFile('w', suffix='.diff', delete=False) as fh:
-        fh.write(diff if diff.endswith('\n') else diff + '\n')
+        fh.write(text)
         path = fh.name
+
+    head = _run(['git', 'rev-parse', 'HEAD'], cwd=repo, check=False).stdout.strip()
+
+    def reset():
+        if head:
+            _run(['git', 'reset', '--hard', '-q', head], cwd=repo, check=False)
+        _run(['git', 'clean', '-fdq'], cwd=repo, check=False)
+
+    strategies = [
+        ['git', 'apply', path],
+        ['git', 'apply', '--3way', path],
+        ['git', 'apply', '--recount', '--whitespace=fix', path],
+        ['git', 'apply', '--ignore-whitespace', path],
+        ['git', 'apply', '-C1', '--ignore-whitespace', path],
+        ['git', 'apply', '-p0', '--ignore-whitespace', path],
+        ['patch', '-p1', '--fuzz=3', '--no-backup-if-mismatch', '-i', path],
+        ['patch', '-p0', '--fuzz=3', '--no-backup-if-mismatch', '-i', path],
+    ]
+    errors = []
     try:
-        plain = _run(['git', 'apply', '--index', path], cwd=repo, check=False)
-        if plain.returncode != 0:
-            three = _run(['git', 'apply', '--3way', path], cwd=repo, check=False)
-            if three.returncode != 0:
-                raise PRError(
-                    'could not apply the proposed diff (context drift). '
-                    f'{plain.stderr}\n{three.stderr}'.strip())
+        for cmd in strategies:
+            reset()
+            res = _run(cmd, cwd=repo, check=False)
+            if res.returncode == 0:
+                return
+            msg = (res.stderr or res.stdout).strip()
+            if msg:
+                errors.append(msg.splitlines()[0])
+        reset()
     finally:
         os.unlink(path)
+
+    uniq = []
+    for e in errors:
+        if e and e not in uniq:
+            uniq.append(e)
+    raise PRError('could not apply the proposed diff (context drift). '
+                  + ' | '.join(uniq)[:900])
 
 
 # --------------------------------------------------------------------------- #
@@ -141,8 +206,10 @@ def create_pull_request(request):
     _assert_pushable(branch)
     base = _default_branch()
 
-    _run(['git', 'checkout', '-B', branch, f'origin/{base}'], cwd=repo)
+    # Branch from the exact commit the agent read so the diff applies cleanly.
+    _run(['git', 'checkout', '-B', branch, _base_ref(repo, base)], cwd=repo)
     _apply_diff(repo, request.proposed_diff)
+    _run(['git', 'add', '-A'], cwd=repo)
 
     title = (request.pr_title or request.title)[:200]
     body = request.pr_body or _default_body(request)
@@ -179,6 +246,7 @@ def push_revision(request, diff, message='Address review feedback'):
     branch = request.pr_branch or branch_name(request)
     _assert_pushable(branch)
     _apply_diff(repo, diff)
+    _run(['git', 'add', '-A'], cwd=repo)
     _run(['git', 'commit', '-m', message], cwd=repo)
     _assert_pushable(branch)
     _run(['git', 'push', 'origin', branch], cwd=repo)
