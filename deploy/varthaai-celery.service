@@ -1,0 +1,40 @@
+# systemd unit for the Varthaai Celery worker (Debugger Agent background tasks).
+# Install:  sudo cp deploy/varthaai-celery.service /etc/systemd/system/varthaai-celery.service
+#           sudo systemctl daemon-reload
+#           sudo systemctl enable --now varthaai-celery
+# Logs:     sudo journalctl -u varthaai-celery -f
+#
+# Requires Redis running locally (sudo apt install redis-server && systemctl enable --now redis-server)
+# and the `claude` CLI (Node) on PATH for the Claude Agent SDK — see DEBUGGER.md.
+[Unit]
+Description=Varthaai Celery worker (Debugger Agent)
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/varthaai-new
+
+Environment=DJANGO_SETTINGS_MODULE=Varthaai.settings
+# The Claude Agent SDK spawns the `claude` CLI; make sure Node/npm global bin
+# is on PATH for the service user (adjust to your install).
+Environment=PATH=/home/ubuntu/varthaai-new/venv/bin:/usr/local/bin:/usr/bin:/bin
+
+# One worker process; the agent is I/O-bound on the model. Bump concurrency only
+# if you expect several simultaneous investigations.
+ExecStart=/home/ubuntu/varthaai-new/venv/bin/celery -A Varthaai worker \
+    --loglevel=info --concurrency=2 --max-tasks-per-child=20
+
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+
+# NOTE: unlike the web unit, do NOT set PrivateTmp/strict sandboxing that would
+# block the agent from reading journald + /var/log/nginx. The worker user must be
+# in the `adm`/`systemd-journal` groups to read `journalctl -u varthaai`.
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

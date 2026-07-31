@@ -262,7 +262,7 @@ CELERY_WORKER_MAX_TASKS_PER_CHILD = 20
 # ---------------------------------------------------------------------------
 # Claude Agent SDK auth. Rotate this key — it was previously committed to .env.
 ANTHROPIC_API_KEY = env('ANTHROPIC_API_KEY', '')
-DEBUGGER_MODEL = env('DEBUGGER_MODEL', 'claude-opus-4-8')
+DEBUGGER_MODEL = env('DEBUGGER_MODEL', 'claude-sonnet-5')
 # Read-only code checkout the agent inspects (the running app is fine — it only reads).
 DEBUGGER_CODE_DIR = env('DEBUGGER_CODE_DIR', str(BASE_DIR))
 # Isolated clone/worktree base where PR branches are built (NEVER the prod checkout).
