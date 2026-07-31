@@ -1,0 +1,176 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Debugger — Varthaai Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  .dbg-layout { display:grid; grid-template-columns: 340px 1fr; gap:16px; align-items:start; }
+  @media (max-width: 900px){ .dbg-layout{ grid-template-columns:1fr; } }
+
+  .dbg-list { background:#fff; border-radius:14px; box-shadow:0 1px 3px rgba(0,0,0,.06); overflow:hidden; }
+  .dbg-list-head { padding:12px 14px; border-bottom:1px solid #eef0f3; display:flex; gap:8px; }
+  .dbg-list-scroll { max-height: calc(100vh - 230px); overflow-y:auto; }
+  .dbg-item { padding:12px 14px; border-bottom:1px solid #f2f3f5; cursor:pointer; }
+  .dbg-item:hover { background:#f8faf5; }
+  .dbg-item.active { background:#f1f6e8; border-left:3px solid #85AA4E; }
+  .dbg-item h6 { margin:0 0 4px; font-size:.9rem; font-weight:600; }
+  .dbg-item .meta { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+
+  .kind-badge{ font-size:.68rem; font-weight:700; text-transform:uppercase; padding:2px 8px; border-radius:20px; letter-spacing:.03em;}
+  .kind-bug{ background:#fdecea; color:#c0392b;}
+  .kind-feature{ background:#eaf3fb; color:#2c6fb3;}
+  .kind-query{ background:#eef7e6; color:#5a7a2e;}
+
+  .st-pill{ font-size:.68rem; font-weight:600; padding:2px 8px; border-radius:20px; background:#eef0f3; color:#555;}
+  .st-analyzing,.st-new{ background:#fff4d6; color:#8a6d00;}
+  .st-awaiting_input{ background:#e7f0ff; color:#2c5fb3;}
+  .st-ready{ background:#e6f6ea; color:#1e7a3a;}
+  .st-pr_open,.st-pr_updated{ background:#efe7fb; color:#6a3fb3;}
+  .st-changes_requested{ background:#fdecea; color:#c0392b;}
+  .st-closed{ background:#e9ecef; color:#666;}
+  .st-failed{ background:#fdecea; color:#c0392b;}
+
+  .dbg-thread { background:#fff; border-radius:14px; box-shadow:0 1px 3px rgba(0,0,0,.06); display:flex; flex-direction:column; min-height: calc(100vh - 200px);}
+  .dbg-thread-head { padding:14px 18px; border-bottom:1px solid #eef0f3; }
+  .dbg-rca { margin:14px 18px 0; border:1px solid #e6ecdd; background:#fbfdf7; border-radius:10px; }
+  .dbg-rca summary { cursor:pointer; padding:10px 14px; font-weight:600; color:#4d6b23; }
+  .dbg-rca .rca-body{ padding:0 14px 14px; }
+  .dbg-msgs { flex:1; overflow-y:auto; padding:16px 18px; display:flex; flex-direction:column; gap:12px; }
+  .dbg-msg { max-width:85%; padding:10px 14px; border-radius:12px; white-space:pre-wrap; word-wrap:break-word; font-size:.9rem; line-height:1.5;}
+  .dbg-msg.admin { align-self:flex-end; background:#85AA4E; color:#fff; border-bottom-right-radius:4px;}
+  .dbg-msg.agent { align-self:flex-start; background:#f2f4f7; color:#1f2937; border-bottom-left-radius:4px;}
+  .dbg-msg.system { align-self:center; background:transparent; color:#8b93a1; font-size:.78rem; font-style:italic; padding:2px;}
+  .dbg-msg .who{ font-size:.7rem; font-weight:700; opacity:.7; margin-bottom:3px; text-transform:uppercase; letter-spacing:.03em;}
+  .dbg-msg .tools{ font-size:.72rem; opacity:.7; margin-top:6px;}
+  .dbg-diff{ background:#0f1720; color:#d6e2ee; border-radius:8px; padding:12px; overflow-x:auto; font-size:.78rem; white-space:pre; }
+  .dbg-composer { border-top:1px solid #eef0f3; padding:12px 18px; }
+  .dbg-empty { padding:60px 20px; text-align:center; color:#9aa2ad; }
+  .typing { display:inline-block; }
+  .typing span{ animation: blink 1.2s infinite; }
+  .typing span:nth-child(2){ animation-delay:.2s;} .typing span:nth-child(3){ animation-delay:.4s;}
+  @keyframes blink{ 0%,100%{opacity:.2} 50%{opacity:1} }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-body">
+
+  <div class="page-header">
+    <div>
+      <h1><i class="fas fa-bug me-2"></i>Debugger</h1>
+      <p>Report a bug, request a feature, or ask a question. The agent investigates using code, a read-only database, and server logs.</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newReqModal">
+        <i class="fas fa-plus me-1"></i>New Request
+      </button>
+    </div>
+  </div>
+
+  <div class="dbg-layout">
+    <!-- LEFT: request list -->
+    <div class="dbg-list">
+      <div class="dbg-list-head">
+        <select id="filterKind" class="form-select form-select-sm">
+          <option value="">All types</option>
+          <option value="bug">Bugs</option>
+          <option value="feature">Features</option>
+          <option value="query">Queries</option>
+        </select>
+        <button class="btn btn-outline-secondary btn-sm" id="refreshBtn" title="Refresh"><i class="fas fa-rotate"></i></button>
+      </div>
+      <div class="dbg-list-scroll" id="reqList">
+        <div class="dbg-empty">Loading…</div>
+      </div>
+    </div>
+
+    <!-- RIGHT: thread -->
+    <div class="dbg-thread" id="threadPane">
+      <div class="dbg-empty" id="threadEmpty">
+        <i class="fas fa-comments fa-2x mb-3 d-block"></i>
+        Select a request on the left, or create a new one.
+      </div>
+      <div id="threadContent" style="display:none; flex:1; flex-direction:column; min-height:0;">
+        <div class="dbg-thread-head">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <span class="kind-badge" id="tKind"></span>
+              <span class="st-pill ms-1" id="tStatus"></span>
+              <h5 class="mt-2 mb-0" id="tTitle"></h5>
+            </div>
+            <div class="d-flex gap-1">
+              <button class="btn btn-outline-success btn-sm" id="createPrBtn" style="display:none"><i class="fab fa-github me-1"></i>Create PR</button>
+              <button class="btn btn-outline-danger btn-sm" id="closeBtn"><i class="fas fa-check me-1"></i>Close</button>
+            </div>
+          </div>
+        </div>
+
+        <details class="dbg-rca" id="rcaBox" style="display:none">
+          <summary id="rcaSummary">Root-cause analysis</summary>
+          <div class="rca-body">
+            <div id="rcaText" style="white-space:pre-wrap"></div>
+            <div id="diffBox" style="display:none; margin-top:12px">
+              <div class="fw-semibold mb-1" style="font-size:.8rem">Proposed fix (diff)</div>
+              <pre class="dbg-diff" id="diffText"></pre>
+              <div class="text-muted" style="font-size:.78rem">PR creation from this diff arrives in Phase 2.</div>
+            </div>
+          </div>
+        </details>
+
+        <div class="dbg-msgs" id="msgList"></div>
+
+        <div class="dbg-composer">
+          <form id="replyForm" class="d-flex gap-2 align-items-end">
+            <textarea class="form-control" id="replyInput" rows="2" placeholder="Reply to the agent…" style="resize:vertical"></textarea>
+            <button class="btn btn-primary" type="submit" id="sendBtn"><i class="fas fa-paper-plane"></i></button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New Request Modal -->
+<div class="modal fade" id="newReqModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-plus me-2"></i>New Request</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="newReqForm">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Type <span class="text-danger">*</span></label>
+            <div class="btn-group w-100" role="group">
+              <input type="radio" class="btn-check" name="kind" id="kBug" value="bug" checked>
+              <label class="btn btn-outline-danger" for="kBug"><i class="fas fa-bug me-1"></i>Bug</label>
+              <input type="radio" class="btn-check" name="kind" id="kFeature" value="feature">
+              <label class="btn btn-outline-primary" for="kFeature"><i class="fas fa-lightbulb me-1"></i>Feature</label>
+              <input type="radio" class="btn-check" name="kind" id="kQuery" value="query">
+              <label class="btn btn-outline-success" for="kQuery"><i class="fas fa-circle-question me-1"></i>Query</label>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Title <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" name="title" required maxlength="200" placeholder="Short summary">
+          </div>
+          <div class="mb-1">
+            <label class="form-label">Details</label>
+            <textarea class="form-control" name="body" rows="5" placeholder="Describe the bug (steps, error message), the feature, or your question…"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Submit to agent</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/admin/debugger.js' %}"></script>
+{% endblock %}

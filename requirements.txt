@@ -1,4 +1,7 @@
 asgiref==3.12.1
+celery==5.4.0
+claude-agent-sdk==0.2.128
+redis==5.2.1
 certifi==2026.6.17
 charset-normalizer==3.4.9
 Django==5.2.16

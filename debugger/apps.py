@@ -1,0 +1,7 @@
+from django.apps import AppConfig
+
+
+class DebuggerConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'debugger'
+    verbose_name = 'Debugger Agent'

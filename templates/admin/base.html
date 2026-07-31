@@ -125,6 +125,10 @@
     {% endif %}
 
     {% if is_super_admin %}
+      <a href="{% url 'debugger:page' %}" class="nav-item{% if url_name == 'page' %} active{% endif %}">
+        <i class="fas fa-bug"></i>
+        <span>Debugger</span>
+      </a>
       <a href="{% url 'core:settings' %}" class="nav-item{% if url_name == 'settings' %} active{% endif %}">
         <i class="fas fa-gear"></i>
         <span>Settings</span>

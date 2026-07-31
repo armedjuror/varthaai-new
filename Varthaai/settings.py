@@ -70,6 +70,7 @@ LOCAL_APPS = [
     'finance',
     'marketing',
     'storefront',
+    'debugger',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -129,7 +130,26 @@ DATABASES = {
         'PASSWORD': env('DB_PASSWORD', ''),
         'HOST': env('DB_HOST', '127.0.0.1'),
         'PORT': env('DB_PORT', '5432'),
-    }
+    },
+    # SELECT-only alias used ONLY by the Debugger Agent's db_query_ro tool
+    # (see debugger/agent.py). Backed by a dedicated Postgres role granted just
+    # SELECT (see deploy/DEBUGGER.md), with the connection also forced read-only
+    # as a second line of defence. The ORM is never routed here — the app keeps
+    # writing on `default`.
+    'readonly': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': env('DB_RO_NAME', env('DB_NAME', 'varthaai_db')),
+        'USER': env('DB_RO_USER', 'varthaai_ro'),
+        'PASSWORD': env('DB_RO_PASSWORD', ''),
+        'HOST': env('DB_RO_HOST', env('DB_HOST', '127.0.0.1')),
+        'PORT': env('DB_RO_PORT', env('DB_PORT', '5432')),
+        'OPTIONS': {
+            # Reject any attempt to write at the session level.
+            'options': '-c default_transaction_read_only=on',
+        },
+        # Never run migrations / create test DBs against the read-only role.
+        'TEST': {'MIRROR': 'default'},
+    },
 }
 
 
@@ -222,3 +242,38 @@ PURCHASE_POINTS_PERCENTAGE = int(env('PURCHASE_POINTS_PERCENTAGE', '10'))
 REVIEW_POINTS = int(env('REVIEW_POINTS', '5'))
 FEEDBACK_POINTS = int(env('FEEDBACK_POINTS', '5'))
 REFERRAL_POINTS = int(env('REFERRAL_POINTS', '50'))
+
+# ---------------------------------------------------------------------------
+# Celery (background tasks) — powers the Debugger Agent. Redis by default.
+# ---------------------------------------------------------------------------
+CELERY_BROKER_URL = env('CELERY_BROKER_URL', 'redis://127.0.0.1:6379/0')
+CELERY_RESULT_BACKEND = env('CELERY_RESULT_BACKEND', 'redis://127.0.0.1:6379/0')
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TIMEZONE = env('TIME_ZONE', 'Asia/Kolkata')
+# The agent can take minutes; give tasks room but still bound them.
+CELERY_TASK_SOFT_TIME_LIMIT = int(env('CELERY_TASK_SOFT_TIME_LIMIT', '900'))
+CELERY_TASK_TIME_LIMIT = int(env('CELERY_TASK_TIME_LIMIT', '1080'))
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 20
+
+# ---------------------------------------------------------------------------
+# Debugger Agent (super-admin RCA + PR bot). See debugger/ app.
+# ---------------------------------------------------------------------------
+# Claude Agent SDK auth. Rotate this key — it was previously committed to .env.
+ANTHROPIC_API_KEY = env('ANTHROPIC_API_KEY', '')
+DEBUGGER_MODEL = env('DEBUGGER_MODEL', 'claude-opus-4-8')
+# Read-only code checkout the agent inspects (the running app is fine — it only reads).
+DEBUGGER_CODE_DIR = env('DEBUGGER_CODE_DIR', str(BASE_DIR))
+# Isolated clone/worktree base where PR branches are built (NEVER the prod checkout).
+DEBUGGER_REPO_DIR = env('DEBUGGER_REPO_DIR', str(BASE_DIR.parent / 'varthaai-debugger-worktree'))
+# systemd unit whose journald output is the app log; and nginx log paths.
+DEBUGGER_LOG_UNIT = env('DEBUGGER_LOG_UNIT', 'varthaai')
+DEBUGGER_NGINX_ACCESS_LOG = env('DEBUGGER_NGINX_ACCESS_LOG', '/var/log/nginx/varthaai.access.log')
+DEBUGGER_NGINX_ERROR_LOG = env('DEBUGGER_NGINX_ERROR_LOG', '/var/log/nginx/varthaai.error.log')
+# GitHub — used by `gh` for PR creation (Phase 2). Keep out of git.
+GITHUB_TOKEN = env('GITHUB_TOKEN', '')
+GITHUB_REPO = env('GITHUB_REPO', 'armedjuror/varthaai-new')
+GITHUB_DEFAULT_BRANCH = env('GITHUB_DEFAULT_BRANCH', 'main')
+# Hard cap on rows any single db_query_ro call may return.
+DEBUGGER_DB_ROW_LIMIT = int(env('DEBUGGER_DB_ROW_LIMIT', '200'))
