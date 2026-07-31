@@ -15,6 +15,17 @@
     pr_updated: 'PR updated', closed: 'Closed', failed: 'Failed',
   };
 
+  // Render Markdown safely. marked → DOMPurify; falls back to escaped text with
+  // line breaks if the CDN libs didn't load.
+  function renderMd(text) {
+    const src = text || '';
+    if (window.marked && window.DOMPurify) {
+      const html = window.marked.parse(src, { breaks: true, gfm: true });
+      return window.DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
+    }
+    return escHtml(src).replace(/\n/g, '<br>');
+  }
+
   function kindBadge(k) {
     return `<span class="kind-badge kind-${k}">${KIND_LABEL[k] || k}</span>`;
   }
@@ -72,7 +83,7 @@
       rcaBox.style.display = 'block';
       document.getElementById('rcaSummary').textContent =
         d.kind === 'feature' ? 'Implementation plan' : 'Root-cause analysis';
-      document.getElementById('rcaText').textContent = d.rca;
+      document.getElementById('rcaText').innerHTML = renderMd(d.rca);
       const diffBox = document.getElementById('diffBox');
       if (d.proposed_diff) {
         diffBox.style.display = 'block';
@@ -83,14 +94,19 @@
     // Messages
     const list = document.getElementById('msgList');
     list.innerHTML = (d.messages || []).map(m => {
-      if (m.role === 'system') return `<div class="dbg-msg system">${escHtml(m.content)}</div>`;
+      if (m.role === 'system')
+        return `<div class="dbg-msg system"><div class="md">${renderMd(m.content)}</div></div>`;
       const who = m.role === 'admin' ? 'You' : 'Agent';
       let tools = '';
       if (m.meta && m.meta.tools_used && m.meta.tools_used.length) {
         const uniq = [...new Set(m.meta.tools_used)].map(shortTool).join(', ');
         tools = `<div class="tools"><i class="fas fa-wrench me-1"></i>${escHtml(uniq)}</div>`;
       }
-      return `<div class="dbg-msg ${m.role}"><div class="who">${who}</div>${escHtml(m.content)}${tools}</div>`;
+      // Agent replies are Markdown; admin messages stay verbatim (plain text).
+      const bodyHtml = m.role === 'agent'
+        ? `<div class="md">${renderMd(m.content)}</div>`
+        : `<div class="plain">${escHtml(m.content)}</div>`;
+      return `<div class="dbg-msg ${m.role}"><div class="who">${who}</div>${bodyHtml}${tools}</div>`;
     }).join('');
     if (d.is_live) {
       list.insertAdjacentHTML('beforeend',
