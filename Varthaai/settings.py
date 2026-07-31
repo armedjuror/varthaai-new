@@ -257,6 +257,15 @@ CELERY_TASK_SOFT_TIME_LIMIT = int(env('CELERY_TASK_SOFT_TIME_LIMIT', '900'))
 CELERY_TASK_TIME_LIMIT = int(env('CELERY_TASK_TIME_LIMIT', '1080'))
 CELERY_WORKER_MAX_TASKS_PER_CHILD = 20
 
+# Beat: poll GitHub for new PR review activity on open PR threads (Phase 2).
+DEBUGGER_PR_POLL_SECONDS = int(env('DEBUGGER_PR_POLL_SECONDS', '300'))
+CELERY_BEAT_SCHEDULE = {
+    'poll-open-prs': {
+        'task': 'debugger.tasks.poll_open_prs',
+        'schedule': DEBUGGER_PR_POLL_SECONDS,
+    },
+}
+
 # ---------------------------------------------------------------------------
 # Debugger Agent (super-admin RCA + PR bot). See debugger/ app.
 # ---------------------------------------------------------------------------

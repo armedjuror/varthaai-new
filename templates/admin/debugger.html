@@ -100,10 +100,15 @@
               <h5 class="mt-2 mb-0" id="tTitle"></h5>
             </div>
             <div class="d-flex gap-1">
-              <button class="btn btn-outline-success btn-sm" id="createPrBtn" style="display:none"><i class="fab fa-github me-1"></i>Create PR</button>
+              <button class="btn btn-outline-primary btn-sm" id="approvePlanBtn" style="display:none"><i class="fas fa-check-double me-1"></i>Approve plan</button>
+              <button class="btn btn-success btn-sm" id="createPrBtn" style="display:none"><i class="fab fa-github me-1"></i>Create PR</button>
+              <button class="btn btn-outline-secondary btn-sm" id="syncPrBtn" style="display:none" title="Check for new PR review activity"><i class="fas fa-rotate"></i></button>
               <button class="btn btn-outline-danger btn-sm" id="closeBtn"><i class="fas fa-check me-1"></i>Close</button>
             </div>
           </div>
+          <a id="prLink" href="#" target="_blank" class="d-none align-items-center gap-1 mt-2" style="font-size:.82rem">
+            <i class="fab fa-github"></i><span id="prLinkText"></span>
+          </a>
         </div>
 
         <details class="dbg-rca" id="rcaBox" style="display:none">
@@ -113,7 +118,7 @@
             <div id="diffBox" style="display:none; margin-top:12px">
               <div class="fw-semibold mb-1" style="font-size:.8rem">Proposed fix (diff)</div>
               <pre class="dbg-diff" id="diffText"></pre>
-              <div class="text-muted" style="font-size:.78rem">PR creation from this diff arrives in Phase 2.</div>
+              <div class="text-muted" style="font-size:.78rem">Use “Create PR” to open a pull request against <code>main</code> with this fix.</div>
             </div>
           </div>
         </details>

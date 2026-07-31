@@ -33,8 +33,12 @@ class IsSuperAdmin(BasePermission):
                     and getattr(user, 'is_super_admin', False))
 
 
-# Statuses that still change on their own (agent working) — the UI polls these.
-LIVE_STATUSES = {DebugRequest.Status.NEW, DebugRequest.Status.ANALYZING}
+# Statuses where the backend is actively working — the UI polls these.
+LIVE_STATUSES = {
+    DebugRequest.Status.NEW, DebugRequest.Status.ANALYZING,
+    DebugRequest.Status.PR_REQUESTED, DebugRequest.Status.REVISING,
+    DebugRequest.Status.CHANGES_REQUESTED,
+}
 
 
 def _msg_dict(m):
@@ -76,11 +80,19 @@ def _req_detail(r):
     return d
 
 
-def _enqueue(request_id):
+def _enqueue(request_id, mode=None):
     """Best-effort enqueue; broker being down must not lose the saved request."""
     from debugger.tasks import process_request
     try:
-        process_request.delay(request_id)
+        process_request.delay(request_id, mode=mode)
+        return True
+    except Exception:
+        return False
+
+
+def _enqueue_task(task, *args):
+    try:
+        task.delay(*args)
         return True
     except Exception:
         return False
@@ -113,6 +125,9 @@ class DebuggerAPI(APIView):
             'create': self._create,
             'reply': self._reply,
             'close': self._close,
+            'request_pr': self._request_pr,
+            'approve_plan': self._approve_plan,
+            'sync_pr': self._sync_pr,
         }.get(action)
         if not handler:
             return err('Unknown action.')
@@ -168,3 +183,46 @@ class DebuggerAPI(APIView):
             request=r, role=DebugMessage.Role.SYSTEM, content='Thread closed.',
         )
         return ok(message='Thread closed.')
+
+    def _request_pr(self, request, body):
+        from debugger.tasks import create_pr
+        r = DebugRequest.objects.filter(id=body.get('id')).first()
+        if not r:
+            return err('Request not found.', status=404)
+        if not (r.proposed_diff or '').strip():
+            return err('There is no proposed fix to open a PR for.')
+        if r.pr_url:
+            return err('A PR is already open for this thread.')
+        r.status = DebugRequest.Status.PR_REQUESTED
+        r.save(update_fields=['status', 'updated_at'])
+        DebugMessage.objects.create(
+            request=r, role=DebugMessage.Role.SYSTEM,
+            content='PR requested — opening a branch and pull request…')
+        queued = _enqueue_task(create_pr, r.id)
+        return ok({'queued': queued}, message='Opening pull request…')
+
+    def _approve_plan(self, request, body):
+        """Feature flow: admin approves the plan → agent generates the diff."""
+        r = DebugRequest.objects.filter(id=body.get('id')).first()
+        if not r:
+            return err('Request not found.', status=404)
+        if r.status == DebugRequest.Status.CLOSED:
+            return err('This thread is closed.')
+        DebugMessage.objects.create(
+            request=r, role=DebugMessage.Role.ADMIN,
+            content='Plan approved. Please generate the implementation as a '
+                    'unified diff and call propose_fix so I can open a PR.')
+        r.status = DebugRequest.Status.NEW
+        r.save(update_fields=['status', 'updated_at'])
+        queued = _enqueue(r.id)
+        return ok({'queued': queued}, message='Plan approved — generating the fix.')
+
+    def _sync_pr(self, request, body):
+        from debugger.tasks import sync_pr_reviews
+        r = DebugRequest.objects.filter(id=body.get('id')).first()
+        if not r:
+            return err('Request not found.', status=404)
+        if not r.pr_url:
+            return err('No PR is open for this thread.')
+        queued = _enqueue_task(sync_pr_reviews, r.id)
+        return ok({'queued': queued}, message='Checking for new PR review activity…')

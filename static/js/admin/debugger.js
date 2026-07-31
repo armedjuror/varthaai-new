@@ -98,12 +98,33 @@
     }
     list.scrollTop = list.scrollHeight;
 
-    // Actions
-    document.getElementById('closeBtn').style.display = d.status === 'closed' ? 'none' : '';
+    // PR link banner
+    const prLink = document.getElementById('prLink');
+    if (d.pr_url) {
+      prLink.href = d.pr_url;
+      document.getElementById('prLinkText').textContent = d.pr_branch
+        ? `PR open · ${d.pr_branch}` : 'View pull request';
+      prLink.classList.remove('d-none'); prLink.classList.add('d-flex');
+    } else {
+      prLink.classList.add('d-none'); prLink.classList.remove('d-flex');
+    }
+
+    // Action buttons
+    const closed = d.status === 'closed';
+    document.getElementById('closeBtn').style.display = closed ? 'none' : '';
+    // Feature: approve the plan so the agent generates a diff.
+    document.getElementById('approvePlanBtn').style.display =
+      (d.kind === 'feature' && d.rca && !d.proposed_diff && !d.pr_url
+       && !closed && !d.is_live) ? '' : 'none';
+    // A fix is proposed and no PR exists yet.
     document.getElementById('createPrBtn').style.display =
-      (d.proposed_diff && d.status !== 'closed') ? '' : 'none';
-    document.getElementById('replyInput').disabled = d.status === 'closed';
-    document.getElementById('sendBtn').disabled = d.status === 'closed' || d.is_live;
+      (d.proposed_diff && !d.pr_url && d.status === 'ready' && !closed) ? '' : 'none';
+    // A PR exists — allow a manual review-sync.
+    document.getElementById('syncPrBtn').style.display =
+      (d.pr_url && !closed) ? '' : 'none';
+
+    document.getElementById('replyInput').disabled = closed;
+    document.getElementById('sendBtn').disabled = closed || d.is_live;
   }
 
   function shortTool(t) {
@@ -162,9 +183,28 @@
     });
   });
 
-  document.getElementById('createPrBtn').addEventListener('click', () => {
-    showAlertModal('PR creation from the proposed diff arrives in Phase 2. The diff is shown in the analysis panel above.', 'info');
-  });
+  async function postAction(payload, confirmMsg) {
+    if (!currentId) return;
+    const go = async () => {
+      showLoader();
+      const res = await apiPost(API, Object.assign({ id: currentId }, payload));
+      hideLoader();
+      if (res.success) { openThread(currentId, true); loadList(); }
+      else showAlertModal(res.message, 'danger');
+    };
+    if (confirmMsg) confirmThen(confirmMsg, go); else go();
+  }
+
+  document.getElementById('createPrBtn').addEventListener('click', () =>
+    postAction({ action: 'request_pr' },
+      'Open a pull request against main with the proposed fix? A new branch will be pushed (never main).'));
+
+  document.getElementById('approvePlanBtn').addEventListener('click', () =>
+    postAction({ action: 'approve_plan' },
+      'Approve this plan? The agent will generate the implementation as a diff.'));
+
+  document.getElementById('syncPrBtn').addEventListener('click', () =>
+    postAction({ action: 'sync_pr' }));
 
   document.getElementById('refreshBtn').addEventListener('click', loadList);
   document.getElementById('filterKind').addEventListener('change', loadList);

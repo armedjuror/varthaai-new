@@ -1,9 +1,12 @@
 """
 Celery tasks for the Debugger Agent.
 
-`process_request` runs the read-only RCA/feature/query agent and records the
-result as an `agent` message on the thread, then advances the request status.
-It is enqueued when a request is created and on every admin reply.
+Phase 1: `process_request` runs the read-only RCA/feature/query agent.
+Phase 2: PR lifecycle — `create_pr`, `revise_pr`, and the review-ingestion loop
+(`sync_pr_reviews` + the `poll_open_prs` beat task).
+
+Guarantees: PR work happens only in the isolated clone (debugger/pr.py); the
+never-push-main guard lives there. The agent never performs git/GitHub actions.
 """
 from celery import shared_task
 from celery.utils.log import get_task_logger
@@ -11,8 +14,17 @@ from celery.utils.log import get_task_logger
 logger = get_task_logger(__name__)
 
 
+def _sys(request, content):
+    from debugger.models import DebugMessage
+    DebugMessage.objects.create(
+        request=request, role=DebugMessage.Role.SYSTEM, content=content)
+
+
+# --------------------------------------------------------------------------- #
+# Analysis (Phase 1 + review-mode revision)                                   #
+# --------------------------------------------------------------------------- #
 @shared_task(bind=True, max_retries=0)
-def process_request(self, request_id):
+def process_request(self, request_id, mode=None):
     from debugger.agent import run_agent
     from debugger.models import DebugMessage, DebugRequest
 
@@ -20,26 +32,33 @@ def process_request(self, request_id):
     if not request:
         logger.warning('process_request: request %s not found', request_id)
         return
-
-    # Don't re-run terminal threads.
-    if request.status in (DebugRequest.Status.CLOSED,):
+    if request.status == DebugRequest.Status.CLOSED:
         return
 
+    prev_status = request.status
     request.status = DebugRequest.Status.ANALYZING
     request.error = ''
     request.save(update_fields=['status', 'error', 'updated_at'])
 
+    # Review mode reads the PR-branch worktree so its diff is a delta on top of
+    # the existing fix. Fall back to the main checkout if the branch isn't ready.
+    cwd = None
+    if mode == 'review':
+        try:
+            from debugger import pr
+            cwd = pr.checkout_branch(request)
+        except Exception as exc:
+            logger.warning('review checkout failed for %s: %s', request_id, exc)
+            cwd = None
+
     try:
-        result = run_agent(request)
-    except Exception as exc:  # SDK/CLI missing, API error, timeout, etc.
+        result = run_agent(request, cwd=cwd, mode=mode)
+    except Exception as exc:
         logger.exception('process_request failed for %s', request_id)
         request.status = DebugRequest.Status.FAILED
         request.error = str(exc)
         request.save(update_fields=['status', 'error', 'updated_at'])
-        DebugMessage.objects.create(
-            request=request, role=DebugMessage.Role.SYSTEM,
-            content=f'Analysis failed: {exc}',
-        )
+        _sys(request, f'Analysis failed: {exc}')
         return
 
     text = result.get('text') or '(the agent returned no text)'
@@ -51,27 +70,159 @@ def process_request(self, request_id):
             'tools_used': result.get('tools_used'),
             'usage': result.get('usage'),
             'has_proposal': bool(proposals),
+            'mode': mode,
         },
     )
 
-    update_fields = ['status', 'updated_at']
-
-    # Bug/feature: keep the latest analysis as the RCA/plan shown in the panel.
+    fields = ['status', 'updated_at']
     if request.kind in (DebugRequest.Kind.BUG, DebugRequest.Kind.FEATURE):
         request.rca = text
-        update_fields.append('rca')
+        fields.append('rca')
 
     if proposals:
-        # Take the last proposal as the current suggested fix.
         p = proposals[-1]
         request.proposed_diff = p.get('diff', '')
-        request.pr_title = (p.get('pr_title', '') or request.title)[:200]
-        request.pr_body = p.get('pr_body', '')
+        request.pr_title = (p.get('pr_title', '') or request.pr_title or request.title)[:200]
+        request.pr_body = p.get('pr_body', '') or request.pr_body
+        fields += ['proposed_diff', 'pr_title', 'pr_body']
+        if request.pr_url:
+            # A PR already exists → this proposal is a revision. Push it.
+            request.status = DebugRequest.Status.REVISING
+            request.save(update_fields=list(set(fields)))
+            revise_pr.delay(request.id)
+            return
+        # No PR yet → wait for the admin to click "Create PR".
         request.status = DebugRequest.Status.READY
-        update_fields += ['proposed_diff', 'pr_title', 'pr_body']
     else:
-        # Answered — the ball is back with the admin (ask follow-up or close).
+        # Answered / asked a question — back to the admin.
         request.status = DebugRequest.Status.AWAITING_INPUT
 
-    request.save(update_fields=list(set(update_fields)))
+    request.save(update_fields=list(set(fields)))
     return {'request_id': request_id, 'status': request.status}
+
+
+# --------------------------------------------------------------------------- #
+# PR creation / revision                                                       #
+# --------------------------------------------------------------------------- #
+@shared_task(bind=True, max_retries=0)
+def create_pr(self, request_id):
+    from debugger import pr
+    from debugger.models import DebugRequest
+
+    request = DebugRequest.objects.filter(id=request_id).first()
+    if not request:
+        return
+    if not request.proposed_diff.strip():
+        _sys(request, 'Cannot open a PR — no proposed fix is attached.')
+        request.status = DebugRequest.Status.AWAITING_INPUT
+        request.save(update_fields=['status', 'updated_at'])
+        return
+
+    try:
+        info = pr.create_pull_request(request)
+    except Exception as exc:
+        logger.exception('create_pr failed for %s', request_id)
+        request.status = DebugRequest.Status.READY
+        request.error = str(exc)
+        request.save(update_fields=['status', 'error', 'updated_at'])
+        _sys(request, f'Could not open PR: {exc}')
+        return
+
+    request.pr_url = info['pr_url']
+    request.pr_branch = info['branch']
+    request.status = DebugRequest.Status.PR_OPEN
+    request.error = ''
+    request.save(update_fields=['pr_url', 'pr_branch', 'status', 'error', 'updated_at'])
+    _sys(request, f'Pull request opened on branch `{info["branch"]}`: {info["pr_url"]}')
+    return info
+
+
+@shared_task(bind=True, max_retries=0)
+def revise_pr(self, request_id):
+    from debugger import pr
+    from debugger.models import DebugRequest
+
+    request = DebugRequest.objects.filter(id=request_id).first()
+    if not request or not request.pr_branch:
+        return
+    try:
+        branch = pr.push_revision(request, request.proposed_diff)
+        if request.pr_url:
+            num = pr.pr_number_from_url(request.pr_url)
+            if num:
+                pr.comment_on_pr(num, 'Pushed a revision addressing the review feedback.')
+    except Exception as exc:
+        logger.exception('revise_pr failed for %s', request_id)
+        request.status = DebugRequest.Status.CHANGES_REQUESTED
+        request.error = str(exc)
+        request.save(update_fields=['status', 'error', 'updated_at'])
+        _sys(request, f'Could not push the revision: {exc}')
+        return
+
+    request.status = DebugRequest.Status.PR_UPDATED
+    request.error = ''
+    request.save(update_fields=['status', 'error', 'updated_at'])
+    _sys(request, f'Revision pushed to `{branch}`.')
+
+
+# --------------------------------------------------------------------------- #
+# PR-review ingestion loop                                                     #
+# --------------------------------------------------------------------------- #
+@shared_task(bind=True, max_retries=0)
+def sync_pr_reviews(self, request_id):
+    from debugger import pr
+    from debugger.models import DebugRequest
+
+    request = DebugRequest.objects.filter(id=request_id).first()
+    if not request or not request.pr_url:
+        return
+    num = pr.pr_number_from_url(request.pr_url)
+    if not num:
+        return
+    if request.status in (DebugRequest.Status.ANALYZING,
+                          DebugRequest.Status.REVISING):
+        return  # busy; don't double-trigger
+
+    try:
+        activity = pr.fetch_pr_activity(
+            num, request.last_seen_review_id, request.last_seen_comment_id)
+    except Exception as exc:
+        logger.warning('sync_pr_reviews failed for %s: %s', request_id, exc)
+        return
+
+    items = activity['items']
+    # Always advance the watermark so nothing is re-ingested.
+    request.last_seen_review_id = activity['max_review_id'] or request.last_seen_review_id
+    request.last_seen_comment_id = activity['max_comment_id'] or request.last_seen_comment_id
+
+    if not items:
+        request.save(update_fields=['last_seen_review_id', 'last_seen_comment_id', 'updated_at'])
+        return 0
+
+    for it in items:
+        if it['kind'] == 'review':
+            head = f'PR review by @{it["author"]} ({it.get("state", "")})'
+        else:
+            loc = f' on `{it["path"]}`' if it.get('path') else ''
+            head = f'PR comment by @{it["author"]}{loc}'
+        _sys(request, f'{head}:\n{it.get("body", "").strip() or "(no text)"}')
+
+    request.status = DebugRequest.Status.CHANGES_REQUESTED
+    request.save(update_fields=[
+        'last_seen_review_id', 'last_seen_comment_id', 'status', 'updated_at'])
+    # Hand off to the agent to analyse the feedback and revise or reply.
+    process_request.delay(request.id, mode='review')
+    return len(items)
+
+
+@shared_task(bind=True, max_retries=0)
+def poll_open_prs(self):
+    """Beat task: pull new review activity for every live PR thread."""
+    from debugger.models import DebugRequest
+
+    open_statuses = [DebugRequest.Status.PR_OPEN, DebugRequest.Status.PR_UPDATED]
+    ids = list(DebugRequest.objects.filter(status__in=open_statuses)
+               .exclude(pr_url='').values_list('id', flat=True))
+    for rid in ids:
+        sync_pr_reviews.delay(rid)
+    return len(ids)

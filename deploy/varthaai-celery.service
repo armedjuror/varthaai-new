@@ -22,10 +22,15 @@ Environment=DJANGO_SETTINGS_MODULE=Varthaai.settings
 # is on PATH for the service user (adjust to your install).
 Environment=PATH=/home/ubuntu/varthaai-new/venv/bin:/usr/local/bin:/usr/bin:/bin
 
-# One worker process; the agent is I/O-bound on the model. Bump concurrency only
-# if you expect several simultaneous investigations.
-ExecStart=/home/ubuntu/varthaai-new/venv/bin/celery -A Varthaai worker \
-    --loglevel=info --concurrency=2 --max-tasks-per-child=20
+# Each investigation spawns a `claude` CLI (Node) that can hold 0.5-1 GB+ RSS on a
+# long agentic run. On a small box, two of those at once OOM-kills the worker, so
+# keep --concurrency=1 (one investigation at a time). --max-tasks-per-child=1
+# recycles the child after every task, fully releasing the CLI's memory instead of
+# letting it accumulate across runs. Also provision swap — see DEBUGGER.md §8.
+# `-B` runs the embedded beat scheduler (polls open PRs for new review activity) —
+# fine for this single-box setup. Split beat into its own unit if you scale out.
+ExecStart=/home/ubuntu/varthaai-new/venv/bin/celery -A Varthaai worker -B \
+    --loglevel=info --concurrency=1 --max-tasks-per-child=1
 
 Restart=on-failure
 RestartSec=5

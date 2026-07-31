@@ -86,12 +86,59 @@ sudo journalctl -u varthaai-celery -f
 Restart the web app too (`sudo systemctl restart varthaai`) so the new settings/
 routes load.
 
-## Phase 2 (not yet wired) — PR automation
-Will use `gh` + a `GITHUB_TOKEN` and an **isolated** git worktree at
-`DEBUGGER_REPO_DIR` (never the prod checkout) to push a `debugger/*` branch and
-open a PR against `main`. Keep `GITHUB_TOKEN` out of git.
+## 8. Provision swap (prevents OOM kills)
+Each investigation spawns a `claude` CLI (Node) that can hold **0.5–1 GB+ RSS**
+on a long agentic run — on top of gunicorn, Celery, Postgres and Redis on the same
+box. On a small instance (1–2 GB) this OOM-kills the worker mid-run:
+`kernel OOM killer killed some processes` / the CLI dies with `exit code -9`. Add
+swap so a memory spike pages out instead of killing the process:
+```bash
+sudo fallocate -l 4G /swapfile        # 4 GB is comfortable; 2 GB is the minimum
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab   # persist across reboot
+free -h                                # confirm Swap: shows the new space
 ```
-GITHUB_TOKEN=
-GITHUB_REPO=armedjuror/varthaai-new
-DEBUGGER_REPO_DIR=/home/ubuntu/varthaai-debugger-worktree
-```
+The worker unit is already set to `--concurrency=1` (one investigation at a time)
+and `--max-tasks-per-child=1` (recycle the child after each run to release the
+CLI's memory). If OOMs persist even with swap, the box is undersized — move to an
+instance with ≥2 GB RAM (t3.small or larger).
+
+## Phase 2 — PR automation + review loop
+On admin approval the agent opens a PR, and (via the beat poller) reads back PR
+reviews to revise the branch. All git/GitHub work runs in an **isolated clone**
+at `DEBUGGER_REPO_DIR` — never the prod checkout, never a push to `main`, never a
+force-push.
+
+1. **`gh` CLI + token.** Install GitHub CLI and set a token with `repo` scope
+   (a fine-grained PAT or `gh auth token`). Keep it out of git.
+   ```bash
+   sudo apt install -y gh          # or the official gh apt repo
+   gh --version
+   ```
+   In `.env`:
+   ```
+   GITHUB_TOKEN=ghp_...            # repo scope; used by git push + gh
+   GITHUB_REPO=armedjuror/varthaai-new
+   GITHUB_DEFAULT_BRANCH=main
+   DEBUGGER_REPO_DIR=/home/ubuntu/varthaai-debugger-worktree
+   DEBUGGER_PR_POLL_SECONDS=300
+   ```
+   The isolated clone is created automatically on first PR (`git clone` via an
+   `x-access-token` remote); pre-create it if you prefer.
+
+2. **Beat.** The worker unit runs `celery ... worker -B`, which includes the beat
+   scheduler that polls open PRs every `DEBUGGER_PR_POLL_SECONDS`. Reviewers'
+   comments are ingested into the thread and the agent revises the same branch or
+   asks you a question. You can also hit the **⟳** button on a PR thread to sync
+   on demand.
+
+3. **Safety checks (already enforced, worth verifying):**
+   - `debugger/pr.py:_assert_pushable()` refuses to push `main`.
+   - Revisions are plain commits (no `--force`).
+   - Restart the worker after adding the token: `sudo systemctl restart varthaai-celery`.
+
+**Flow recap:** bug/feature reaches `ready` with a proposed diff → admin clicks
+**Create PR** → `debugger/<kind>-<id>-<slug>` branch pushed + PR opened → reviews
+ingested → agent pushes revisions or replies → repeat until you merge.

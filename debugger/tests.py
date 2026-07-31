@@ -6,11 +6,11 @@ Plus HTTP/permission tests for the super-admin-gated API.
 """
 from unittest import mock
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from accounts.models import AdminUser
-from debugger import guards
+from debugger import guards, pr
 from debugger.models import DebugMessage, DebugRequest
 
 
@@ -156,3 +156,88 @@ class ApiPermissionTests(TestCase):
         self.assertTrue(res.json()['success'])
         r.refresh_from_db()
         self.assertEqual(r.status, DebugRequest.Status.CLOSED)
+
+
+@override_settings(GITHUB_DEFAULT_BRANCH='main')
+class PrLogicTests(TestCase):
+    def test_slugify(self):
+        self.assertEqual(pr.slugify('Order total is Wrong!!'), 'order-total-is-wrong')
+        self.assertEqual(pr.slugify(''), 'change')
+
+    def test_branch_name(self):
+        r = DebugRequest(id=7, kind='bug', title='Cart breaks on empty pincode')
+        self.assertEqual(pr.branch_name(r), 'debugger/bug-7-cart-breaks-on-empty-pincode')
+
+    def test_pr_number_from_url(self):
+        self.assertEqual(pr.pr_number_from_url('https://github.com/a/b/pull/42'), 42)
+        self.assertIsNone(pr.pr_number_from_url(''))
+
+    def test_assert_pushable_refuses_default(self):
+        with self.assertRaises(pr.PRError):
+            pr._assert_pushable('main')
+        with self.assertRaises(pr.PRError):
+            pr._assert_pushable('')
+        pr._assert_pushable('debugger/bug-1-x')  # no raise
+
+
+class PrApiTests(TestCase):
+    def setUp(self):
+        self.superuser = AdminUser.objects.create_user(
+            'boss', 'pw', role=AdminUser.Role.SUPER_ADMIN)
+        self.api = reverse('debugger:api')
+        self.client.force_login(self.superuser)
+
+    def _ready_bug(self):
+        return DebugRequest.objects.create(
+            kind='bug', title='Boom', status=DebugRequest.Status.READY,
+            proposed_diff='--- a\n+++ b\n', created_by=self.superuser)
+
+    @mock.patch('debugger.tasks.create_pr.delay')
+    def test_request_pr_enqueues(self, delay):
+        r = self._ready_bug()
+        res = self.client.post(
+            self.api, {'action': 'request_pr', 'id': r.id}, content_type='application/json')
+        self.assertTrue(res.json()['success'])
+        delay.assert_called_once_with(r.id)
+        r.refresh_from_db()
+        self.assertEqual(r.status, DebugRequest.Status.PR_REQUESTED)
+
+    @mock.patch('debugger.tasks.create_pr.delay')
+    def test_request_pr_rejects_without_diff(self, delay):
+        r = DebugRequest.objects.create(
+            kind='bug', title='x', status=DebugRequest.Status.READY, created_by=self.superuser)
+        res = self.client.post(
+            self.api, {'action': 'request_pr', 'id': r.id}, content_type='application/json')
+        self.assertFalse(res.json()['success'])
+        delay.assert_not_called()
+
+    @mock.patch('debugger.tasks.create_pr.delay')
+    def test_request_pr_rejects_when_pr_open(self, delay):
+        r = self._ready_bug()
+        r.pr_url = 'https://github.com/a/b/pull/1'
+        r.save()
+        res = self.client.post(
+            self.api, {'action': 'request_pr', 'id': r.id}, content_type='application/json')
+        self.assertFalse(res.json()['success'])
+        delay.assert_not_called()
+
+    @mock.patch('debugger.tasks.process_request.delay')
+    def test_approve_plan(self, delay):
+        r = DebugRequest.objects.create(
+            kind='feature', title='new report', rca='the plan',
+            status=DebugRequest.Status.AWAITING_INPUT, created_by=self.superuser)
+        res = self.client.post(
+            self.api, {'action': 'approve_plan', 'id': r.id}, content_type='application/json')
+        self.assertTrue(res.json()['success'])
+        r.refresh_from_db()
+        self.assertEqual(r.status, DebugRequest.Status.NEW)
+        self.assertTrue(r.messages.filter(role='admin', content__icontains='approved').exists())
+        delay.assert_called_once()
+
+    @mock.patch('debugger.tasks.sync_pr_reviews.delay')
+    def test_sync_pr_requires_open_pr(self, delay):
+        r = self._ready_bug()
+        res = self.client.post(
+            self.api, {'action': 'sync_pr', 'id': r.id}, content_type='application/json')
+        self.assertFalse(res.json()['success'])
+        delay.assert_not_called()
