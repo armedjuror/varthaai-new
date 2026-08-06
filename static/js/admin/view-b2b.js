@@ -45,8 +45,8 @@ function loadCompany() {
   apiGet('/admin/api/b2b/', { view: 'company', id: COMPANY_ID })
     .done(function (res) {
       if (!res.success) { showAlertModal(res.message, 'danger'); return; }
-      companyData  = res.data;
-      contactsList = res.contacts || [];
+      companyData  = res.data.company;
+      contactsList = res.data.contacts || [];
       renderHeader();
       renderInfo();
       renderStageButtons();
