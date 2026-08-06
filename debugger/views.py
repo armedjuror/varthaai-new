@@ -148,6 +148,7 @@ class DebuggerAPI(APIView):
             'close': self._close,
             'finalize_close': self._finalize_close,
             'request_pr': self._request_pr,
+            'regenerate': self._regenerate,
             'approve_plan': self._approve_plan,
             'sync_pr': self._sync_pr,
         }.get(action)
@@ -258,6 +259,34 @@ class DebuggerAPI(APIView):
             content='PR requested — opening a branch and pull request…')
         queued = _enqueue_task(create_pr, r.id)
         return ok({'queued': queued}, message='Opening pull request…')
+
+    def _regenerate(self, request, body):
+        """Re-run the investigation to rebuild the fix against the CURRENT code.
+
+        For a thread whose diff was drafted before other PRs merged (and prod
+        redeployed), the stored diff no longer applies — Create PR fails with
+        context drift. Re-reading the current checkout yields a fresh diff, and
+        stamps base_sha, so the PR opens cleanly.
+        """
+        r = DebugRequest.objects.filter(id=body.get('id')).first()
+        if not r:
+            return err('Request not found.', status=404)
+        if r.status == DebugRequest.Status.CLOSED:
+            return err('This thread is closed.')
+        if r.pr_url:
+            return err('A PR is already open — push a revision via review instead.')
+        if not (r.proposed_diff or '').strip():
+            return err('There is no fix to regenerate yet.')
+        DebugMessage.objects.create(
+            request=r, role=DebugMessage.Role.ADMIN,
+            content='The codebase has changed since this fix was drafted. Re-read '
+                    'the current code and regenerate the fix as a fresh unified '
+                    'diff against the latest main, then call propose_fix.')
+        r.status = DebugRequest.Status.NEW
+        r.save(update_fields=['status', 'updated_at'])
+        queued = _enqueue(r.id)
+        return ok({'queued': queued},
+                  message='Regenerating the fix against the latest code…')
 
     def _approve_plan(self, request, body):
         """Feature flow: admin approves the plan → agent generates the diff."""

@@ -395,6 +395,36 @@ class PrApiTests(TestCase):
         delay.assert_not_called()
 
     @mock.patch('debugger.tasks.process_request.delay')
+    def test_regenerate_reruns_analysis(self, delay):
+        r = self._ready_bug()
+        res = self.client.post(
+            self.api, {'action': 'regenerate', 'id': r.id}, content_type='application/json')
+        self.assertTrue(res.json()['success'])
+        r.refresh_from_db()
+        self.assertEqual(r.status, DebugRequest.Status.NEW)
+        self.assertTrue(r.messages.filter(role='admin', content__icontains='regenerate').exists())
+        delay.assert_called_once_with(r.id, mode=None)
+
+    @mock.patch('debugger.tasks.process_request.delay')
+    def test_regenerate_rejects_without_diff(self, delay):
+        r = DebugRequest.objects.create(
+            kind='bug', title='x', status=DebugRequest.Status.READY, created_by=self.superuser)
+        res = self.client.post(
+            self.api, {'action': 'regenerate', 'id': r.id}, content_type='application/json')
+        self.assertFalse(res.json()['success'])
+        delay.assert_not_called()
+
+    @mock.patch('debugger.tasks.process_request.delay')
+    def test_regenerate_rejects_when_pr_open(self, delay):
+        r = self._ready_bug()
+        r.pr_url = 'https://github.com/a/b/pull/1'
+        r.save()
+        res = self.client.post(
+            self.api, {'action': 'regenerate', 'id': r.id}, content_type='application/json')
+        self.assertFalse(res.json()['success'])
+        delay.assert_not_called()
+
+    @mock.patch('debugger.tasks.process_request.delay')
     def test_approve_plan(self, delay):
         r = DebugRequest.objects.create(
             kind='feature', title='new report', rca='the plan',

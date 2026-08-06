@@ -151,8 +151,10 @@
       (d.kind === 'feature' && d.rca && !d.proposed_diff && !d.pr_url
        && !closed && !d.is_live) ? '' : 'none';
     // A fix is proposed and no PR exists yet.
-    document.getElementById('createPrBtn').style.display =
-      (d.proposed_diff && !d.pr_url && d.status === 'ready' && !closed) ? '' : 'none';
+    const canPr = d.proposed_diff && !d.pr_url && d.status === 'ready' && !closed;
+    document.getElementById('createPrBtn').style.display = canPr ? '' : 'none';
+    // Same state: let the admin rebuild a drifted diff against the latest code.
+    document.getElementById('regenPrBtn').style.display = canPr ? '' : 'none';
     // A PR exists — allow a manual review-sync.
     document.getElementById('syncPrBtn').style.display =
       (d.pr_url && !closed) ? '' : 'none';
@@ -233,6 +235,10 @@
   document.getElementById('createPrBtn').addEventListener('click', () =>
     postAction({ action: 'request_pr' },
       'Open a pull request against main with the proposed fix? A new branch will be pushed (never main).'));
+
+  document.getElementById('regenPrBtn').addEventListener('click', () =>
+    postAction({ action: 'regenerate' },
+      'Rebuild the fix against the latest code? The current proposed diff will be replaced.'));
 
   document.getElementById('approvePlanBtn').addEventListener('click', () =>
     postAction({ action: 'approve_plan' },

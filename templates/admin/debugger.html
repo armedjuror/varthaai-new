@@ -123,6 +123,7 @@
             <div class="d-flex gap-1">
               <button class="btn btn-outline-primary btn-sm" id="approvePlanBtn" style="display:none"><i class="fas fa-check-double me-1"></i>Approve plan</button>
               <button class="btn btn-success btn-sm" id="createPrBtn" style="display:none"><i class="fab fa-github me-1"></i>Create PR</button>
+              <button class="btn btn-outline-success btn-sm" id="regenPrBtn" style="display:none" title="Re-read the current code and rebuild the fix against latest main"><i class="fas fa-arrows-rotate me-1"></i>Regenerate fix</button>
               <button class="btn btn-outline-secondary btn-sm" id="syncPrBtn" style="display:none" title="Check for new PR review activity"><i class="fas fa-rotate"></i></button>
               <button class="btn btn-outline-danger btn-sm" id="closeBtn"><i class="fas fa-check me-1"></i>Close</button>
             </div>
@@ -217,5 +218,5 @@
 {% block extra_js %}
 <script src="{% static 'js/vendor/marked.min.js' %}"></script>
 <script src="{% static 'js/vendor/purify.min.js' %}"></script>
-<script src="{% static 'js/admin/debugger.js' %}?v=p3"></script>
+<script src="{% static 'js/admin/debugger.js' %}?v=p4"></script>
 {% endblock %}
