@@ -52,6 +52,10 @@ class DebugRequest(models.Model):
     pr_body = models.TextField(blank=True)
     pr_url = models.URLField(blank=True)
     pr_branch = models.CharField(max_length=200, blank=True)
+    # Commit the code checkout was at when the agent produced proposed_diff. The
+    # PR builds the fix on THIS commit and cherry-picks it onto the latest
+    # default branch, so a diff still applies after main has moved on.
+    base_sha = models.CharField(max_length=40, blank=True)
 
     # PR-review ingestion bookkeeping (Phase 2) — highest GitHub ids already seen.
     last_seen_review_id = models.BigIntegerField(null=True, blank=True)

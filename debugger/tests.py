@@ -236,6 +236,123 @@ class ApplyDiffTests(TestCase):
                 pr._apply_diff(d, bogus)
 
 
+@override_settings(GITHUB_DEFAULT_BRANCH='main')
+class BuildFixBranchTests(TestCase):
+    """
+    The core context-drift fix: a diff built against commit A must still land on
+    a default branch that has moved on to B (a non-overlapping merge), via the
+    cherry-pick transplant in _build_fix_branch.
+    """
+
+    def _git(self, d, *args):
+        import os
+        import subprocess
+        env = {**os.environ,
+               'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
+               'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
+        return subprocess.run(['git', *args], cwd=d, check=True,
+                              capture_output=True, text=True, env=env)
+
+    _FILE = 'header\na\nb\nc\nd\ne\nf\ng\nh\nfooter\n'
+
+    def _make_repo(self, d):
+        """commit A on main; a diff (d->FIX) built at A; then advance origin/main
+        to B with a non-overlapping change (header->HEADER-B). Returns (A, diff)."""
+        import os
+        self._git(d, 'init', '-q', '-b', 'main')
+        fp = os.path.join(d, 'file.txt')
+        with open(fp, 'w') as f:
+            f.write(self._FILE)
+        self._git(d, 'add', '-A')
+        self._git(d, 'commit', '-qm', 'A')
+        sha_a = self._git(d, 'rev-parse', 'HEAD').stdout.strip()
+
+        # A diff built against A: change the middle line 'd' -> 'FIX'.
+        with open(fp, 'w') as f:
+            f.write(self._FILE.replace('d\n', 'FIX\n'))
+        diff = self._git(d, 'diff').stdout
+        self._git(d, 'checkout', '--', 'file.txt')
+
+        # Advance to B (a merged PR): change a far-away line, commit, publish as
+        # the remote-tracking origin/main the PR branch will be based on.
+        with open(fp, 'w') as f:
+            f.write(self._FILE.replace('header\n', 'HEADER-B\n'))
+        self._git(d, 'add', '-A')
+        self._git(d, 'commit', '-qm', 'B')
+        sha_b = self._git(d, 'rev-parse', 'HEAD').stdout.strip()
+        self._git(d, 'update-ref', 'refs/remotes/origin/main', sha_b)
+        # Move working tree back to A so it doesn't taint the checkout.
+        self._git(d, 'checkout', '-q', sha_a)
+        return sha_a, diff
+
+    def test_cherry_pick_transplants_fix_onto_moved_main(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            sha_a, diff = self._make_repo(d)
+            req = DebugRequest(kind='bug', title='x', base_sha=sha_a,
+                               proposed_diff=diff)
+            pr._build_fix_branch(d, req, 'debugger/bug-1-x', 'main', 'ttl', 'body')
+
+            content = open(os.path.join(d, 'file.txt')).read()
+            self.assertIn('FIX', content)        # the fix landed
+            self.assertIn('HEADER-B', content)   # B's merge preserved
+            self.assertNotIn('\nd\n', content)
+            self.assertNotIn('header\n', content)
+
+    def test_fallback_applies_onto_main_without_base_sha(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            _sha_a, diff = self._make_repo(d)
+            req = DebugRequest(kind='bug', title='x', base_sha='',
+                               proposed_diff=diff)
+            pr._build_fix_branch(d, req, 'debugger/bug-2-x', 'main', 'ttl', 'body')
+
+            content = open(os.path.join(d, 'file.txt')).read()
+            self.assertIn('FIX', content)
+            self.assertIn('HEADER-B', content)
+
+
+class RequeueOrphanedTests(TestCase):
+    """Worker-restart recovery: transient statuses get re-dispatched."""
+
+    def _backdate(self, req, seconds=600):
+        from datetime import timedelta
+        from django.utils import timezone
+        DebugRequest.objects.filter(id=req.id).update(
+            updated_at=timezone.now() - timedelta(seconds=seconds))
+
+    def test_requeues_transient_statuses_and_skips_fresh(self):
+        from debugger import tasks
+        S = DebugRequest.Status
+
+        analyzing = DebugRequest.objects.create(kind='bug', title='a', status=S.ANALYZING)
+        review = DebugRequest.objects.create(
+            kind='bug', title='r', status=S.ANALYZING,
+            pr_url='https://github.com/o/r/pull/9')
+        revising = DebugRequest.objects.create(
+            kind='bug', title='v', status=S.REVISING, pr_branch='debugger/bug-3-x')
+        finalizing = DebugRequest.objects.create(kind='bug', title='f', status=S.FINALIZING)
+        fresh = DebugRequest.objects.create(kind='bug', title='n', status=S.ANALYZING)
+
+        for r in (analyzing, review, revising, finalizing):
+            self._backdate(r)
+        # `fresh` keeps its recent updated_at → must be skipped.
+
+        with mock.patch.object(tasks.process_request, 'delay') as proc, \
+             mock.patch.object(tasks.revise_pr, 'delay') as rev, \
+             mock.patch.object(tasks.finalize_learning, 'delay') as fin:
+            n = tasks.requeue_orphaned_requests()
+
+        self.assertEqual(n, 4)
+        proc.assert_any_call(analyzing.id, mode=None)
+        proc.assert_any_call(review.id, mode='review')
+        self.assertEqual(proc.call_count, 2)  # `fresh` was not re-dispatched
+        rev.assert_called_once_with(revising.id)
+        fin.assert_called_once_with(finalizing.id)
+
+
 class PrApiTests(TestCase):
     def setUp(self):
         self.superuser = AdminUser.objects.create_user(

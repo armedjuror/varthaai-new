@@ -80,11 +80,15 @@ def process_request(self, request_id, mode=None):
         fields.append('rca')
 
     if proposals:
+        from debugger import pr
         p = proposals[-1]
         request.proposed_diff = p.get('diff', '')
         request.pr_title = (p.get('pr_title', '') or request.pr_title or request.title)[:200]
         request.pr_body = p.get('pr_body', '') or request.pr_body
-        fields += ['proposed_diff', 'pr_title', 'pr_body']
+        # Record the commit the agent read so the PR can transplant the fix even
+        # after the default branch moves on (see pr.create_pull_request).
+        request.base_sha = pr.current_code_sha(cwd) or request.base_sha
+        fields += ['proposed_diff', 'pr_title', 'pr_body', 'base_sha']
         if request.pr_url:
             # A PR already exists → this proposal is a revision. Push it.
             request.status = DebugRequest.Status.REVISING
@@ -253,6 +257,53 @@ def finalize_learning(self, request_id):
     request.status = DebugRequest.Status.LEARNING_REVIEW
     request.save(update_fields=['learning_title', 'learning_draft', 'status', 'updated_at'])
     return {'request_id': request_id, 'has_draft': bool(draft)}
+
+
+def requeue_orphaned_requests(min_age_seconds=90):
+    """
+    Re-dispatch requests left in a worker-owned transient status by a crash or a
+    Celery restart. Called from the worker_ready signal (see debugger/apps.py)
+    so a bounced worker resumes investigations that were mid-flight instead of
+    leaving them stuck on 'Analyzing' forever.
+
+    Status → recovery:
+      ANALYZING  -> process_request (review mode if a PR is already open)
+      REVISING   -> revise_pr
+      FINALIZING -> finalize_learning
+
+    The min_age guard (compared against updated_at, which is stamped when the
+    task enters the transient status) avoids stealing a task a peer worker only
+    just started; the deployment runs a single worker, so this is belt-and-braces.
+    Returns the number of requests re-dispatched.
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from debugger.models import DebugRequest
+
+    cutoff = timezone.now() - timedelta(seconds=min_age_seconds)
+    S = DebugRequest.Status
+    requeued = 0
+
+    for req in DebugRequest.objects.filter(status=S.ANALYZING, updated_at__lt=cutoff):
+        mode = 'review' if req.pr_url else None
+        _sys(req, 'Worker restarted mid-analysis — re-queuing this investigation.')
+        process_request.delay(req.id, mode=mode)
+        requeued += 1
+
+    for req in DebugRequest.objects.filter(status=S.REVISING, updated_at__lt=cutoff):
+        _sys(req, 'Worker restarted mid-revision — re-queuing.')
+        revise_pr.delay(req.id)
+        requeued += 1
+
+    for req in DebugRequest.objects.filter(status=S.FINALIZING, updated_at__lt=cutoff):
+        finalize_learning.delay(req.id)
+        requeued += 1
+
+    if requeued:
+        logger.info('requeue_orphaned_requests: re-dispatched %s stuck request(s)', requeued)
+    return requeued
 
 
 @shared_task(bind=True, max_retries=0)
