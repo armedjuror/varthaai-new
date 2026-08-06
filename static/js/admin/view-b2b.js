@@ -51,7 +51,7 @@ function loadCompany() {
       renderInfo();
       renderStageButtons();
       renderContacts();
-      renderTimeline(res.activities || []);
+      renderTimeline(res.data.activities || []);
       populateContactDropdown();
     })
     .fail(function () { showAlertModal('Failed to load company.', 'danger'); })
