@@ -274,7 +274,7 @@ class FlavorsAPI(APIView):
                 sku=(data.get('sku') or '').strip() or None,
             )
         except IntegrityError:
-            return err('Error adding pack. Duplicate weight?')
+            return err('Error adding pack.')
         return ok({'id': pack.id}, 'Pack added!')
 
     def _update_pack(self, request):
@@ -295,7 +295,7 @@ class FlavorsAPI(APIView):
         try:
             pack.save()
         except IntegrityError:
-            return err('Error updating pack. Duplicate weight?')
+            return err('Error updating pack.')
         return ok(message='Pack updated!')
 
     def _delete_pack(self, request):
