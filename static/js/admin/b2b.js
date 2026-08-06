@@ -49,6 +49,26 @@ $(function () {
       .fail(function () { showAlertModal('Request failed.', 'danger'); })
       .always(hideLoader);
   });
+
+  $('#categoriesModal').on('show.bs.modal', function () { loadCategoriesList(); });
+
+  $('#addCategoryForm').on('submit', function (e) {
+    e.preventDefault();
+    var name = $('#newCategoryName').val().trim();
+    if (!name) return;
+    showLoader('Adding category…');
+    apiPost('/admin/api/b2b/', { action: 'add_category', name: name })
+      .done(function (res) {
+        showAlertModal(res.message, res.success ? 'success' : 'danger');
+        if (res.success) {
+          $('#newCategoryName').val('');
+          loadCategoriesList();
+          loadDropdowns();
+        }
+      })
+      .fail(function () { showAlertModal('Request failed.', 'danger'); })
+      .always(hideLoader);
+  });
 });
 
 function loadDropdowns() {
@@ -68,6 +88,43 @@ function loadDropdowns() {
       opts += '<option value="' + a.id + '">' + escHtml(a.name) + '</option>';
     });
     $('#addAssignedTo').html(opts);
+  });
+}
+
+function loadCategoriesList() {
+  apiGet('/admin/api/b2b/', { view: 'categories' }).done(function (res) {
+    if (!res.success) return;
+    renderCategoriesList(res.data || []);
+  });
+}
+
+function renderCategoriesList(categories) {
+  var $body = $('#categoriesListBody');
+  if (!categories.length) {
+    $body.html('<div style="text-align:center;color:var(--gray-400);padding:20px">No categories yet</div>');
+    return;
+  }
+  var html = '<div class="list-group">';
+  categories.forEach(function (c) {
+    html += '<div class="list-group-item d-flex justify-content-between align-items-center">' +
+      '<span>' + escHtml(c.name) + '</span>' +
+      '<button class="btn-icon delete" title="Delete" onclick="deleteCategory(' + c.id + ')"><i class="fas fa-trash"></i></button>' +
+    '</div>';
+  });
+  html += '</div>';
+  $body.html(html);
+}
+
+function deleteCategory(id) {
+  confirmThen('Delete this category? This cannot be undone.', function () {
+    showLoader('Deleting…');
+    apiPost('/admin/api/b2b/', { action: 'delete_category', id: id })
+      .done(function (res) {
+        showAlertModal(res.message, res.success ? 'success' : 'danger');
+        if (res.success) { loadCategoriesList(); loadDropdowns(); }
+      })
+      .fail(function () { showAlertModal('Request failed.', 'danger'); })
+      .always(hideLoader);
   });
 }
 
