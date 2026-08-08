@@ -336,10 +336,7 @@ class ExpensesAPI(APIView):
         })
 
     def _stock_batches(self, request):
-        bid = int(request.query_params.get('brand_id') or 0)
         qs = Stock.objects.select_related('flavor')
-        if bid:
-            qs = qs.filter(flavor__brand_id=bid)
         rows = qs.order_by('-last_restocked_date')
         return ok([
             {

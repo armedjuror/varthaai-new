@@ -20,7 +20,7 @@ from rest_framework.views import APIView
 
 from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
-from orders.models import OrderItem
+from orders.models import B2BOrderItem, OrderItem
 from products.models import (
     Flavor,
     FlavorPack,
@@ -95,12 +95,12 @@ class FlavorsAPI(APIView):
         packs_for = request.query_params.get('flavor_packs')
         if packs_for:
             packs = FlavorPack.objects.filter(
-                flavor_id=packs_for, flavor__brand_id=brand_id,
+                flavor_id=packs_for, brand_id=brand_id,
             ).order_by('weight_grams')
             return ok([self._pack_dict(p) for p in packs])
 
         flavors = list(
-            Flavor.objects.filter(brand_id=brand_id)
+            Flavor.objects
             .prefetch_related('packs')
             .order_by('name')
         )
@@ -121,12 +121,12 @@ class FlavorsAPI(APIView):
             )
         }
 
-        data = [self._flavor_dict(f, sold.get(f.id)) for f in flavors]
-        return ok({'flavors': data, 'stats': self._stats(brand_id)})
+        data = [self._flavor_dict(f, sold.get(f.id), brand_id) for f in flavors]
+        return ok({'flavors': data, 'stats': self._stats()})
 
     @staticmethod
-    def _stats(brand_id):
-        qs = Flavor.objects.filter(brand_id=brand_id)
+    def _stats():
+        qs = Flavor.objects.all()
         agg = qs.aggregate(
             total_flavors=Count('id'),
             active_flavors=Count('id', filter=Q(is_active=True)),
@@ -156,7 +156,7 @@ class FlavorsAPI(APIView):
             'is_active': 1 if p.is_active else 0,
         }
 
-    def _flavor_dict(self, f, sold):
+    def _flavor_dict(self, f, sold, brand_id):
         return {
             'id': f.id,
             'name': f.name,
@@ -171,7 +171,7 @@ class FlavorsAPI(APIView):
             'total_orders': (sold or {}).get('orders', 0) or 0,
             'total_quantity_sold': round(((sold or {}).get('qty', 0) or 0) / 1000, 2),
             'total_revenue': float((sold or {}).get('rev', 0) or 0),
-            'packs': [self._pack_dict(p) for p in f.packs.all()],
+            'packs': [self._pack_dict(p) for p in f.packs.all() if p.brand_id == brand_id],
         }
 
     def post(self, request):
@@ -204,20 +204,18 @@ class FlavorsAPI(APIView):
         }
 
     def _create(self, request):
-        brand_id = current_brand_id(request)
         fields = self._flavor_fields(request.data)
         if not fields['name']:
             return err('Flavor name is required.')
         image = request.FILES.get('image')
         if image:
             fields['image'] = image
-        flavor = Flavor.objects.create(brand_id=brand_id, **fields)
+        flavor = Flavor.objects.create(**fields)
         return ok({'id': flavor.id}, 'Flavor added successfully!')
 
     def _update(self, request):
-        brand_id = current_brand_id(request)
         flavor = Flavor.objects.filter(
-            id=_int(request.data.get('id')), brand_id=brand_id,
+            id=_int(request.data.get('id')),
         ).first()
         if not flavor:
             return err('Flavor not found.', status=404)
@@ -234,21 +232,21 @@ class FlavorsAPI(APIView):
         return ok(message='Flavor updated successfully!')
 
     def _delete(self, request):
-        brand_id = current_brand_id(request)
         flavor = Flavor.objects.filter(
-            id=_int(request.data.get('id')), brand_id=brand_id,
+            id=_int(request.data.get('id')),
         ).first()
         if not flavor:
             return err('Flavor not found.', status=404)
         if OrderItem.objects.filter(flavor_id=flavor.id).exists():
             return err('Cannot delete: flavor used in orders. Deactivate instead.')
+        if B2BOrderItem.objects.filter(flavor_id=flavor.id).exists():
+            return err('Cannot delete: flavor used in B2B orders. Deactivate instead.')
         flavor.delete()
         return ok(message='Flavor deleted successfully!')
 
     def _toggle(self, request):
-        brand_id = current_brand_id(request)
         flavor = Flavor.objects.filter(
-            id=_int(request.data.get('id')), brand_id=brand_id,
+            id=_int(request.data.get('id')),
         ).first()
         if not flavor:
             return err('Flavor not found.', status=404)
@@ -260,7 +258,7 @@ class FlavorsAPI(APIView):
         brand_id = current_brand_id(request)
         data = request.data
         flavor = Flavor.objects.filter(
-            id=_int(data.get('flavor_id')), brand_id=brand_id,
+            id=_int(data.get('flavor_id')),
         ).first()
         weight = _int(data.get('weight_grams'))
         label = (data.get('label') or '').strip()
@@ -268,20 +266,20 @@ class FlavorsAPI(APIView):
             return err('Flavor, weight and label are required.')
         try:
             pack = FlavorPack.objects.create(
-                flavor=flavor, weight_grams=weight, label=label,
+                flavor=flavor, brand_id=brand_id, weight_grams=weight, label=label,
                 mrp=_float(data.get('mrp')), selling_price=_float(data.get('selling_price')),
                 cost_price=_float(data.get('cost_price')),
                 sku=(data.get('sku') or '').strip() or None,
             )
         except IntegrityError:
-            return err('Error adding pack.')
+            return err('Error adding pack. A pack with this label may already exist for this brand.')
         return ok({'id': pack.id}, 'Pack added!')
 
     def _update_pack(self, request):
         brand_id = current_brand_id(request)
         data = request.data
         pack = FlavorPack.objects.filter(
-            id=_int(data.get('id')), flavor__brand_id=brand_id,
+            id=_int(data.get('id')), brand_id=brand_id,
         ).first()
         if not pack:
             return err('Pack not found.', status=404)
@@ -301,7 +299,7 @@ class FlavorsAPI(APIView):
     def _delete_pack(self, request):
         brand_id = current_brand_id(request)
         pack = FlavorPack.objects.filter(
-            id=_int(request.data.get('id')), flavor__brand_id=brand_id,
+            id=_int(request.data.get('id')), brand_id=brand_id,
         ).first()
         if not pack:
             return err('Pack not found.', status=404)
@@ -403,9 +401,8 @@ class StocksAPI(APIView):
         return handler(request)
 
     def _list(self, request):
-        brand_id = current_brand_id(request)
         rows = (
-            Stock.objects.filter(flavor__brand_id=brand_id)
+            Stock.objects.all()
             .select_related('flavor', 'vendor')
             .order_by('flavor__name', '-is_active_batch', '-last_restocked_date')
         )
@@ -437,13 +434,12 @@ class StocksAPI(APIView):
         }
 
     def _batches(self, request):
-        brand_id = current_brand_id(request)
         flavor_id = _int(request.query_params.get('flavor_id'))
         if not flavor_id:
             return err('flavor_id required.')
         rows = (
             Stock.objects.filter(
-                flavor_id=flavor_id, flavor__brand_id=brand_id, quantity_grams__gt=0,
+                flavor_id=flavor_id, quantity_grams__gt=0,
             )
             .select_related('vendor')
             .order_by('-is_active_batch', '-last_restocked_date')
@@ -464,7 +460,6 @@ class StocksAPI(APIView):
         ])
 
     def _movements(self, request):
-        brand_id = current_brand_id(request)
         params = request.query_params
         page = max(1, _int(params.get('page'), 1))
         per_page = _int(params.get('per_page'), 20)
@@ -472,7 +467,7 @@ class StocksAPI(APIView):
             per_page = 20
         offset = (page - 1) * per_page
 
-        qs = StockMovement.objects.filter(flavor__brand_id=brand_id)
+        qs = StockMovement.objects.all()
         flavor_id = _int(params.get('flavor_id'))
         if flavor_id:
             qs = qs.filter(flavor_id=flavor_id)
@@ -508,9 +503,8 @@ class StocksAPI(APIView):
         return ok({'items': items, 'total': total, 'page': page, 'per_page': per_page})
 
     def _alerts(self, request):
-        brand_id = current_brand_id(request)
         rows = (
-            StockAlert.objects.filter(is_acknowledged=False, flavor__brand_id=brand_id)
+            StockAlert.objects.filter(is_acknowledged=False)
             .select_related('flavor')
             .order_by('-created_at')
         )
@@ -530,9 +524,8 @@ class StocksAPI(APIView):
         ])
 
     def _stats(self, request):
-        brand_id = current_brand_id(request)
         batches = list(
-            Stock.objects.filter(flavor__brand_id=brand_id)
+            Stock.objects.all()
             .values('flavor_id', 'quantity_grams', 'flavor__reorder_level_grams')
         )
         total_grams = sum(b['quantity_grams'] for b in batches)
@@ -546,10 +539,10 @@ class StocksAPI(APIView):
         )
         today = timezone.localdate()
         today_movements = StockMovement.objects.filter(
-            flavor__brand_id=brand_id, created_at__date=today,
+            created_at__date=today,
         ).count()
         active_alerts = StockAlert.objects.filter(
-            is_acknowledged=False, flavor__brand_id=brand_id,
+            is_acknowledged=False,
         ).count()
         return ok({
             'total_kg': _grams_to_kg(total_grams),
@@ -630,10 +623,9 @@ class StocksAPI(APIView):
         return handler(request)
 
     def _restock(self, request):
-        brand_id = current_brand_id(request)
         data = request.data
         flavor = Flavor.objects.filter(
-            id=_int(data.get('flavor_id')), brand_id=brand_id,
+            id=_int(data.get('flavor_id')),
         ).first()
         qty_kg = _float(data.get('quantity_kg'))
         if not flavor or qty_kg <= 0:
@@ -673,12 +665,11 @@ class StocksAPI(APIView):
         return ok(message=message)
 
     def _record_movement(self, request):
-        brand_id = current_brand_id(request)
         data = request.data
         ref_type = data.get('reference_type', '')
         qty_kg = _float(data.get('quantity_kg'))
         batch = Stock.objects.filter(
-            id=_int(data.get('stock_id')), flavor__brand_id=brand_id,
+            id=_int(data.get('stock_id')),
         ).select_related('flavor').first()
         if not batch or ref_type not in ('sale', 'wastage', 'adjustment') or qty_kg <= 0:
             return err('Invalid parameters.')
@@ -704,9 +695,8 @@ class StocksAPI(APIView):
         return ok(message='Movement recorded.')
 
     def _set_active_batch(self, request):
-        brand_id = current_brand_id(request)
         batch = Stock.objects.filter(
-            id=_int(request.data.get('stock_id')), flavor__brand_id=brand_id,
+            id=_int(request.data.get('stock_id')),
         ).first()
         if not batch:
             return err('Batch not found.')
@@ -718,10 +708,9 @@ class StocksAPI(APIView):
         return ok(message='Active batch updated.')
 
     def _update_settings(self, request):
-        brand_id = current_brand_id(request)
         data = request.data
         batch = Stock.objects.filter(
-            id=_int(data.get('stock_id')), flavor__brand_id=brand_id,
+            id=_int(data.get('stock_id')),
         ).first()
         if not batch:
             return err('Invalid batch.')
@@ -731,9 +720,8 @@ class StocksAPI(APIView):
         return ok(message='Batch settings updated.')
 
     def _acknowledge_alert(self, request):
-        brand_id = current_brand_id(request)
         alert = StockAlert.objects.filter(
-            id=_int(request.data.get('id')), flavor__brand_id=brand_id,
+            id=_int(request.data.get('id')),
         ).first()
         if not alert:
             return err('Invalid ID.')
@@ -744,9 +732,8 @@ class StocksAPI(APIView):
         return ok(message='Alert dismissed.')
 
     def _delete_stock(self, request):
-        brand_id = current_brand_id(request)
         batch = Stock.objects.filter(
-            id=_int(request.data.get('stock_id')), flavor__brand_id=brand_id,
+            id=_int(request.data.get('stock_id')),
         ).select_related('flavor').first()
         if not batch:
             return err('Batch not found.')
@@ -759,9 +746,8 @@ class StocksAPI(APIView):
         return ok(message='Batch and its movements deleted.')
 
     def _delete_movement(self, request):
-        brand_id = current_brand_id(request)
         movement = StockMovement.objects.filter(
-            id=_int(request.data.get('id')), flavor__brand_id=brand_id,
+            id=_int(request.data.get('id')),
         ).first()
         if not movement:
             return err('Invalid movement ID.')
