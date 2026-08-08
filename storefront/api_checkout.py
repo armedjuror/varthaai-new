@@ -100,7 +100,7 @@ class PlaceOrderAPI(StorefrontAPIView):
 
         # Authoritative prices from the flavors table; quantity (grams) from input.
         flavor_ids = [it.get('id') for it in items]
-        flavors = {f.id: f for f in Flavor.objects.filter(id__in=flavor_ids)}
+        flavors = {f.id: f for f in Flavor.objects.filter(brand_id=brand.id, id__in=flavor_ids)}
         line_items = []
         total = sale_total = 0.0
         for it in items:

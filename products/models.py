@@ -3,6 +3,7 @@ from django.db import models
 
 
 class Flavor(models.Model):
+    brand = models.ForeignKey('core.Brand', on_delete=models.CASCADE, related_name='flavors')
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     price_per_kg = models.FloatField(default=1490)
@@ -24,7 +25,6 @@ class Flavor(models.Model):
 
 class FlavorPack(models.Model):
     flavor = models.ForeignKey(Flavor, on_delete=models.CASCADE, related_name='packs')
-    brand = models.ForeignKey('core.Brand', on_delete=models.CASCADE, related_name='flavor_packs')
     weight_grams = models.IntegerField()
     label = models.CharField(max_length=50)
     mrp = models.DecimalField(max_digits=10, decimal_places=2)
@@ -37,7 +37,6 @@ class FlavorPack(models.Model):
 
     class Meta:
         db_table = 'flavor_packs'
-        unique_together = ('flavor', 'brand', 'label')
 
     def __str__(self):
         return f'{self.flavor.name} — {self.label}'

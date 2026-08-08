@@ -249,13 +249,13 @@ class B2BOrdersAPI(APIView):
 
     def _order_form_data(self, brand_id):
         flavors = Flavor.objects.filter(
-            is_active=True,
+            brand_id=brand_id, is_active=True,
         ).order_by('name')
         packs = FlavorPack.objects.filter(
-            brand_id=brand_id, is_active=True,
+            flavor__brand_id=brand_id, is_active=True,
         ).order_by('flavor_id', 'weight_grams')
         batches = Stock.objects.filter(
-            quantity_grams__gt=0,
+            flavor__brand_id=brand_id, quantity_grams__gt=0,
         ).order_by('flavor_id', '-is_active_batch', 'last_restocked_date')
         companies = (
             B2BCompany.objects
@@ -392,7 +392,7 @@ class B2BOrdersAPI(APIView):
         return handler(request, brand_id, body)
 
     # ── create / update ──
-    def _parse_items(self, brand_id, raw_items):
+    def _parse_items(self, raw_items):
         """Return (valid_items, subtotal, offer_discount) mirroring the PHP loop."""
         valid = []
         subtotal = Decimal('0')
@@ -410,27 +410,20 @@ class B2BOrdersAPI(APIView):
                 offer_discount += sp * qty
                 sp = Decimal('0')
             subtotal += sp * qty
-            pack_id = _int_or_none(item.get('flavor_pack_id'))
-            pack_label = (item.get('pack_label') or '').strip() or None
-            mrp = _decimal_or_none(item.get('mrp'))
-            if pack_id and not FlavorPack.objects.filter(id=pack_id, brand_id=brand_id).exists():
-                pack_id = None
-                pack_label = None
-                mrp = None
             valid.append({
                 'flavor_id': fid,
-                'flavor_pack_id': pack_id,
+                'flavor_pack_id': _int_or_none(item.get('flavor_pack_id')),
                 'stock_id': _int_or_none(item.get('stock_id')),
                 'quantity': qty,
                 'weight_grams': weight,
                 'total_weight_grams': qty * weight,
-                'mrp': mrp,
+                'mrp': _decimal_or_none(item.get('mrp')),
                 'selling_price': sp,
                 'cost_price': _decimal_or_none(item.get('cost_price')),
                 'is_free_item': bool(is_free),
                 'offer_id': _int_or_none(item.get('offer_id')),
                 'flavor_name': fname,
-                'pack_label': pack_label,
+                'pack_label': (item.get('pack_label') or '').strip() or None,
             })
         return valid, subtotal, offer_discount
 
@@ -459,7 +452,7 @@ class B2BOrdersAPI(APIView):
         if not company:
             return err('Company not found.')
 
-        valid, subtotal, offer_discount = self._parse_items(brand_id, raw_items)
+        valid, subtotal, offer_discount = self._parse_items(raw_items)
         if not valid:
             return err('No valid items.')
 
@@ -509,7 +502,7 @@ class B2BOrdersAPI(APIView):
         if not company:
             return err('Company not found.')
 
-        valid, subtotal, offer_discount = self._parse_items(brand_id, raw_items)
+        valid, subtotal, offer_discount = self._parse_items(raw_items)
         if not valid:
             return err('No valid items.')
 

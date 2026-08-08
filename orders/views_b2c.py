@@ -288,9 +288,9 @@ def edit_order(request, pk):
     discount = order.coupon_discount or 0
     final_total = subtotal + (order.delivery_charge or 0) - discount
 
-    flavors = Flavor.objects.filter(is_active=True).order_by('name')
+    flavors = Flavor.objects.filter(brand_id=brand_id, is_active=True).order_by('name')
     packs = list(
-        FlavorPack.objects.filter(brand_id=brand_id, is_active=True)
+        FlavorPack.objects.filter(flavor__brand_id=brand_id, is_active=True)
         .order_by('flavor_id', 'weight_grams')
     )
     packs_json = json.dumps([
@@ -364,9 +364,9 @@ class OrdersAPI(APIView):
 
     def _order_form_data(self, request):
         brand_id = current_brand_id(request)
-        flavors = Flavor.objects.filter(is_active=True).order_by('name')
+        flavors = Flavor.objects.filter(brand_id=brand_id, is_active=True).order_by('name')
         packs = (
-            FlavorPack.objects.filter(brand_id=brand_id, is_active=True)
+            FlavorPack.objects.filter(flavor__brand_id=brand_id, is_active=True)
             .order_by('flavor_id', 'weight_grams')
         )
         return ok({
@@ -552,7 +552,7 @@ class OrdersAPI(APIView):
         if not order or flavor_id <= 0 or quantity <= 0:
             return err('Invalid parameters.')
         flavor = Flavor.objects.filter(
-            id=flavor_id, is_active=True,
+            id=flavor_id, brand_id=current_brand_id(request), is_active=True,
         ).first()
         if not flavor:
             return err('Flavor not found.')
@@ -562,9 +562,7 @@ class OrdersAPI(APIView):
         pack_id = _int(data.get('flavor_pack_id')) or None
         pack_label = (data.get('pack_label') or '').strip() or None
         if pack_id:
-            pack = FlavorPack.objects.filter(
-                id=pack_id, flavor_id=flavor.id, brand_id=order.brand_id,
-            ).first()
+            pack = FlavorPack.objects.filter(id=pack_id, flavor_id=flavor.id).first()
             if pack:
                 price_per_kg, sale_price_per_kg = _pack_prices(pack)
 
@@ -666,7 +664,7 @@ class CreateOrderAPI(APIView):
             quantity = _int(raw.get('quantity'))
             if flavor_id <= 0 or quantity <= 0:
                 continue
-            flavor = Flavor.objects.filter(id=flavor_id).first()
+            flavor = Flavor.objects.filter(id=flavor_id, brand_id=brand_id).first()
             if not flavor:
                 continue
             price_per_kg = flavor.price_per_kg
@@ -674,9 +672,7 @@ class CreateOrderAPI(APIView):
             pack_id = _int(raw.get('flavor_pack_id')) or None
             pack_label = (raw.get('pack_label') or '').strip() or None
             if pack_id:
-                pack = FlavorPack.objects.filter(
-                    id=pack_id, flavor_id=flavor_id, brand_id=brand_id,
-                ).first()
+                pack = FlavorPack.objects.filter(id=pack_id, flavor_id=flavor_id).first()
                 if pack:
                     price_per_kg, sale_price_per_kg = _pack_prices(pack)
             regular_total += price_per_kg * quantity / 1000
@@ -772,7 +768,7 @@ class CouponsAPI(APIView):
             'expired_coupons': stats_qs.filter(expiry_date__lte=now).count(),
         }
         flavors = Flavor.objects.filter(
-            is_active=True,
+            brand_id=brand_id, is_active=True,
         ).order_by('name').values('id', 'name')
         return ok({
             'coupons': [self._coupon_dict(c) for c in coupons],

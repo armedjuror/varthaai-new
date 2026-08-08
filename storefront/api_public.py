@@ -29,7 +29,7 @@ class FlavorsAPI(StorefrontAPIView):
 
     def get(self, request):
         flavors = []
-        for f in Flavor.objects.filter(is_active=True).order_by('id'):
+        for f in Flavor.objects.filter(brand_id=_brand_id(), is_active=True).order_by('id'):
             flavors.append({
                 'id': f.id,
                 'name': f.name,
