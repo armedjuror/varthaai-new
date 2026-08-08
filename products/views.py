@@ -23,7 +23,6 @@ from core.auth import admin_login_required, require_module
 from orders.models import B2BOrderItem, OrderItem
 from products.models import (
     Flavor,
-    FlavorPack,
     Stock,
     StockAlert,
     StockMovement,
@@ -92,13 +91,6 @@ class FlavorsAPI(APIView):
     def get(self, request):
         brand_id = current_brand_id(request)
 
-        packs_for = request.query_params.get('flavor_packs')
-        if packs_for:
-            packs = FlavorPack.objects.filter(
-                flavor_id=packs_for, brand_id=brand_id,
-            ).order_by('weight_grams')
-            return ok([self._pack_dict(p) for p in packs])
-
         flavors = list(
             Flavor.objects
             .prefetch_related('packs')
@@ -142,20 +134,6 @@ class FlavorsAPI(APIView):
             'min_price': min(prices) if prices else 0,
         }
 
-    @staticmethod
-    def _pack_dict(p):
-        return {
-            'id': p.id,
-            'flavor_id': p.flavor_id,
-            'weight_grams': p.weight_grams,
-            'label': p.label,
-            'mrp': p.mrp,
-            'selling_price': p.selling_price,
-            'cost_price': p.cost_price,
-            'sku': p.sku or '',
-            'is_active': 1 if p.is_active else 0,
-        }
-
     def _flavor_dict(self, f, sold, brand_id):
         return {
             'id': f.id,
@@ -171,7 +149,6 @@ class FlavorsAPI(APIView):
             'total_orders': (sold or {}).get('orders', 0) or 0,
             'total_quantity_sold': round(((sold or {}).get('qty', 0) or 0) / 1000, 2),
             'total_revenue': float((sold or {}).get('rev', 0) or 0),
-            'packs': [self._pack_dict(p) for p in f.packs.all() if p.brand_id == brand_id],
         }
 
     def post(self, request):
@@ -181,9 +158,6 @@ class FlavorsAPI(APIView):
             'update': self._update, 'edit': self._update,
             'delete': self._delete,
             'toggle': self._toggle,
-            'add_pack': self._add_pack,
-            'update_pack': self._update_pack, 'edit_pack': self._update_pack,
-            'delete_pack': self._delete_pack,
         }
         handler = handlers.get(action)
         if not handler:
@@ -253,58 +227,6 @@ class FlavorsAPI(APIView):
         flavor.is_active = not flavor.is_active
         flavor.save(update_fields=['is_active', 'updated_at'])
         return ok(message='Flavor status updated!')
-
-    def _add_pack(self, request):
-        brand_id = current_brand_id(request)
-        data = request.data
-        flavor = Flavor.objects.filter(
-            id=_int(data.get('flavor_id')),
-        ).first()
-        weight = _int(data.get('weight_grams'))
-        label = (data.get('label') or '').strip()
-        if not flavor or not weight or not label:
-            return err('Flavor, weight and label are required.')
-        try:
-            pack = FlavorPack.objects.create(
-                flavor=flavor, brand_id=brand_id, weight_grams=weight, label=label,
-                mrp=_float(data.get('mrp')), selling_price=_float(data.get('selling_price')),
-                cost_price=_float(data.get('cost_price')),
-                sku=(data.get('sku') or '').strip() or None,
-            )
-        except IntegrityError:
-            return err('Error adding pack. A pack with this label may already exist for this brand.')
-        return ok({'id': pack.id}, 'Pack added!')
-
-    def _update_pack(self, request):
-        brand_id = current_brand_id(request)
-        data = request.data
-        pack = FlavorPack.objects.filter(
-            id=_int(data.get('id')), brand_id=brand_id,
-        ).first()
-        if not pack:
-            return err('Pack not found.', status=404)
-        pack.weight_grams = _int(data.get('weight_grams'))
-        pack.label = (data.get('label') or '').strip()
-        pack.mrp = _float(data.get('mrp'))
-        pack.selling_price = _float(data.get('selling_price'))
-        pack.cost_price = _float(data.get('cost_price'))
-        pack.sku = (data.get('sku') or '').strip() or None
-        pack.is_active = _int(data.get('is_active', 1)) == 1
-        try:
-            pack.save()
-        except IntegrityError:
-            return err('Error updating pack.')
-        return ok(message='Pack updated!')
-
-    def _delete_pack(self, request):
-        brand_id = current_brand_id(request)
-        pack = FlavorPack.objects.filter(
-            id=_int(request.data.get('id')), brand_id=brand_id,
-        ).first()
-        if not pack:
-            return err('Pack not found.', status=404)
-        pack.delete()
-        return ok(message='Pack deleted!')
 
 
 # ════════════════════════════════════════════════════════ Stocks ══

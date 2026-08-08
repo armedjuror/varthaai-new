@@ -9,6 +9,7 @@ var PERM_KEYS = {
   orders:    'Orders',
   coupons:   'Coupons',
   flavors:   'Flavors',
+  packs:     'Packs',
   stocks:    'Stocks',
   customers: 'Customers',
   reviews:   'Reviews',
