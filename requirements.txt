@@ -1,3 +1,4 @@
+anthropic==0.121.0
 asgiref==3.12.1
 celery==5.4.0
 claude-agent-sdk==0.2.128

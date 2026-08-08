@@ -166,6 +166,9 @@
     // A PR exists — allow a manual review-sync.
     document.getElementById('syncPrBtn').style.display =
       (d.pr_url && !closed) ? '' : 'none';
+    // Analysis failed (timeout, max-turns, etc.) — let the admin retry it.
+    document.getElementById('retryBtn').style.display =
+      (d.status === 'failed') ? '' : 'none';
 
     const busyClosing = reviewing || d.status === 'finalizing';
     document.getElementById('replyInput').disabled = closed || busyClosing;
@@ -254,6 +257,9 @@
 
   document.getElementById('syncPrBtn').addEventListener('click', () =>
     postAction({ action: 'sync_pr' }));
+
+  document.getElementById('retryBtn').addEventListener('click', () =>
+    postAction({ action: 'retry' }, 'Retry the analysis from scratch?'));
 
   document.getElementById('saveLearnBtn').addEventListener('click', () =>
     postAction({

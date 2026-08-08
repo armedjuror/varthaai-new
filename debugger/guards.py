@@ -71,6 +71,51 @@ def _split_bash(command):
         return command.split()
 
 
+# Directories that make an unscoped recursive scan (grep -r / find) run for a
+# very long time (venv/site-packages, .git internals, bytecode caches). A scan
+# that doesn't exclude these and isn't rooted at a specific subdirectory can
+# burn most of the Celery soft time limit on its own.
+_HEAVY_DIRS_RE = re.compile(r'venv|__pycache__|node_modules', re.IGNORECASE)
+_ROOT_PATH_RE = re.compile(r'^(\.|\./|/|)$')
+
+
+def _grep_scan_reason(tokens):
+    """Return a deny reason for an unbounded recursive grep, or '' if fine."""
+    flags = [t for t in tokens[1:] if t.startswith('-')]
+    is_recursive = any(f in ('-r', '-R', '--recursive') for f in flags) or any(
+        f.startswith('-') and not f.startswith('--') and 'r' in f[1:] for f in flags
+    )
+    if not is_recursive:
+        return ''
+    joined = ' '.join(tokens)
+    if _HEAVY_DIRS_RE.search(joined) and '--exclude-dir' in joined:
+        return ''
+    # Recursive with no exclusion at all — could still be scoped to a small
+    # subdirectory, but we can't tell "small" from "the whole repo root" here,
+    # so require an explicit exclude for the known-heavy directories.
+    return (
+        "Recursive grep without --exclude-dir will also scan venv/ (~400MB) and "
+        "can time out. Use 'rg' instead (it respects .gitignore), or add "
+        "--exclude-dir=venv,__pycache__,.git and scope the path to a specific "
+        "app directory (e.g. debugger/, catalog/)."
+    )
+
+
+def _find_scan_reason(tokens):
+    """Return a deny reason for an unbounded find over the repo root, or ''."""
+    path_arg = tokens[1] if len(tokens) > 1 and not tokens[1].startswith('-') else '.'
+    if not _ROOT_PATH_RE.match(path_arg):
+        return ''  # scoped to a real subdirectory — fine
+    joined = ' '.join(tokens)
+    if _HEAVY_DIRS_RE.search(joined) and '-prune' in joined:
+        return ''
+    return (
+        "find over the repo root will also walk venv/ (~400MB) and can time "
+        "out. Scope the path to a specific subdirectory (e.g. 'find debugger "
+        "-name ...') or add a -prune clause excluding venv/__pycache__/.git."
+    )
+
+
 def check_bash_command(command):
     """Return (ok, reason) for a Bash tool invocation."""
     if not command or not command.strip():
@@ -97,15 +142,24 @@ def check_bash_command(command):
             idx += 1
         if idx >= len(tokens):
             continue
-        exe = tokens[idx].split('/')[-1]
+        tokens = tokens[idx:]
+        exe = tokens[0].split('/')[-1]
         if exe not in ALLOWED_BASH_CMDS:
             return False, f'Command "{exe}" is not on the read-only allowlist.'
         if exe == 'git':
-            sub = tokens[idx + 1] if idx + 1 < len(tokens) else ''
+            sub = tokens[1] if len(tokens) > 1 else ''
             if sub == 'push':
                 return False, 'git push is never allowed from the agent.'
             if sub and sub not in ALLOWED_GIT_SUBCMDS:
                 return False, f'git {sub} is not a read-only subcommand.'
+        if exe == 'grep':
+            reason = _grep_scan_reason(tokens)
+            if reason:
+                return False, reason
+        if exe == 'find':
+            reason = _find_scan_reason(tokens)
+            if reason:
+                return False, reason
     return True, ''
 
 

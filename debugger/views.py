@@ -154,6 +154,7 @@ class DebuggerAPI(APIView):
             'regenerate': self._regenerate,
             'approve_plan': self._approve_plan,
             'sync_pr': self._sync_pr,
+            'retry': self._retry,
         }.get(action)
         if not handler:
             return err('Unknown action.')
@@ -306,6 +307,24 @@ class DebuggerAPI(APIView):
         r.save(update_fields=['status', 'updated_at'])
         queued = _enqueue(r.id)
         return ok({'queued': queued}, message='Plan approved — generating the fix.')
+
+    def _retry(self, request, body):
+        """Re-run analysis from scratch after a FAILED run (timeout, max-turns,
+        or any other agent error) — same request/thread, fresh attempt."""
+        r = DebugRequest.objects.filter(id=body.get('id')).first()
+        if not r:
+            return err('Request not found.', status=404)
+        if r.status != DebugRequest.Status.FAILED:
+            return err('Only a failed request can be retried.')
+        mode = 'review' if r.pr_url else None
+        DebugMessage.objects.create(
+            request=r, role=DebugMessage.Role.SYSTEM,
+            content='Retrying the analysis…')
+        r.status = DebugRequest.Status.NEW
+        r.error = ''
+        r.save(update_fields=['status', 'error', 'updated_at'])
+        queued = _enqueue(r.id, mode=mode)
+        return ok({'queued': queued}, message='Retrying…')
 
     def _sync_pr(self, request, body):
         from debugger.tasks import sync_pr_reviews

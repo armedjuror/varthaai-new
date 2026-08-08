@@ -50,10 +50,38 @@ class SqlGuardTests(TestCase):
 
 class BashGuardTests(TestCase):
     def test_allows_readonly_commands(self):
-        for cmd in ('grep -r foo .', 'cat settings.py', 'ls -la',
+        for cmd in ('grep -n foo settings.py', 'cat settings.py', 'ls -la',
                     'git log --oneline -5', 'git diff HEAD~1',
                     'journalctl -u varthaai -n 100', 'tail -n 50 app.log'):
             self.assertTrue(guards.check_bash_command(cmd)[0], cmd)
+
+    def test_blocks_unscoped_recursive_grep(self):
+        for cmd in ('grep -r foo .', 'grep -rn foo debugger/',
+                    'grep --recursive foo .'):
+            self.assertFalse(guards.check_bash_command(cmd)[0], cmd)
+
+    def test_allows_recursive_grep_with_venv_excluded(self):
+        ok, _ = guards.check_bash_command(
+            'grep -r --exclude-dir=venv foo .')
+        self.assertTrue(ok)
+
+    def test_allows_ripgrep_unscoped(self):
+        # rg respects .gitignore (which excludes venv/) so it's not restricted.
+        ok, _ = guards.check_bash_command('rg foo .')
+        self.assertTrue(ok)
+
+    def test_blocks_unscoped_find(self):
+        for cmd in ('find . -name "*.py"', "find -name '*.py'"):
+            self.assertFalse(guards.check_bash_command(cmd)[0], cmd)
+
+    def test_allows_find_scoped_to_subdirectory(self):
+        ok, _ = guards.check_bash_command("find debugger -name '*.py'")
+        self.assertTrue(ok)
+
+    def test_allows_unscoped_find_with_venv_pruned(self):
+        ok, _ = guards.check_bash_command(
+            "find . -path '*/venv/*' -prune -o -name '*.py' -print")
+        self.assertTrue(ok)
 
     def test_blocks_git_push(self):
         self.assertFalse(guards.check_bash_command('git push origin main')[0])
@@ -314,6 +342,89 @@ class BuildFixBranchTests(TestCase):
             self.assertIn('HEADER-B', content)
 
 
+class ConsultAdvisorTests(TestCase):
+    """The advisor tool is a direct Anthropic API call (not the Agent SDK) so
+    the advisor model gets no tool/filesystem/DB access of its own."""
+
+    def test_advisor_tool_is_wired_into_allowed_tools(self):
+        from debugger import agent
+        self.assertIn(agent.ADVISOR_TOOL, agent.ALLOWED_TOOLS)
+
+    @mock.patch('debugger.agent.anthropic')
+    def test_call_advisor_returns_text(self, mock_anthropic):
+        from debugger import agent
+
+        block = mock.Mock(type='text', text='Root cause: coupon applied after total.')
+        response = mock.Mock(stop_reason='end_turn', content=[block])
+        mock_anthropic.Anthropic.return_value.messages.create.return_value = response
+
+        with override_settings(ANTHROPIC_API_KEY='sk-test'):
+            result = agent._call_advisor('evidence summary')
+        self.assertEqual(result, 'Root cause: coupon applied after total.')
+
+    @mock.patch('debugger.agent.anthropic')
+    def test_call_advisor_raises_on_refusal(self, mock_anthropic):
+        from debugger import agent
+
+        response = mock.Mock(stop_reason='refusal', content=[])
+        mock_anthropic.Anthropic.return_value.messages.create.return_value = response
+
+        with override_settings(ANTHROPIC_API_KEY='sk-test'):
+            with self.assertRaises(RuntimeError):
+                agent._call_advisor('evidence summary')
+
+    def test_call_advisor_raises_without_api_key(self):
+        from debugger import agent
+        with override_settings(ANTHROPIC_API_KEY=''):
+            with self.assertRaises(RuntimeError):
+                agent._call_advisor('evidence summary')
+
+
+class ProcessRequestErrorHandlingTests(TestCase):
+    """The soft-timeout and max-turns failures both surface as opaque SDK/
+    Celery exceptions — verify each gets a clear, distinct system message."""
+
+    def _bug(self):
+        return DebugRequest.objects.create(kind='bug', title='x', body='y')
+
+    @mock.patch('debugger.agent.run_agent')
+    def test_soft_time_limit_gets_clear_message(self, run_agent):
+        from celery.exceptions import SoftTimeLimitExceeded
+
+        from debugger import tasks
+        run_agent.side_effect = SoftTimeLimitExceeded()
+        r = self._bug()
+        tasks.process_request(r.id)
+        r.refresh_from_db()
+        self.assertEqual(r.status, DebugRequest.Status.FAILED)
+        msg = r.messages.filter(role='system').latest('created_at').content
+        self.assertIn('timed out', msg)
+        self.assertNotIn('SoftTimeLimitExceeded', msg)
+
+    @mock.patch('debugger.agent.run_agent')
+    def test_max_turns_gets_clear_message(self, run_agent):
+        from debugger import tasks
+        run_agent.side_effect = Exception(
+            'Claude Code returned an error result: Reached maximum number of turns (40)')
+        r = self._bug()
+        tasks.process_request(r.id)
+        r.refresh_from_db()
+        self.assertEqual(r.status, DebugRequest.Status.FAILED)
+        msg = r.messages.filter(role='system').latest('created_at').content
+        self.assertIn('steps', msg)
+        self.assertNotIn('Claude Code returned an error result', msg)
+
+    @mock.patch('debugger.agent.run_agent')
+    def test_other_exceptions_keep_generic_message(self, run_agent):
+        from debugger import tasks
+        run_agent.side_effect = RuntimeError('boom')
+        r = self._bug()
+        tasks.process_request(r.id)
+        r.refresh_from_db()
+        msg = r.messages.filter(role='system').latest('created_at').content
+        self.assertIn('Analysis failed: boom', msg)
+
+
 class RequeueOrphanedTests(TestCase):
     """Worker-restart recovery: transient statuses get re-dispatched."""
 
@@ -351,6 +462,53 @@ class RequeueOrphanedTests(TestCase):
         self.assertEqual(proc.call_count, 2)  # `fresh` was not re-dispatched
         rev.assert_called_once_with(revising.id)
         fin.assert_called_once_with(finalizing.id)
+
+
+class RetryApiTests(TestCase):
+    def setUp(self):
+        self.superuser = AdminUser.objects.create_user(
+            'boss', 'pw', role=AdminUser.Role.SUPER_ADMIN)
+        self.api = reverse('debugger:api')
+        self.client.force_login(self.superuser)
+
+    @mock.patch('debugger.tasks.process_request.delay')
+    def test_retry_requeues_failed_request(self, delay):
+        r = DebugRequest.objects.create(
+            kind='bug', title='x', status=DebugRequest.Status.FAILED,
+            error='Timed out after 900s', created_by=self.superuser)
+        res = self.client.post(
+            self.api, {'action': 'retry', 'id': r.id}, content_type='application/json')
+        self.assertTrue(res.json()['success'])
+        r.refresh_from_db()
+        self.assertEqual(r.status, DebugRequest.Status.NEW)
+        self.assertEqual(r.error, '')
+        self.assertTrue(r.messages.filter(role='system', content__icontains='retry').exists())
+        delay.assert_called_once_with(r.id, mode=None)
+
+    @mock.patch('debugger.tasks.process_request.delay')
+    def test_retry_review_mode_when_pr_open(self, delay):
+        r = DebugRequest.objects.create(
+            kind='bug', title='x', status=DebugRequest.Status.FAILED,
+            pr_url='https://github.com/a/b/pull/1', created_by=self.superuser)
+        res = self.client.post(
+            self.api, {'action': 'retry', 'id': r.id}, content_type='application/json')
+        self.assertTrue(res.json()['success'])
+        delay.assert_called_once_with(r.id, mode='review')
+
+    @mock.patch('debugger.tasks.process_request.delay')
+    def test_retry_rejects_non_failed_request(self, delay):
+        r = DebugRequest.objects.create(
+            kind='bug', title='x', status=DebugRequest.Status.READY,
+            created_by=self.superuser)
+        res = self.client.post(
+            self.api, {'action': 'retry', 'id': r.id}, content_type='application/json')
+        self.assertFalse(res.json()['success'])
+        delay.assert_not_called()
+
+    def test_retry_rejects_unknown_request(self):
+        res = self.client.post(
+            self.api, {'action': 'retry', 'id': 999999}, content_type='application/json')
+        self.assertFalse(res.json()['success'])
 
 
 class PrApiTests(TestCase):

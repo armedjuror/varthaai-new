@@ -7,6 +7,10 @@ Capabilities given to Claude:
     denies everything else, including any git push).
   * db_query_ro  — SELECT-only SQL via the `readonly` DB alias (dedicated PG role).
   * read_logs    — journalctl (app) + nginx logfiles, read-only.
+  * consult_advisor — escalates final synthesis (root cause / fix diff / plan)
+    to a stronger model (settings.DEBUGGER_ADVISOR_MODEL) via a direct
+    Anthropic API call, NOT the Agent SDK — the advisor gets no tools of its
+    own, only the text summary it's given.
 
 It can NEVER Write/Edit files or write to the DB. Those guarantees are enforced
 three ways: the allowlist of tools, the PreToolUse deny-hook, and (for the DB)
@@ -17,6 +21,7 @@ but performs no git or GitHub side effects (Phase 2 wires the PR path).
 """
 import asyncio
 import json
+import logging
 import subprocess
 
 from django.conf import settings
@@ -24,6 +29,8 @@ from django.contrib.postgres.search import SearchQuery, SearchRank
 from django.db import connections
 
 from debugger import guards
+
+logger = logging.getLogger(__name__)
 
 # The SDK spawns the `claude` CLI (Node). Import lazily/guarded so the rest of
 # the app (models, migrations, views) loads even where the SDK/CLI is absent.
@@ -45,14 +52,26 @@ except Exception as exc:  # pragma: no cover - depends on deploy env
     SDK_AVAILABLE = False
     SDK_IMPORT_ERROR = exc
 
+# Direct Anthropic API client for the advisor tool — deliberately NOT the
+# Agent SDK, so the advisor model gets no tool/filesystem/DB access of its
+# own (text in, text out). Import lazily for the same reason as the SDK above.
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except Exception:  # pragma: no cover - depends on deploy env
+    ANTHROPIC_AVAILABLE = False
+
 
 MCP_SERVER_NAME = 'varthaai_debugger'
 DB_TOOL = f'mcp__{MCP_SERVER_NAME}__db_query_ro'
 LOGS_TOOL = f'mcp__{MCP_SERVER_NAME}__read_logs'
 FIX_TOOL = f'mcp__{MCP_SERVER_NAME}__propose_fix'
 LEARN_TOOL = f'mcp__{MCP_SERVER_NAME}__record_learning'
+ADVISOR_TOOL = f'mcp__{MCP_SERVER_NAME}__consult_advisor'
 
-ALLOWED_TOOLS = ['Read', 'Grep', 'Glob', 'Bash', DB_TOOL, LOGS_TOOL, FIX_TOOL, LEARN_TOOL]
+ALLOWED_TOOLS = [
+    'Read', 'Grep', 'Glob', 'Bash', DB_TOOL, LOGS_TOOL, FIX_TOOL, LEARN_TOOL, ADVISOR_TOOL,
+]
 DISALLOWED_TOOLS = list(guards.BLOCKED_TOOLS) + ['WebFetch', 'WebSearch', 'TodoWrite']
 
 
@@ -155,10 +174,54 @@ def _register_tools(proposals, learnings=None):
         return _text('Learning drafted. The admin will review and edit it before '
                      'it is saved to memory.')
 
+    @tool('consult_advisor', 'Escalate to a stronger model for final synthesis '
+                             '— stating the root cause, drafting a fix diff, or '
+                             'writing a feature plan. Call this ONCE you have '
+                             'gathered enough evidence and are ready to produce '
+                             'the final answer, not while still exploring. The '
+                             'advisor has NO tool access — pass it everything it '
+                             'needs to judge (file:line excerpts, DB query '
+                             'results, log excerpts, your hypothesis) in the '
+                             'summary; it only sees what you write here.',
+          {'summary': str})
+    async def consult_advisor(args):
+        summary = (args or {}).get('summary', '').strip()
+        if not summary:
+            return _error('Empty summary — nothing to advise on.')
+        try:
+            text = await asyncio.to_thread(_call_advisor, summary)
+        except Exception as exc:
+            logger.warning('consult_advisor call failed: %s', exc)
+            return _error(f'Advisor call failed: {exc}')
+        return _text(text or '(advisor returned no text)')
+
     return create_sdk_mcp_server(
         name=MCP_SERVER_NAME, version='1.0.0',
-        tools=[db_query_ro, read_logs, propose_fix, record_learning],
+        tools=[db_query_ro, read_logs, propose_fix, record_learning, consult_advisor],
     )
+
+
+def _call_advisor(summary):
+    """
+    Synchronous call to the advisor model (a direct Anthropic API call, NOT the
+    Agent SDK — the advisor gets no tool/filesystem/DB access of its own, only
+    the text it's given). Returns the advisor's text, or raises on failure.
+    """
+    if not ANTHROPIC_AVAILABLE:
+        raise RuntimeError('anthropic package not installed')
+    if not settings.ANTHROPIC_API_KEY:
+        raise RuntimeError('ANTHROPIC_API_KEY not configured')
+    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    response = client.messages.create(
+        model=settings.DEBUGGER_ADVISOR_MODEL,
+        max_tokens=4096,
+        thinking={'type': 'adaptive'},
+        messages=[{'role': 'user', 'content': summary}],
+    )
+    if response.stop_reason == 'refusal':
+        raise RuntimeError('advisor declined to respond')
+    return '\n\n'.join(
+        b.text for b in response.content if getattr(b, 'type', None) == 'text')
 
 
 def _jsonable(v):
@@ -223,17 +286,22 @@ def build_system_prompt(request, mode=None):
         'bug': (
             'This is a BUG. Do a rigorous root-cause analysis grounded in THREE '
             'sources: (1) the code, (2) read-only DB SELECTs via db_query_ro, '
-            '(3) server logs via read_logs. State the root cause explicitly, '
-            'cite the exact files/lines and the log/DB evidence. If you are '
-            'confident in a fix, call propose_fix with a unified diff and a PR '
-            'title/body. If you need more information from the admin, ask a '
-            'specific question and stop.'
+            '(3) server logs via read_logs. Once you have gathered enough '
+            'evidence and are ready to state the root cause or draft a fix, '
+            'call consult_advisor with a full summary of that evidence and your '
+            'hypothesis, then write your final root-cause statement and any '
+            'propose_fix diff informed by its response. Cite the exact '
+            'files/lines and the log/DB evidence. If you need more information '
+            'from the admin instead, ask a specific question and stop (skip '
+            'consult_advisor in that case).'
         ),
         'feature': (
             'This is a FEATURE request. First ask any clarifying questions you '
             'need (stop and wait for answers). Once requirements are clear, '
-            'produce a concrete implementation plan referencing the real files '
-            'to change. Do not propose a diff until the admin approves the plan.'
+            'call consult_advisor with the requirements and the real files/'
+            'models involved, then produce a concrete implementation plan '
+            '(informed by its response) referencing the real files to change. '
+            'Do not propose a diff until the admin approves the plan.'
         ),
     }[request.kind]
 
@@ -280,7 +348,10 @@ def build_system_prompt(request, mode=None):
         "or push to git. Do not attempt blocked actions.\n"
         "- Ground every claim in evidence. Prefer citing file:line, a query "
         "result, or a log excerpt over speculation.\n"
-        "- Be concise and structured. Use short headings.\n\n"
+        "- Be concise and structured. Use short headings.\n"
+        "- consult_advisor is a stronger model with NO tool access of its own — "
+        "it only sees the summary text you give it. Use it once, right before "
+        "finalizing, not as a substitute for your own investigation.\n\n"
         f"{kind_instructions}\n\n"
         "PROJECT MAP:\n"
         f"{claude_md}\n\n"
@@ -381,7 +452,7 @@ async def _run_agent_async(request, cwd=None, mode=None):
         permission_mode='default',
         cwd=cwd or settings.DEBUGGER_CODE_DIR,
         model=settings.DEBUGGER_MODEL,
-        max_turns=40,
+        max_turns=settings.DEBUGGER_MAX_TURNS,
         setting_sources=[],   # hermetic: ignore ~/.claude and project settings
         env=env,
     )
@@ -397,12 +468,27 @@ async def _run_agent_async(request, cwd=None, mode=None):
                     text_parts.append(block.text)
                 elif isinstance(block, ToolUseBlock):
                     tools_used.append(block.name)
+                    # Logged as it happens (not at the end) so a mid-run kill
+                    # (e.g. SoftTimeLimitExceeded) still leaves a trail of how
+                    # far the investigation got.
+                    logger.info(
+                        'request %s: tool call #%d: %s',
+                        request.id, len(tools_used), block.name)
         elif isinstance(message, ResultMessage):
             usage = {
                 'total_cost_usd': getattr(message, 'total_cost_usd', None),
                 'duration_ms': getattr(message, 'duration_ms', None),
                 'num_turns': getattr(message, 'num_turns', None),
             }
+            # Logged here (not just returned) because on an error result (e.g.
+            # max-turns) the CLI still emits this message before the SDK raises
+            # — so this is the only place duration/turn count survive a failed
+            # run. Distinguishes "40 turns in 30s" (looping) from "40 turns in
+            # 900s" (genuinely heavy work) for the next occurrence.
+            logger.info(
+                'request %s: result usage num_turns=%s duration_ms=%s is_error=%s',
+                request.id, usage['num_turns'], usage['duration_ms'],
+                getattr(message, 'is_error', None))
 
     return {
         'text': '\n\n'.join(t for t in text_parts if t.strip()).strip(),

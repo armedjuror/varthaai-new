@@ -8,7 +8,10 @@ Phase 2: PR lifecycle — `create_pr`, `revise_pr`, and the review-ingestion loo
 Guarantees: PR work happens only in the isolated clone (debugger/pr.py); the
 never-push-main guard lives there. The agent never performs git/GitHub actions.
 """
+import time
+
 from celery import shared_task
+from celery.exceptions import SoftTimeLimitExceeded
 from celery.utils.log import get_task_logger
 
 logger = get_task_logger(__name__)
@@ -18,6 +21,13 @@ def _sys(request, content):
     from debugger.models import DebugMessage
     DebugMessage.objects.create(
         request=request, role=DebugMessage.Role.SYSTEM, content=content)
+
+
+def _is_max_turns_error(exc):
+    """The Claude Agent SDK reports a hit `max_turns` cap as a bare Exception
+    with this substring (see claude_agent_sdk._internal.query.receive_messages)
+    — there's no dedicated exception type to catch."""
+    return 'maximum number of turns' in str(exc).lower()
 
 
 # --------------------------------------------------------------------------- #
@@ -51,14 +61,36 @@ def process_request(self, request_id, mode=None):
             logger.warning('review checkout failed for %s: %s', request_id, exc)
             cwd = None
 
+    start = time.monotonic()
     try:
         result = run_agent(request, cwd=cwd, mode=mode)
+    except SoftTimeLimitExceeded:
+        elapsed = time.monotonic() - start
+        logger.warning('process_request timed out for %s after %.0fs', request_id, elapsed)
+        request.status = DebugRequest.Status.FAILED
+        request.error = f'Timed out after {elapsed:.0f}s'
+        request.save(update_fields=['status', 'error', 'updated_at'])
+        _sys(request, (
+            f'Analysis timed out after {elapsed:.0f}s. It may have been running a '
+            'broad search over the codebase — try narrowing the request (mention a '
+            'specific file/module) and re-run.'
+        ))
+        return
     except Exception as exc:
         logger.exception('process_request failed for %s', request_id)
         request.status = DebugRequest.Status.FAILED
         request.error = str(exc)
         request.save(update_fields=['status', 'error', 'updated_at'])
-        _sys(request, f'Analysis failed: {exc}')
+        if _is_max_turns_error(exc):
+            _sys(request, (
+                'Analysis stopped without finishing — it used up all of its '
+                'steps investigating. This usually happens on broad or '
+                'multi-part requests. Try breaking it into smaller, more '
+                'specific questions (e.g. one model/file/flow at a time) and '
+                're-run.'
+            ))
+        else:
+            _sys(request, f'Analysis failed: {exc}')
         return
 
     text = result.get('text') or '(the agent returned no text)'
@@ -122,8 +154,17 @@ def create_pr(self, request_id):
         request.save(update_fields=['status', 'updated_at'])
         return
 
+    start = time.monotonic()
     try:
         info = pr.create_pull_request(request)
+    except SoftTimeLimitExceeded:
+        elapsed = time.monotonic() - start
+        logger.warning('create_pr timed out for %s after %.0fs', request_id, elapsed)
+        request.status = DebugRequest.Status.READY
+        request.error = f'Timed out after {elapsed:.0f}s'
+        request.save(update_fields=['status', 'error', 'updated_at'])
+        _sys(request, f'Could not open PR: timed out after {elapsed:.0f}s.')
+        return
     except Exception as exc:
         logger.exception('create_pr failed for %s', request_id)
         request.status = DebugRequest.Status.READY
@@ -149,12 +190,21 @@ def revise_pr(self, request_id):
     request = DebugRequest.objects.filter(id=request_id).first()
     if not request or not request.pr_branch:
         return
+    start = time.monotonic()
     try:
         branch = pr.push_revision(request, request.proposed_diff)
         if request.pr_url:
             num = pr.pr_number_from_url(request.pr_url)
             if num:
                 pr.comment_on_pr(num, 'Pushed a revision addressing the review feedback.')
+    except SoftTimeLimitExceeded:
+        elapsed = time.monotonic() - start
+        logger.warning('revise_pr timed out for %s after %.0fs', request_id, elapsed)
+        request.status = DebugRequest.Status.CHANGES_REQUESTED
+        request.error = f'Timed out after {elapsed:.0f}s'
+        request.save(update_fields=['status', 'error', 'updated_at'])
+        _sys(request, f'Could not push the revision: timed out after {elapsed:.0f}s.')
+        return
     except Exception as exc:
         logger.exception('revise_pr failed for %s', request_id)
         request.status = DebugRequest.Status.CHANGES_REQUESTED
@@ -236,6 +286,7 @@ def finalize_learning(self, request_id):
     request.save(update_fields=['status', 'updated_at'])
 
     title, draft = '', ''
+    start = time.monotonic()
     try:
         result = run_agent(request, mode='finalize')
         text = result.get('text') or ''
@@ -247,6 +298,11 @@ def finalize_learning(self, request_id):
         if learnings:
             title = learnings[-1].get('title', '')
             draft = learnings[-1].get('content', '')
+    except SoftTimeLimitExceeded:
+        elapsed = time.monotonic() - start
+        logger.warning('finalize_learning timed out for %s after %.0fs', request_id, elapsed)
+        _sys(request, f'Could not draft a learning automatically (timed out after '
+                      f'{elapsed:.0f}s). You can write one or close without saving.')
     except Exception as exc:
         logger.exception('finalize_learning failed for %s', request_id)
         _sys(request, f'Could not draft a learning automatically ({exc}). '

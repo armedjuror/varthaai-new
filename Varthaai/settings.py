@@ -253,8 +253,8 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TIMEZONE = env('TIME_ZONE', 'Asia/Kolkata')
 # The agent can take minutes; give tasks room but still bound them.
-CELERY_TASK_SOFT_TIME_LIMIT = int(env('CELERY_TASK_SOFT_TIME_LIMIT', '900'))
-CELERY_TASK_TIME_LIMIT = int(env('CELERY_TASK_TIME_LIMIT', '1080'))
+CELERY_TASK_SOFT_TIME_LIMIT = int(env('CELERY_TASK_SOFT_TIME_LIMIT', '1200'))
+CELERY_TASK_TIME_LIMIT = int(env('CELERY_TASK_TIME_LIMIT', '1500'))
 CELERY_WORKER_MAX_TASKS_PER_CHILD = 20
 
 # Beat: poll GitHub for new PR review activity on open PR threads (Phase 2).
@@ -272,6 +272,10 @@ CELERY_BEAT_SCHEDULE = {
 # Claude Agent SDK auth. Rotate this key — it was previously committed to .env.
 ANTHROPIC_API_KEY = env('ANTHROPIC_API_KEY', '')
 DEBUGGER_MODEL = env('DEBUGGER_MODEL', 'claude-sonnet-5')
+# Stronger model consulted (via the consult_advisor tool) for final synthesis
+# only — root cause statements, fix diffs, feature plans. Costs more per call
+# than DEBUGGER_MODEL but is invoked selectively, not for routine exploration.
+DEBUGGER_ADVISOR_MODEL = env('DEBUGGER_ADVISOR_MODEL', 'claude-opus-4-8')
 # Read-only code checkout the agent inspects (the running app is fine — it only reads).
 DEBUGGER_CODE_DIR = env('DEBUGGER_CODE_DIR', str(BASE_DIR))
 # Isolated clone/worktree base where PR branches are built (NEVER the prod checkout).
@@ -286,3 +290,8 @@ GITHUB_REPO = env('GITHUB_REPO', 'armedjuror/varthaai-new')
 GITHUB_DEFAULT_BRANCH = env('GITHUB_DEFAULT_BRANCH', 'main')
 # Hard cap on rows any single db_query_ro call may return.
 DEBUGGER_DB_ROW_LIMIT = int(env('DEBUGGER_DB_ROW_LIMIT', '200'))
+# Max agent turns per run. Broad/architectural requests (multi-model features)
+# can need more steps than a narrow bug query; raised from 40 after one
+# observed "reached maximum number of turns" failure on a cross-app feature
+# request. Tune via env if it needs to move again.
+DEBUGGER_MAX_TURNS = int(env('DEBUGGER_MAX_TURNS', '60'))
