@@ -9,6 +9,10 @@
   @media (max-width: 900px){ .dbg-layout{ grid-template-columns:1fr; } }
 
   .dbg-list { background:#fff; border-radius:14px; box-shadow:0 1px 3px rgba(0,0,0,.06); overflow:hidden; }
+  .dbg-tabs { display:flex; gap:4px; padding:10px 14px 0; }
+  .dbg-tab { border:none; background:transparent; padding:6px 10px; font-size:.78rem; font-weight:600; color:#7a8290; border-radius:20px; cursor:pointer; }
+  .dbg-tab:hover { background:#f4f6f2; color:#4d6b23; }
+  .dbg-tab.active { background:#eef7e6; color:#4d6b23; }
   .dbg-list-head { padding:12px 14px; border-bottom:1px solid #eef0f3; display:flex; gap:8px; }
   .dbg-list-scroll { max-height: calc(100vh - 230px); overflow-y:auto; }
   .dbg-item { padding:12px 14px; border-bottom:1px solid #f2f3f5; cursor:pointer; }
@@ -92,6 +96,12 @@
   <div class="dbg-layout">
     <!-- LEFT: request list -->
     <div class="dbg-list">
+      <div class="dbg-tabs" id="statusTabs">
+        <button type="button" class="dbg-tab active" data-tab="all">All</button>
+        <button type="button" class="dbg-tab" data-tab="open_pr">Open PR</button>
+        <button type="button" class="dbg-tab" data-tab="needs_attention">Needs attention</button>
+        <button type="button" class="dbg-tab" data-tab="closed">Closed</button>
+      </div>
       <div class="dbg-list-head">
         <select id="filterKind" class="form-select form-select-sm">
           <option value="">All types</option>
@@ -218,5 +228,5 @@
 {% block extra_js %}
 <script src="{% static 'js/vendor/marked.min.js' %}"></script>
 <script src="{% static 'js/vendor/purify.min.js' %}"></script>
-<script src="{% static 'js/admin/debugger.js' %}?v=p4"></script>
+<script src="{% static 'js/admin/debugger.js' %}?v=p5"></script>
 {% endblock %}

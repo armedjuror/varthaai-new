@@ -11,6 +11,8 @@ and only via the `readonly` DB alias / read-only tools):
                     system prompt of future runs (the agent's memory).
 """
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVector, SearchVectorField
 from django.db import models
 
 
@@ -110,11 +112,22 @@ class DebugLearning(models.Model):
         DebugRequest, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='learnings',
     )
+    # Populated on every save() from title+content — backs the Postgres
+    # full-text retrieval in debugger.agent._relevant_learnings (only
+    # relevant learnings get injected into the prompt, not a recency dump).
+    search_vector = SearchVectorField(null=True, blank=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'debug_learnings'
         ordering = ['-created_at']
+        indexes = [GinIndex(fields=['search_vector'], name='debug_learning_search_gin')]
 
     def __str__(self):
         return self.title
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        type(self).objects.filter(pk=self.pk).update(
+            search_vector=SearchVector('title', weight='A') + SearchVector('content', weight='B')
+        )

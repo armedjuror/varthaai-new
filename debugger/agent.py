@@ -20,6 +20,7 @@ import json
 import subprocess
 
 from django.conf import settings
+from django.contrib.postgres.search import SearchQuery, SearchRank
 from django.db import connections
 
 from debugger import guards
@@ -238,15 +239,19 @@ def build_system_prompt(request, mode=None):
 
     if mode == 'finalize':
         kind_instructions = (
-            'This thread is being CLOSED. Distil the single most useful, reusable '
-            'lesson from it and call record_learning(title, content). The content '
-            'should be concise (a short paragraph or a few bullets): what the '
-            'issue/feature was, the root cause or key insight, the fix or outcome, '
-            'and — most importantly — a GENERAL rule or pointer that will help a '
-            'future investigation of a similar problem (name the relevant files / '
-            'modules / tables). Do not use any other tools; just reflect on the '
-            'conversation above and record the learning. If there is genuinely '
-            'nothing reusable, say so briefly and do not call record_learning.'
+            'This thread is being CLOSED. Distil ONE reusable debugging '
+            'HEURISTIC from it -- a generic rule that helps diagnose a '
+            'DIFFERENT future bug/feature of the same CLASS, not a record of '
+            'this incident. Call record_learning(title, content).\n'
+            'Rules: (1) Do NOT narrate what happened here -- no "Issue: X was '
+            'broken because Y", no specific request/thread details; abstract '
+            'the pattern instead (e.g. "symptom class -> check X before '
+            'assuming Y"). (2) content must be 2-3 sentences MAX, phrased as '
+            'a rule a future agent can apply cold to an unrelated thread. '
+            '(3) title is a short generic label for the bug/feature CLASS '
+            '(e.g. "API envelope unwrap mismatch"), not a summary of this '
+            'thread. If nothing here generalizes beyond this one thread, say '
+            'so briefly and do not call record_learning.'
         )
 
     if mode == 'review':
@@ -284,27 +289,29 @@ def build_system_prompt(request, mode=None):
     )
 
 
-def _relevant_learnings(request, limit=12):
+def _relevant_learnings(request, limit=8):
     """
-    The agent's memory: past learnings, ranked by keyword overlap with this
-    request (falling back to recency). Same-kind learnings are preferred but not
-    exclusive, so a bug can still benefit from a related feature/query lesson.
+    The agent's memory: relevant past learnings, retrieved via Postgres full-
+    text search ranked against this request's title+body (RAG over learnings,
+    not a recency/keyword-overlap dump of everything). Falls back to recent
+    same-kind learnings on a cold start / no lexical match.
     """
-    import re as _re
     from debugger.models import DebugLearning
 
-    def words(text):
-        return {w for w in _re.findall(r'[a-z0-9_]{3,}', (text or '').lower())}
-
-    q = words(f'{request.title} {request.body}')
-    rows = list(DebugLearning.objects.order_by('-created_at')[:80])
-    scored = []
-    for l in rows:
-        overlap = len(q & (words(' '.join(l.tags or [])) | words(l.title)))
-        kind_bonus = 1 if l.kind == request.kind else 0
-        scored.append((overlap * 2 + kind_bonus, l.id, l))
-    scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
-    top = [l for _, _, l in scored[:limit]]
+    query_text = f'{request.title} {request.body}'.strip()
+    top = []
+    if query_text:
+        sq = SearchQuery(query_text, search_type='websearch')
+        top = list(
+            DebugLearning.objects
+            .annotate(rank=SearchRank('search_vector', sq))
+            .filter(rank__gt=0)
+            .order_by('-rank')[:limit]
+        )
+    if not top:
+        top = list(
+            DebugLearning.objects.filter(kind=request.kind).order_by('-created_at')[:5]
+        )
     if not top:
         return '(no learnings recorded yet)'
     return '\n'.join(f'- ({l.kind}) {l.title}: {l.content}' for l in top)
