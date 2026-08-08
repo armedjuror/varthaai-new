@@ -74,6 +74,39 @@ ALLOWED_TOOLS = [
 ]
 DISALLOWED_TOOLS = list(guards.BLOCKED_TOOLS) + ['WebFetch', 'WebSearch', 'TodoWrite']
 
+# Full JSON Schema (not the {name: type} shorthand) so new_files can be an
+# array of {path, content} objects — see propose_fix below for why new files
+# are kept out of the diff entirely.
+FIX_TOOL_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'diff': {
+            'type': 'string',
+            'description': 'Unified diff for changes to EXISTING files only '
+                           '(modifications/deletions). Do not add hunks that '
+                           'create new files here — use new_files for those. '
+                           'May be empty if the fix is only new files.',
+        },
+        'new_files': {
+            'type': 'array',
+            'description': 'Brand-new files this fix adds, as full file '
+                           'content (not a diff hunk). May be omitted/empty '
+                           'if the fix only modifies existing files.',
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'path': {'type': 'string', 'description': "Repo-relative path, e.g. 'marketing/ai.py'."},
+                    'content': {'type': 'string', 'description': 'The full content of the new file.'},
+                },
+                'required': ['path', 'content'],
+            },
+        },
+        'pr_title': {'type': 'string'},
+        'pr_body': {'type': 'string'},
+    },
+    'required': ['diff', 'pr_title', 'pr_body'],
+}
+
 
 # --------------------------------------------------------------------------- #
 # Custom read-only tools                                                       #
@@ -148,17 +181,33 @@ def _register_tools(proposals, learnings=None):
 
     @tool('propose_fix', 'Record a suggested fix as a unified diff plus PR title '
                          'and body. Records the proposal only — it does NOT open '
-                         'a PR or write any files.',
-          {'diff': str, 'pr_title': str, 'pr_body': str})
+                         'a PR or write any files. IMPORTANT: put changes to '
+                         'EXISTING files in `diff` (as normal unified-diff '
+                         'hunks). Put brand-new files in `new_files` as full '
+                         'content instead of a diff hunk — hand-counting lines '
+                         'in a `@@ -0,0 +1,N @@` hunk for a large new file is '
+                         'exactly the kind of arithmetic mistake that corrupts '
+                         'the whole patch and breaks PR creation.',
+          FIX_TOOL_SCHEMA)
     async def propose_fix(args):
         args = args or {}
+        new_files = []
+        for item in (args.get('new_files') or []):
+            if not isinstance(item, dict):
+                continue
+            path = (item.get('path') or '').strip()
+            content = item.get('content')
+            if path and content is not None:
+                new_files.append({'path': path, 'content': content})
         proposals.append({
             'diff': args.get('diff', ''),
+            'new_files': new_files,
             'pr_title': args.get('pr_title', ''),
             'pr_body': args.get('pr_body', ''),
         })
-        return _text('Fix proposal recorded. It will be shown to the admin with '
-                     'a "Create PR" button; no PR has been opened.')
+        note = f' + {len(new_files)} new file(s) attached as full content' if new_files else ''
+        return _text(f'Fix proposal recorded{note}. It will be shown to the admin '
+                     'with a "Create PR" button; no PR has been opened.')
 
     @tool('record_learning', 'Record ONE reusable lesson from this thread as a '
                              'title + content. Used when finalizing a thread on '
@@ -332,9 +381,10 @@ def build_system_prompt(request, mode=None):
             'ALREADY contains your earlier fix. Address the review comments. If '
             'code changes are needed, call propose_fix with a unified diff that '
             'applies ON TOP of the current branch state (a delta, not a fresh '
-            'diff against main). If a comment is a question or you disagree, '
-            'explain your reasoning and ask the admin — do NOT propose a diff in '
-            'that case.'
+            'diff against main); any additional brand-new file still goes in '
+            'new_files as full content, not a diff hunk. If a comment is a '
+            'question or you disagree, explain your reasoning and ask the '
+            'admin — do NOT propose a diff in that case.'
         )
 
     return (
@@ -351,7 +401,12 @@ def build_system_prompt(request, mode=None):
         "- Be concise and structured. Use short headings.\n"
         "- consult_advisor is a stronger model with NO tool access of its own — "
         "it only sees the summary text you give it. Use it once, right before "
-        "finalizing, not as a substitute for your own investigation.\n\n"
+        "finalizing, not as a substitute for your own investigation.\n"
+        "- When calling propose_fix: put edits to EXISTING files in `diff` as "
+        "normal unified-diff hunks. Put any BRAND-NEW file in `new_files` as "
+        "full content, NOT as a `@@ -0,0 +1,N @@` diff hunk — getting N exactly "
+        "right for a large new file is unreliable and a single wrong count "
+        "corrupts the whole patch, which breaks PR creation.\n\n"
         f"{kind_instructions}\n\n"
         "PROJECT MAP:\n"
         f"{claude_md}\n\n"

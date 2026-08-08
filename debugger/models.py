@@ -50,6 +50,13 @@ class DebugRequest(models.Model):
     # Result of the analysis.
     rca = models.TextField(blank=True)               # root-cause summary (bug) / plan (feature)
     proposed_diff = models.TextField(blank=True)     # unified diff for a fix (Phase 2 uses it)
+    # Brand-new files the fix adds, as [{'path': str, 'content': str}, ...] — kept
+    # OUT of proposed_diff on purpose. An LLM-authored diff has to hand-count
+    # every added line in a `@@ -0,0 +1,N @@` hunk; on large new files that
+    # arithmetic is unreliable and corrupts the whole patch (confirmed root
+    # cause of a PR-apply failure). Full content sidesteps the arithmetic
+    # entirely — pr.py writes these files directly instead of applying a diff.
+    proposed_new_files = models.JSONField(default=list, blank=True)
     pr_title = models.CharField(max_length=200, blank=True)
     pr_body = models.TextField(blank=True)
     pr_url = models.URLField(blank=True)
@@ -77,6 +84,10 @@ class DebugRequest(models.Model):
 
     def __str__(self):
         return f'[{self.kind}] {self.title}'
+
+    @property
+    def has_proposed_fix(self):
+        return bool((self.proposed_diff or '').strip() or self.proposed_new_files)
 
 
 class DebugMessage(models.Model):

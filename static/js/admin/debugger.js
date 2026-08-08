@@ -94,9 +94,15 @@
         d.kind === 'feature' ? 'Implementation plan' : 'Root-cause analysis';
       document.getElementById('rcaText').innerHTML = renderMd(d.rca);
       const diffBox = document.getElementById('diffBox');
-      if (d.proposed_diff) {
+      const newFiles = d.proposed_new_files || [];
+      if (d.proposed_diff || newFiles.length) {
         diffBox.style.display = 'block';
-        document.getElementById('diffText').textContent = d.proposed_diff;
+        let text = d.proposed_diff || '';
+        if (newFiles.length) {
+          const label = newFiles.length === 1 ? 'new file' : 'new files';
+          text += (text ? '\n\n' : '') + `+ ${newFiles.length} ${label} (full content, not shown as a diff): ` + newFiles.join(', ');
+        }
+        document.getElementById('diffText').textContent = text;
       } else { diffBox.style.display = 'none'; }
     } else { rcaBox.style.display = 'none'; }
 
@@ -155,11 +161,12 @@
     document.getElementById('closeBtn').style.display =
       (closed || reviewing || d.status === 'finalizing') ? 'none' : '';
     // Feature: approve the plan so the agent generates a diff.
+    const hasProposal = !!(d.proposed_diff || (d.proposed_new_files || []).length);
     document.getElementById('approvePlanBtn').style.display =
-      (d.kind === 'feature' && d.rca && !d.proposed_diff && !d.pr_url
+      (d.kind === 'feature' && d.rca && !hasProposal && !d.pr_url
        && !closed && !d.is_live) ? '' : 'none';
     // A fix is proposed and no PR exists yet.
-    const canPr = d.proposed_diff && !d.pr_url && d.status === 'ready' && !closed;
+    const canPr = hasProposal && !d.pr_url && d.status === 'ready' && !closed;
     document.getElementById('createPrBtn').style.display = canPr ? '' : 'none';
     // Same state: let the admin rebuild a drifted diff against the latest code.
     document.getElementById('regenPrBtn').style.display = canPr ? '' : 'none';

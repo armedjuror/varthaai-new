@@ -142,6 +142,92 @@ def _ensure_commit(repo, sha):
     return have.returncode == 0
 
 
+_DIFF_GIT_RE = re.compile(r'^diff --git ')
+_EXTENDED_HEADER_RE = re.compile(
+    r'^(index |new file mode|deleted file mode|old mode|new mode|'
+    r'similarity index|rename from|rename to|copy from|copy to)'
+)
+_MINUS_RE = re.compile(r'^--- (?:a/(.+)|(/dev/null))$')
+_PLUS_RE = re.compile(r'^\+\+\+ (?:b/(.+)|(/dev/null))$')
+
+
+def _has_diff_git_header(out):
+    """True if `out` (lines emitted so far) ends in a `diff --git` header,
+    possibly followed by extended-header lines (index/mode/rename/...)."""
+    j = len(out) - 1
+    while j >= 0 and _EXTENDED_HEADER_RE.match(out[j]):
+        j -= 1
+    return j >= 0 and bool(_DIFF_GIT_RE.match(out[j]))
+
+
+def _normalize_diff(diff):
+    """
+    Repair the most common malformation seen in LLM-generated unified diffs: a
+    per-file `--- a/X` / `+++ b/Y` pair with no preceding `diff --git a/X b/Y`
+    header (and, for new/deleted files, no `new file mode` / `deleted file
+    mode` marker). Without a `diff --git` header, `git apply` can't find the
+    file-section boundary, and one missing header corrupts parsing of the rest
+    of a multi-file patch. Idempotent: a `--- ` line that already has a
+    `diff --git` header directly above it (allowing intervening extended
+    headers such as `index ...`) is left untouched, so this is a no-op on a
+    well-formed diff (e.g. real `git diff` output).
+    """
+    lines = diff.split('\n')
+    out = []
+    n = len(lines)
+    for i, line in enumerate(lines):
+        m = _MINUS_RE.match(line)
+        if m and not _has_diff_git_header(out):
+            old_path = m.group(1)
+            new_path = None
+            if i + 1 < n:
+                pm = _PLUS_RE.match(lines[i + 1])
+                if pm:
+                    new_path = pm.group(1)  # None when the target is /dev/null (deleted file)
+            a_path = old_path or new_path or 'file'
+            b_path = new_path or old_path or 'file'
+            out.append(f'diff --git a/{a_path} b/{b_path}')
+            if old_path is None:
+                out.append('new file mode 100644')
+            elif new_path is None:
+                out.append('deleted file mode 100644')
+        out.append(line)
+    return '\n'.join(out)
+
+
+def _write_new_files(repo, new_files):
+    """
+    Materialize brand-new files directly onto the working tree — bypassing
+    diff hunks entirely. This is the fix for the dominant failure mode in
+    LLM-authored diffs: a `@@ -0,0 +1,N @@` hunk for a large new file requires
+    hand-counting every added line, and a single wrong N corrupts the whole
+    patch. `new_files` is [{'path': str, 'content': str}, ...] (paths are
+    repo-relative and untrusted — resolved and confined to `repo`).
+    """
+    repo_real = os.path.realpath(repo)
+    for item in new_files or []:
+        rel = (item.get('path') or '').strip().lstrip('/')
+        content = item.get('content')
+        if not rel or content is None:
+            continue
+        dest = os.path.realpath(os.path.join(repo_real, rel))
+        if dest != repo_real and not dest.startswith(repo_real + os.sep):
+            raise PRError(f'refusing to write outside the repo: {item.get("path")!r}')
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, 'w') as fh:
+            fh.write(content)
+
+
+def _apply_fix(repo, diff, new_files=None):
+    """Apply the existing-file diff (if any) and write brand-new files (if
+    any). Raises PRError if both are empty — nothing to apply."""
+    if not (diff and diff.strip()) and not new_files:
+        raise PRError('empty diff — nothing to apply.')
+    if diff and diff.strip():
+        _apply_diff(repo, diff)
+    _write_new_files(repo, new_files)
+
+
 def _apply_diff(repo, diff):
     """
     Apply a unified diff to the working tree, trying progressively more lenient
@@ -151,6 +237,7 @@ def _apply_diff(repo, diff):
     """
     if not diff or not diff.strip():
         raise PRError('empty diff — nothing to apply.')
+    diff = _normalize_diff(diff)
     text = diff if diff.endswith('\n') else diff + '\n'
     with tempfile.NamedTemporaryFile('w', suffix='.diff', delete=False) as fh:
         fh.write(text)
@@ -258,7 +345,7 @@ def _build_fix_branch(repo, request, branch, base, title, body):
             _run(['git', 'clean', '-fdq'], cwd=repo, check=False)
 
     _run(['git', 'checkout', '-B', branch, base_ref], cwd=repo)
-    _apply_diff(repo, request.proposed_diff)
+    _apply_fix(repo, request.proposed_diff, request.proposed_new_files)
     _run(['git', 'add', '-A'], cwd=repo)
     _run(['git', 'commit', '-m', title, '-m', body], cwd=repo)
 
@@ -273,7 +360,7 @@ def _cherry_pick_fix(repo, request, branch, base_ref, base_sha, title, body):
     """
     tmp = f'{branch}--base'
     _run(['git', 'checkout', '-B', tmp, base_sha], cwd=repo)
-    _apply_diff(repo, request.proposed_diff)
+    _apply_fix(repo, request.proposed_diff, request.proposed_new_files)
     _run(['git', 'add', '-A'], cwd=repo)
     _run(['git', 'commit', '-m', title, '-m', body], cwd=repo)
     fix_sha = _run(['git', 'rev-parse', 'HEAD'], cwd=repo).stdout.strip()
@@ -298,15 +385,15 @@ def checkout_branch(request):
     return repo
 
 
-def push_revision(request, diff, message='Address review feedback'):
+def push_revision(request, diff, new_files=None, message='Address review feedback'):
     """
-    Apply a delta diff on top of the existing branch and push a NEW commit
-    (never a force-push). Returns the branch name.
+    Apply a delta diff (plus any brand-new files) on top of the existing
+    branch and push a NEW commit (never a force-push). Returns the branch name.
     """
     repo = checkout_branch(request)
     branch = request.pr_branch or branch_name(request)
     _assert_pushable(branch)
-    _apply_diff(repo, diff)
+    _apply_fix(repo, diff, new_files)
     _run(['git', 'add', '-A'], cwd=repo)
     _run(['git', 'commit', '-m', message], cwd=repo)
     _assert_pushable(branch)

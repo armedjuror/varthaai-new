@@ -59,7 +59,7 @@ def _req_summary(r):
         'kind': r.kind,
         'title': r.title,
         'status': r.status,
-        'has_proposal': bool(r.proposed_diff),
+        'has_proposal': r.has_proposed_fix,
         'pr_url': r.pr_url,
         'created_at': r.created_at.isoformat(),
         'updated_at': r.updated_at.isoformat(),
@@ -72,6 +72,7 @@ def _req_detail(r):
         'body': r.body,
         'rca': r.rca,
         'proposed_diff': r.proposed_diff,
+        'proposed_new_files': [f.get('path') for f in (r.proposed_new_files or [])],
         'pr_title': r.pr_title,
         'pr_body': r.pr_body,
         'pr_branch': r.pr_branch,
@@ -252,7 +253,7 @@ class DebuggerAPI(APIView):
         r = DebugRequest.objects.filter(id=body.get('id')).first()
         if not r:
             return err('Request not found.', status=404)
-        if not (r.proposed_diff or '').strip():
+        if not r.has_proposed_fix:
             return err('There is no proposed fix to open a PR for.')
         if r.pr_url:
             return err('A PR is already open for this thread.')
@@ -279,7 +280,7 @@ class DebuggerAPI(APIView):
             return err('This thread is closed.')
         if r.pr_url:
             return err('A PR is already open — push a revision via review instead.')
-        if not (r.proposed_diff or '').strip():
+        if not r.has_proposed_fix:
             return err('There is no fix to regenerate yet.')
         DebugMessage.objects.create(
             request=r, role=DebugMessage.Role.ADMIN,

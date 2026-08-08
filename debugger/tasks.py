@@ -115,12 +115,13 @@ def process_request(self, request_id, mode=None):
         from debugger import pr
         p = proposals[-1]
         request.proposed_diff = p.get('diff', '')
+        request.proposed_new_files = p.get('new_files') or []
         request.pr_title = (p.get('pr_title', '') or request.pr_title or request.title)[:200]
         request.pr_body = p.get('pr_body', '') or request.pr_body
         # Record the commit the agent read so the PR can transplant the fix even
         # after the default branch moves on (see pr.create_pull_request).
         request.base_sha = pr.current_code_sha(cwd) or request.base_sha
-        fields += ['proposed_diff', 'pr_title', 'pr_body', 'base_sha']
+        fields += ['proposed_diff', 'proposed_new_files', 'pr_title', 'pr_body', 'base_sha']
         if request.pr_url:
             # A PR already exists → this proposal is a revision. Push it.
             request.status = DebugRequest.Status.REVISING
@@ -148,7 +149,7 @@ def create_pr(self, request_id):
     request = DebugRequest.objects.filter(id=request_id).first()
     if not request:
         return
-    if not request.proposed_diff.strip():
+    if not request.has_proposed_fix:
         _sys(request, 'Cannot open a PR — no proposed fix is attached.')
         request.status = DebugRequest.Status.AWAITING_INPUT
         request.save(update_fields=['status', 'updated_at'])
@@ -192,7 +193,7 @@ def revise_pr(self, request_id):
         return
     start = time.monotonic()
     try:
-        branch = pr.push_revision(request, request.proposed_diff)
+        branch = pr.push_revision(request, request.proposed_diff, request.proposed_new_files)
         if request.pr_url:
             num = pr.pr_number_from_url(request.pr_url)
             if num:

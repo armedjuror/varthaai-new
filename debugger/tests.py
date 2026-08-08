@@ -209,6 +209,15 @@ class PrLogicTests(TestCase):
             pr._assert_pushable('')
         pr._assert_pushable('debugger/bug-1-x')  # no raise
 
+    def test_has_proposed_fix_true_with_only_new_files(self):
+        r = DebugRequest(kind='bug', title='x', proposed_diff='',
+                          proposed_new_files=[{'path': 'a.py', 'content': 'x'}])
+        self.assertTrue(r.has_proposed_fix)
+
+    def test_has_proposed_fix_false_when_both_empty(self):
+        r = DebugRequest(kind='bug', title='x', proposed_diff='', proposed_new_files=[])
+        self.assertFalse(r.has_proposed_fix)
+
 
 class ApplyDiffTests(TestCase):
     """Exercise the real diff-application path + the staging fix in a temp repo."""
@@ -262,6 +271,94 @@ class ApplyDiffTests(TestCase):
                      '@@ -1,3 +1,3 @@\n l1\n-l2\n+X\n l3\n')
             with self.assertRaises(pr.PRError):
                 pr._apply_diff(d, bogus)
+
+    def test_normalize_diff_is_noop_on_well_formed_diff(self):
+        well_formed = (
+            'diff --git a/a.txt b/a.txt\n'
+            'index 1111111..2222222 100644\n'
+            '--- a/a.txt\n+++ b/a.txt\n'
+            '@@ -1,3 +1,3 @@\n l1\n-l2\n+X\n l3\n'
+        )
+        self.assertEqual(pr._normalize_diff(well_formed), well_formed)
+
+    def test_normalize_diff_inserts_missing_header_for_modified_file(self):
+        headerless = '--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n l1\n-l2\n+X\n l3\n'
+        normalized = pr._normalize_diff(headerless)
+        self.assertTrue(normalized.startswith('diff --git a/a.txt b/a.txt\n'))
+        self.assertNotIn('new file mode', normalized)
+
+    def test_normalize_diff_inserts_new_file_mode_for_dev_null_source(self):
+        headerless = '--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,2 @@\n+l1\n+l2\n'
+        normalized = pr._normalize_diff(headerless)
+        self.assertIn('diff --git a/new.txt b/new.txt\n', normalized)
+        self.assertIn('new file mode 100644\n', normalized)
+
+    def test_normalize_diff_inserts_deleted_file_mode_for_dev_null_target(self):
+        headerless = '--- a/old.txt\n+++ /dev/null\n@@ -1,2 +0,0 @@\n-l1\n-l2\n'
+        normalized = pr._normalize_diff(headerless)
+        self.assertIn('diff --git a/old.txt b/old.txt\n', normalized)
+        self.assertIn('deleted file mode 100644\n', normalized)
+
+    def test_apply_diff_recovers_new_file_missing_git_header(self):
+        """Regression: an LLM-authored diff that adds a new file via a bare
+        `--- /dev/null` / `+++ b/X` pair with no `diff --git` header breaks
+        git apply's multi-file parsing (root cause of request #19's PR
+        failure) — _apply_diff must repair it before trying to apply."""
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            self._git(d, 'init', '-q')
+            with open(os.path.join(d, 'existing.txt'), 'w') as f:
+                f.write('l1\n')
+            self._git(d, 'add', '-A')
+            self._git(d, 'commit', '-qm', 'init')
+            headerless = (
+                '--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1,2 @@\n+l1\n+l2\n'
+            )
+            pr._apply_diff(d, headerless)
+            with open(os.path.join(d, 'new.txt')) as f:
+                self.assertEqual(f.read(), 'l1\nl2\n')
+
+    def test_write_new_files_creates_files_and_dirs(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            pr._write_new_files(d, [
+                {'path': 'a/b/new.py', 'content': 'print(1)\n'},
+                {'path': 'top.py', 'content': 'x = 1\n'},
+            ])
+            with open(os.path.join(d, 'a', 'b', 'new.py')) as f:
+                self.assertEqual(f.read(), 'print(1)\n')
+            with open(os.path.join(d, 'top.py')) as f:
+                self.assertEqual(f.read(), 'x = 1\n')
+
+    def test_write_new_files_rejects_path_traversal(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(pr.PRError):
+                pr._write_new_files(d, [{'path': '../escape.py', 'content': 'x'}])
+
+    def test_apply_fix_raises_when_nothing_to_apply(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(pr.PRError):
+                pr._apply_fix(d, '', [])
+
+    def test_apply_fix_new_files_only_skips_diff_apply(self):
+        """A fix that's entirely new files (empty diff) must not hit the
+        'empty diff' path — this is the case propose_fix's new_files param
+        exists for (avoids line-count arithmetic on large new files)."""
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            self._git(d, 'init', '-q')
+            with open(os.path.join(d, 'existing.txt'), 'w') as f:
+                f.write('l1\n')
+            self._git(d, 'add', '-A')
+            self._git(d, 'commit', '-qm', 'init')
+            pr._apply_fix(d, '', [{'path': 'brand_new.py', 'content': 'x = 1\n'}])
+            with open(os.path.join(d, 'brand_new.py')) as f:
+                self.assertEqual(f.read(), 'x = 1\n')
 
 
 @override_settings(GITHUB_DEFAULT_BRANCH='main')
