@@ -636,7 +636,7 @@ $(document).on('input', '#addVendorCode, #editVendorCode', function () {
   _codeCheckTimer = setTimeout(function () {
     apiGet('/admin/api/stocks/', { action: 'check_vendor_code', code: code, exclude_id: excludeId })
       .done(function (res) {
-        if (res.available) {
+        if (res.data && res.data.available) {
           $input.removeClass('is-invalid').addClass('is-valid');
           $feedback.text('Code is available.').css('color', '#16a34a');
         } else {
