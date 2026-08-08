@@ -133,10 +133,13 @@ class DebuggerAPI(APIView):
         qs = DebugRequest.objects.all()
         kind = request.query_params.get('kind')
         status = request.query_params.get('status')
+        exclude_status = request.query_params.get('exclude_status')
         if kind:
             qs = qs.filter(kind=kind)
         if status:
-            qs = qs.filter(status=status)
+            qs = qs.filter(status__in=[s for s in status.split(',') if s])
+        if exclude_status:
+            qs = qs.exclude(status__in=[s for s in exclude_status.split(',') if s])
         return ok({'requests': [_req_summary(r) for r in qs[:200]]})
 
     def post(self, request):

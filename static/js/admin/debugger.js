@@ -6,6 +6,7 @@
   const API = '/admin/api/debugger/';
   let currentId = null;
   let pollTimer = null;
+  let currentTab = 'all';
 
   const KIND_LABEL = { bug: 'Bug', feature: 'Feature', query: 'Query' };
   const STATUS_LABEL = {
@@ -14,6 +15,12 @@
     changes_requested: 'Changes requested', revising: 'Revising',
     pr_updated: 'PR updated', finalizing: 'Summarizing…',
     learning_review: 'Review learning', closed: 'Closed', failed: 'Failed',
+  };
+  const STATUS_TABS = {
+    all: { exclude_status: 'closed' },
+    open_pr: { status: 'pr_open,pr_updated' },
+    needs_attention: { status: 'awaiting_input,changes_requested,learning_review,failed' },
+    closed: { status: 'closed' },
   };
 
   // Render Markdown safely. marked → DOMPurify; falls back to escaped text with
@@ -37,7 +44,8 @@
   /* ── List ── */
   async function loadList() {
     const kind = document.getElementById('filterKind').value;
-    const res = await apiGet(API, kind ? { kind } : {});
+    const params = Object.assign({}, kind ? { kind } : {}, STATUS_TABS[currentTab] || {});
+    const res = await apiGet(API, params);
     const items = (res.data && res.data.requests) || [];
     const box = document.getElementById('reqList');
     if (!items.length) {
@@ -260,6 +268,11 @@
 
   document.getElementById('refreshBtn').addEventListener('click', loadList);
   document.getElementById('filterKind').addEventListener('change', loadList);
+  document.querySelectorAll('.dbg-tab').forEach(el => el.addEventListener('click', () => {
+    currentTab = el.dataset.tab;
+    document.querySelectorAll('.dbg-tab').forEach(t => t.classList.toggle('active', t === el));
+    loadList();
+  }));
 
   loadList();
 })();
