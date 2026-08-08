@@ -226,7 +226,8 @@ function loadMovements(page) {
   })
     .done(function (res) {
       if (!res.success) { showAlertModal(res.message, 'danger'); return; }
-      renderMovements(res.data || [], res.total, res.page, res.per_page);
+      var mv = res.data || {};
+      renderMovements(mv.items || [], mv.total, mv.page, mv.per_page);
     })
     .fail(function () { showAlertModal('Failed to load movements.', 'danger'); })
     .always(hideLoader);
