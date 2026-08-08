@@ -60,10 +60,10 @@
     </a>
     {% endif %}
 
-    {% if 'flavors' in nav_perms %}
-    <a href="{% url 'products:flavors' %}" class="nav-item{% if url_name == 'flavors' %} active{% endif %}">
-      <i class="fas fa-pepper-hot"></i>
-      <span>Flavors</span>
+    {% if 'packs' in nav_perms %}
+    <a href="{% url 'products:packs' %}" class="nav-item{% if url_name == 'packs' %} active{% endif %}">
+      <i class="fas fa-boxes-stacked"></i>
+      <span>Packs</span>
     </a>
     {% endif %}
 
@@ -102,6 +102,13 @@
     {% endif %}
 
     <p class="nav-section-label" style="margin-top:12px">General</p>
+
+    {% if 'flavors' in nav_perms %}
+      <a href="{% url 'products:flavors' %}" class="nav-item{% if url_name == 'flavors' %} active{% endif %}">
+        <i class="fas fa-pepper-hot"></i>
+        <span>Flavors</span>
+      </a>
+    {% endif %}
 
     {% if 'blogs' in nav_perms %}
       <a href="{% url 'marketing:blogs' %}" class="nav-item{% if url_name == 'blogs' %} active{% endif %}">

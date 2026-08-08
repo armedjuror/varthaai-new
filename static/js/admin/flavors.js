@@ -181,9 +181,6 @@ function renderFlavors(flavors) {
           nutritionHtml +
         '</div>' +
         '<div class="d-flex gap-2 mt-3">' +
-          '<button class="btn btn-sm flex-fill btn-outline-primary" onclick="event.stopPropagation();openPacks(' + f.id + ')">' +
-            '<i class="fas fa-box me-1"></i>Packs' +
-          '</button>' +
           '<button class="btn btn-sm flex-fill ' + (active ? 'btn-outline-secondary' : 'btn-outline-primary') + '" onclick="toggleFlavor(' + f.id + ')">' +
             '<i class="fas fa-' + (active ? 'ban' : 'check') + ' me-1"></i>' + (active ? 'Deactivate' : 'Activate') +
           '</button>' +
@@ -239,89 +236,6 @@ function deleteFlavor(id) {
       .done(function (res) {
         showAlertModal(res.message, res.success ? 'success' : 'danger');
         if (res.success) loadFlavors();
-      })
-      .fail(function () { showAlertModal('Request failed.', 'danger'); })
-      .always(hideLoader);
-  });
-}
-
-/* ── Packs ── */
-var packsFlavorId = null;
-
-function openPacks(flavorId) {
-  packsFlavorId = flavorId;
-  var f = allFlavors.find(function (x) { return parseInt(x.id) === flavorId; });
-  $('#packsFlavorName').text(f ? f.name : '#' + flavorId);
-  $('#packWeight, #packLabel, #packMrp, #packSelling, #packCost').val('');
-  loadPacks();
-  $('#packsModal').modal('show');
-}
-
-function loadPacks() {
-  apiGet('/admin/api/flavors/', { flavor_packs: packsFlavorId })
-    .done(function (res) {
-      if (!res.success) return;
-      renderPacks(res.data || []);
-    });
-}
-
-function renderPacks(packs) {
-  if (!packs.length) {
-    $('#packsTableBody').html('<tr><td colspan="8" class="text-center" style="color:var(--gray-400);padding:20px">No packs yet. Add one above.</td></tr>');
-    return;
-  }
-  var html = '';
-  packs.forEach(function (p) {
-    var active = parseInt(p.is_active);
-    html += '<tr>' +
-      '<td>' + p.weight_grams + 'g</td>' +
-      '<td>' + escHtml(p.label) + '</td>' +
-      '<td>' + formatCurrency(p.mrp) + '</td>' +
-      '<td>' + formatCurrency(p.selling_price) + '</td>' +
-      '<td>' + formatCurrency(p.cost_price) + '</td>' +
-      '<td>' + (p.sku ? escHtml(p.sku) : '—') + '</td>' +
-      '<td><span class="badge ' + (active ? 'badge-success' : 'badge-warning') + '">' + (active ? 'Active' : 'Inactive') + '</span></td>' +
-      '<td class="table-actions">' +
-        '<button class="btn-icon delete" title="Delete" onclick="deletePack(' + p.id + ')"><i class="fas fa-trash"></i></button>' +
-      '</td>' +
-    '</tr>';
-  });
-  $('#packsTableBody').html(html);
-}
-
-function addPack() {
-  var weight = parseInt($('#packWeight').val());
-  var label  = $('#packLabel').val().trim();
-  if (!weight || !label) { showAlertModal('Weight and label are required.', 'warning'); return; }
-
-  showLoader('Adding pack…');
-  apiPost('/admin/api/flavors/', {
-    action:        'add_pack',
-    flavor_id:     packsFlavorId,
-    weight_grams:  weight,
-    label:         label,
-    mrp:           parseFloat($('#packMrp').val()) || 0,
-    selling_price: parseFloat($('#packSelling').val()) || 0,
-    cost_price:    parseFloat($('#packCost').val()) || 0
-  })
-    .done(function (res) {
-      showAlertModal(res.message, res.success ? 'success' : 'danger');
-      if (res.success) {
-        $('#packWeight, #packLabel, #packMrp, #packSelling, #packCost').val('');
-        loadPacks();
-      }
-    })
-    .fail(function () { showAlertModal('Request failed.', 'danger'); })
-    .always(hideLoader);
-}
-
-function deletePack(id) {
-  confirmThen('Delete this pack?', function () {
-    showLoader('Deleting…');
-    apiPost('/admin/api/flavors/', { action: 'delete_pack', id: id })
-      .done(function (res) {
-        showAlertModal(res.message, res.success ? 'success' : 'danger');
-        if (res.success) loadPacks();
       })
       .fail(function () { showAlertModal('Request failed.', 'danger'); })
       .always(hideLoader);
