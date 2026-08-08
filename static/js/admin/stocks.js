@@ -189,6 +189,7 @@ function loadStats() {
   apiGet('/admin/api/stocks/', { action: 'stats' })
     .done(function (res) {
       if (!res.success) return;
+      res = res.data
       $('#statTotalKg').text(Number(res.total_kg).toLocaleString('en-IN') + ' kg');
       $('#statBatches').text(res.total_batches + ' batch' + (res.total_batches !== 1 ? 'es' : '') + ' across ' + res.flavors_tracked + ' flavor' + (res.flavors_tracked !== 1 ? 's' : ''));
       $('#statLowStock').text(res.low_stock);
