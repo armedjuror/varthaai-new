@@ -154,13 +154,11 @@ class DashboardStatsAPI(APIView):
         Approximation of the PHP low-stock query. The PHP `stock` table carried
         a per-flavor `reorder_level_grams`; here stock is batched, so quantity
         is summed per flavor and compared against `Flavor.reorder_level_grams`.
-        Scoped to the active brand (the PHP version was global).
+        Flavor and Stock are global now, so this is not brand-scoped (brand_ids
+        is unused but kept for signature compatibility with other _*(brand_ids) helpers).
         """
         flavors = (
-            self._scoped(
-                Flavor.objects.filter(is_active=True, reorder_level_grams__gt=0),
-                brand_ids,
-            )
+            Flavor.objects.filter(is_active=True, reorder_level_grams__gt=0)
             .annotate(total_qty=Coalesce(Sum('stock_batches__quantity_grams'), 0))
             .filter(total_qty__lte=F('reorder_level_grams'))
             .annotate(ratio=ExpressionWrapper(
