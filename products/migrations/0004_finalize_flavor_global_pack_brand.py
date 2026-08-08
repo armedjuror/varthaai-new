@@ -5,7 +5,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('products', '0003_flavor_global_pack_brand'),
+        ('products', '0004_repoint_and_delete_duplicate_flavors'),
     ]
 
     operations = [
