@@ -37,7 +37,6 @@ class FlavorPack(models.Model):
 
     class Meta:
         db_table = 'flavor_packs'
-        unique_together = ('flavor', 'weight_grams')
 
     def __str__(self):
         return f'{self.flavor.name} — {self.label}'
