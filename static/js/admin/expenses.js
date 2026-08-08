@@ -221,7 +221,9 @@ function loadExpenses(page) {
 
   apiGet('/admin/api/expenses/', params).done(function (res) {
     if (!res.success) { $('#expensesTableBody').html('<tr><td colspan="8" class="text-center" style="padding:40px;color:var(--gray-400)">Error loading expenses.</td></tr>'); return; }
-    if (!res.data.length) {
+    var expPage = res.data || {};
+    var expItems = expPage.items || [];
+    if (!expItems.length) {
       $('#expensesTableBody').html('<tr><td colspan="8" class="text-center" style="padding:40px;color:var(--gray-400)">No expenses found.</td></tr>');
       $('#expensesPagination').html('');
       return;
