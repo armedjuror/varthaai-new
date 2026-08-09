@@ -627,7 +627,6 @@ class StocksAPI(APIView):
                 name='Raw Materials', defaults={'color': '#85AA4E'},
             )
         Expense.objects.create(
-            brand_id=current_brand_id(request),
             category=category,
             stock=batch,
             title=f'Stock purchase — {flavor.name} ({qty_kg} kg)',

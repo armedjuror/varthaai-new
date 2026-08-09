@@ -101,11 +101,13 @@ function toggleStockMapping() {
   var isStock = catName.indexOf('stock') !== -1 || catName.indexOf('raw material') !== -1;
   if (isStock) {
     $('#stockMappingGroup').show();
-    var brandVal = $('select[name="brand_id"]').val();
-    loadStockBatches(brandVal);
+    loadStockBatches();
+    // Stock is a global model — stock-linked expenses must stay global too.
+    $('select[name="brand_id"]').val('').prop('disabled', true);
   } else {
     $('#stockMappingGroup').hide();
     $('select[name="stock_id"]').val('');
+    $('select[name="brand_id"]').prop('disabled', false);
   }
 }
 
@@ -271,6 +273,7 @@ function openAddExpenseModal() {
   editingExpenseId = null;
   $('#addExpenseForm')[0].reset();
   $('#stockMappingGroup').hide();
+  $('select[name="brand_id"]').prop('disabled', false);
   $('#expenseModalTitle').text('Add New Expense');
   var today = new Date().toISOString().split('T')[0];
   $('input[name="expense_date"]').val(today);

@@ -420,11 +420,15 @@ class ExpensesAPI(APIView):
     def _expense_fields(body):
         brand = body.get('brand_id', '')
         stock = body.get('stock_id', '')
+        stock_id = int(stock) if stock not in ('', None) else None
         is_recurring = bool(int(body.get('is_recurring') or 0))
         return {
-            'brand_id': int(brand) if brand not in ('', None) else None,
+            # Stock is a global (non-brand-scoped) model — expenses linked to
+            # a stock batch must stay global too, regardless of what brand
+            # was active/submitted when the expense was recorded.
+            'brand_id': (int(brand) if brand not in ('', None) else None) if stock_id is None else None,
             'category_id': int(body.get('category_id') or 0),
-            'stock_id': int(stock) if stock not in ('', None) else None,
+            'stock_id': stock_id,
             'title': (body.get('title') or '').strip(),
             'description': (body.get('description') or '').strip(),
             'amount': float(body.get('amount') or 0),
