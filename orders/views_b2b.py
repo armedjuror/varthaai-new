@@ -119,6 +119,7 @@ def _order_row(o):
         'balance_amount': float(o.total_amount - o.paid_amount),
         'status': o.status,
         'payment_status': o.payment_status,
+        'stock_deducted': 1 if o.stock_deducted else 0,
         'due_date': o.due_date.isoformat() if o.due_date else None,
         'order_date': o.order_date.isoformat(),
     }
@@ -597,21 +598,51 @@ class B2BOrdersAPI(APIView):
         return ok(None, 'Order confirmed and stock deducted.')
 
     # ── status update ──
+    # Any status is reachable from any other. Stock is deducted iff the
+    # target status is one of confirmed/dispatched/delivered — moving to
+    # draft/cancelled always reverts it, moving away from draft/cancelled
+    # always (re-)deducts it, subject to availability.
     @transaction.atomic
     def _update_status(self, request, brand_id, body):
-        status = body.get('status') or ''
-        if status not in ('dispatched', 'delivered', 'cancelled'):
+        target = body.get('status') or ''
+        if target not in ('draft', 'confirmed', 'dispatched', 'delivered', 'cancelled'):
             return err('Invalid status.')
         order = B2BOrder.objects.filter(
             id=body.get('order_id'), brand_id=brand_id,
         ).first()
         if not order:
             return err('Order not found.')
-        if status == 'cancelled' and order.stock_deducted:
+        if target == order.status:
+            return ok(None, 'No change.')
+
+        should_be_deducted = target in ('confirmed', 'dispatched', 'delivered')
+        if should_be_deducted and not order.stock_deducted:
+            items = list(order.items.select_related('flavor'))
+            needed = {}
+            for it in items:
+                needed[it.flavor_id] = needed.get(it.flavor_id, 0) + it.total_weight_grams
+            for it in items:
+                if it.flavor_id in needed:
+                    avail = available_grams(it.flavor)
+                    if avail < needed[it.flavor_id]:
+                        return err(
+                            f'Insufficient stock for {it.flavor_name}. '
+                            f'Available: {avail}g, needed: {needed[it.flavor_id]}g.',
+                        )
+                    del needed[it.flavor_id]
+            for it in items:
+                deduct_stock(
+                    it.flavor, it.total_weight_grams,
+                    reference_type='b2b_sale', reference_id=order.id,
+                    created_by=request.user, notes=f'B2B order {order.id}',
+                )
+            order.stock_deducted = True
+        elif not should_be_deducted and order.stock_deducted:
             self._revert_order_stock(order, request.user)
-        order.status = status
+
+        order.status = target
         order.save(update_fields=['status', 'stock_deducted', 'updated_at'])
-        return ok(None, f'Order status updated to {status}.')
+        return ok(None, f'Order status updated to {target}.')
 
     def _revert_order_stock(self, order, user):
         for it in order.items.select_related('flavor'):

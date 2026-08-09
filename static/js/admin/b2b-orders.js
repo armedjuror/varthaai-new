@@ -85,42 +85,32 @@ function renderOrders(orders) {
   $('#ordersTableBody').html(html);
 }
 
-/* Forward-only transitions, mirroring the order-detail action buttons. */
-var STATUS_TRANSITIONS = {
-  draft:      ['draft', 'confirmed'],
-  confirmed:  ['confirmed', 'dispatched', 'cancelled'],
-  dispatched: ['dispatched', 'delivered', 'cancelled'],
-  delivered:  ['delivered'],
-  cancelled:  ['cancelled']
-};
+/* Any status can be set from any other — the backend keeps stock in sync
+   (deducted iff confirmed/dispatched/delivered, reverted for draft/cancelled). */
+var ALL_STATUSES = ['draft', 'confirmed', 'dispatched', 'delivered', 'cancelled'];
+var DEDUCTED_STATUSES = ['confirmed', 'dispatched', 'delivered'];
 
 function statusSelectHtml(o) {
-  var allowed = STATUS_TRANSITIONS[o.status] || [o.status];
-  var disabled = allowed.length <= 1 ? ' disabled' : '';
-  var opts = allowed.map(function (s) {
+  var opts = ALL_STATUSES.map(function (s) {
     return '<option value="' + s + '"' + (s === o.status ? ' selected' : '') + '>' + capitalize(s) + '</option>';
   }).join('');
-  return '<select class="form-select form-select-sm b2b-status b2b-status-' + o.status + '"' + disabled +
-    ' onchange="changeOrderStatusInline(this,\'' + escHtml(o.id) + '\',\'' + o.status + '\')">' + opts + '</select>';
+  return '<select class="form-select form-select-sm b2b-status b2b-status-' + o.status + '"' +
+    ' onchange="changeOrderStatusInline(this,\'' + escHtml(o.id) + '\',\'' + o.status + '\',' + (parseInt(o.stock_deducted) ? 1 : 0) + ')">' + opts + '</select>';
 }
 
-function changeOrderStatusInline(selectEl, orderId, oldStatus) {
+function changeOrderStatusInline(selectEl, orderId, oldStatus, stockDeducted) {
   var newStatus = selectEl.value;
   if (newStatus === oldStatus) return;
 
-  var isConfirmStep = (oldStatus === 'draft' && newStatus === 'confirmed');
-  var label = newStatus === 'cancelled'
-    ? 'Cancel this order?'
-    : isConfirmStep
-      ? 'Confirm this order? Stock will be deducted from selected batches.'
-      : 'Mark order as ' + newStatus + '?';
+  var willDeduct = DEDUCTED_STATUSES.indexOf(newStatus) !== -1 && !stockDeducted;
+  var willRevert = DEDUCTED_STATUSES.indexOf(newStatus) === -1 && stockDeducted;
+  var label = 'Change status to ' + capitalize(newStatus) + '?' +
+    (willDeduct ? ' Stock will be deducted from selected batches.' : '') +
+    (willRevert ? ' Stock will be reverted.' : '');
 
   showAlertModal(label, 'warning', 'Confirm', function () {
     showLoader('Updating…');
-    var payload = isConfirmStep
-      ? { action: 'confirm_order', order_id: orderId }
-      : { action: 'update_status', order_id: orderId, status: newStatus };
-    apiPost('/admin/api/b2b-orders/', payload)
+    apiPost('/admin/api/b2b-orders/', { action: 'update_status', order_id: orderId, status: newStatus })
       .done(function (res) {
         showAlertModal(res.message, res.success ? 'success' : 'danger');
         if (res.success) loadOrders();
