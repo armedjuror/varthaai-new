@@ -1,19 +1,131 @@
 /* Varthaai Admin — B2B Dashboard */
 
+var b2bRevenueChart = null;
+
 $(function () {
   apiGet('/admin/api/b2b-dashboard/')
     .done(function (res) {
       if (!res.success) { showAlertModal(res.message, 'danger'); return; }
       var d = res.data || {};
+      renderRevenueKpis(d.revenue_stats || {});
       renderStats(d.order_stats, d.pipeline);
       renderPipeline(d.pipeline);
       renderFollowUps(d.follow_ups || []);
       renderOverdue(d.overdue_payments || []);
       renderPendingOrders(d.pending_orders || []);
       renderTopCompanies(d.top_companies || []);
+      renderRevenueChart(d.revenue_trend || []);
     })
     .fail(function () { showAlertModal('Failed to load dashboard.', 'danger'); });
 });
+
+function renderRevenueKpis(rev) {
+  var tm = rev.this_month || {};
+  var trend = tm.revenue_vs_last;
+  var trendHtml = '';
+  if (trend !== undefined && trend !== null) {
+    var cls = trend > 0 ? 'trend-up' : (trend < 0 ? 'trend-down' : 'trend-flat');
+    var arrow = trend > 0 ? 'fa-arrow-trend-up' : (trend < 0 ? 'fa-arrow-trend-down' : 'fa-minus');
+    trendHtml = '<div class="kpi-trend ' + cls + '"><i class="fas ' + arrow + '"></i>' +
+      Math.abs(trend) + '% vs last month</div>';
+  }
+
+  var cards = [
+    {
+      icon: 'fa-indian-rupee-sign', iconCls: 'green',
+      value: formatCurrency((rev.today || {}).revenue || 0),
+      label: "Today's Revenue",
+      sub: ((rev.today || {}).orders || 0) + ' order' + (((rev.today || {}).orders || 0) !== 1 ? 's' : '') + ' today',
+      trend: '',
+    },
+    {
+      icon: 'fa-calendar-check', iconCls: 'teal',
+      value: formatCurrency(tm.revenue || 0),
+      label: 'This Month Revenue',
+      sub: (tm.orders || 0) + ' orders',
+      trend: trendHtml,
+    },
+    {
+      icon: 'fa-coins', iconCls: 'blue',
+      value: formatCurrency(rev.all_time_revenue || 0),
+      label: 'All-Time Revenue',
+      sub: 'Since inception',
+      trend: '',
+    },
+    {
+      icon: 'fa-receipt', iconCls: 'amber',
+      value: formatCurrency(rev.avg_order_value || 0),
+      label: 'Avg Order Value',
+      sub: 'Across all orders',
+      trend: '',
+    },
+  ];
+
+  var html = '';
+  cards.forEach(function (c) {
+    html +=
+      '<div class="col-sm-6 col-xl-3">' +
+        '<div class="kpi-card">' +
+          '<div class="kpi-icon ' + c.iconCls + '"><i class="fas ' + c.icon + '"></i></div>' +
+          '<div class="kpi-value">' + c.value + '</div>' +
+          '<div class="kpi-label">' + c.label + '</div>' +
+          '<div class="kpi-sub">' + escHtml(c.sub) + '</div>' +
+          c.trend +
+        '</div>' +
+      '</div>';
+  });
+  $('#revenueKpis').html(html);
+}
+
+function renderRevenueChart(trend) {
+  var labels  = trend.map(function (t) { return t.label; });
+  var paid    = trend.map(function (t) { return t.paid; });
+  var pending = trend.map(function (t) { return t.pending; });
+
+  if (b2bRevenueChart) { b2bRevenueChart.destroy(); }
+  var ctx = document.getElementById('b2bRevenueChart').getContext('2d');
+
+  b2bRevenueChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Paid', data: paid, backgroundColor: '#16a34a', borderRadius: 4, stack: 'rev' },
+        { label: 'Pending', data: pending, backgroundColor: '#f59e0b', borderRadius: 4, stack: 'rev' },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1e293b',
+          titleColor: '#94a3b8',
+          bodyColor: '#f8fafc',
+          padding: 12,
+          cornerRadius: 10,
+          callbacks: {
+            label: function (ctx) { return '  ' + ctx.dataset.label + ': ' + formatCurrency(ctx.parsed.y); },
+          },
+        },
+      },
+      scales: {
+        x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { color: '#94a3b8', font: { size: 11 }, maxTicksLimit: 10, maxRotation: 0 } },
+        y: {
+          stacked: true,
+          grid: { color: '#f1f5f9' },
+          border: { display: false },
+          ticks: {
+            color: '#94a3b8', font: { size: 11 },
+            callback: function (v) { return v >= 1000 ? '₹' + (v / 1000).toFixed(1) + 'k' : '₹' + v; },
+          },
+        },
+      },
+    },
+  });
+}
 
 function renderStats(stats, pipeline) {
   var totalCompanies = 0;
