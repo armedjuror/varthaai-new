@@ -69,7 +69,7 @@ function renderOrders(orders) {
       '<td style="font-weight:600">' + formatCurrency(o.total_amount) + '</td>' +
       '<td>' + formatCurrency(o.paid_amount) + '</td>' +
       '<td style="' + (parseFloat(o.balance_amount) > 0 ? 'color:#dc2626;font-weight:600' : '') + '">' + formatCurrency(o.balance_amount) + '</td>' +
-      '<td><span class="b2b-status b2b-status-' + o.status + '">' + capitalize(o.status) + '</span></td>' +
+      '<td onclick="event.stopPropagation()">' + statusSelectHtml(o) + '</td>' +
       '<td><span class="pay-status pay-status-' + o.payment_status + '">' + capitalize(o.payment_status) + '</span></td>' +
       '<td style="font-size:0.82rem">' + formatDate(o.order_date) + '</td>' +
       '<td class="table-actions" onclick="event.stopPropagation()">' +
@@ -83,6 +83,54 @@ function renderOrders(orders) {
     '</tr>';
   });
   $('#ordersTableBody').html(html);
+}
+
+/* Forward-only transitions, mirroring the order-detail action buttons. */
+var STATUS_TRANSITIONS = {
+  draft:      ['draft', 'confirmed'],
+  confirmed:  ['confirmed', 'dispatched', 'cancelled'],
+  dispatched: ['dispatched', 'delivered', 'cancelled'],
+  delivered:  ['delivered'],
+  cancelled:  ['cancelled']
+};
+
+function statusSelectHtml(o) {
+  var allowed = STATUS_TRANSITIONS[o.status] || [o.status];
+  var disabled = allowed.length <= 1 ? ' disabled' : '';
+  var opts = allowed.map(function (s) {
+    return '<option value="' + s + '"' + (s === o.status ? ' selected' : '') + '>' + capitalize(s) + '</option>';
+  }).join('');
+  return '<select class="form-select form-select-sm b2b-status b2b-status-' + o.status + '"' + disabled +
+    ' onchange="changeOrderStatusInline(this,\'' + escHtml(o.id) + '\',\'' + o.status + '\')">' + opts + '</select>';
+}
+
+function changeOrderStatusInline(selectEl, orderId, oldStatus) {
+  var newStatus = selectEl.value;
+  if (newStatus === oldStatus) return;
+
+  var isConfirmStep = (oldStatus === 'draft' && newStatus === 'confirmed');
+  var label = newStatus === 'cancelled'
+    ? 'Cancel this order?'
+    : isConfirmStep
+      ? 'Confirm this order? Stock will be deducted from selected batches.'
+      : 'Mark order as ' + newStatus + '?';
+
+  showAlertModal(label, 'warning', 'Confirm', function () {
+    showLoader('Updating…');
+    var payload = isConfirmStep
+      ? { action: 'confirm_order', order_id: orderId }
+      : { action: 'update_status', order_id: orderId, status: newStatus };
+    apiPost('/admin/api/b2b-orders/', payload)
+      .done(function (res) {
+        showAlertModal(res.message, res.success ? 'success' : 'danger');
+        if (res.success) loadOrders();
+        else selectEl.value = oldStatus;
+      })
+      .fail(function () { showAlertModal('Request failed.', 'danger'); selectEl.value = oldStatus; })
+      .always(hideLoader);
+  }, function () {
+    selectEl.value = oldStatus;
+  });
 }
 
 function renderPagination(total, page, perPage) {
