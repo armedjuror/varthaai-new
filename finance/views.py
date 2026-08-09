@@ -8,11 +8,11 @@ the shared {success, message, data} envelope via ok()/err(); the PHP put some
 keys at the top level, so those now live under `data` and the ported
 expenses.js reads them from `res.data`.
 
-Brand scoping: expenses carry a nullable brand, so the default queryset shows
-the active brand's rows plus global (brand IS NULL) rows. An explicit
-`brand_id` filter param overrides this (mirrors the PHP filter). Investments
-and expense categories are not brand-scoped; order income is scoped to the
-active brand.
+Brand scoping: the whole page is global by default — expenses, stats,
+overview and income all span every brand. Each tab that supports it exposes
+its own `brand_id` filter param to narrow to one brand (or, for expenses,
+`brand_id=0` for global/no-brand rows); leaving it blank means "All Brands".
+Investments and expense categories were never brand-scoped.
 
 Income (the "Order Income" tab + the overview's total_income/net_profit) is
 backed by the `finance.Income` ledger — one row per B2C/B2B order that is
@@ -39,7 +39,7 @@ from django.utils.dateparse import parse_date
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.views import APIView
 
-from core.api import HasModulePermission, current_brand_id, err, ok
+from core.api import HasModulePermission, err, ok
 from core.auth import admin_login_required, require_module
 from core.models import Brand
 from finance.models import Expense, ExpenseCategory, Income, Investment
@@ -127,9 +127,8 @@ class ExpensesAPI(APIView):
         return handler(request)
 
     def _base_expense_qs(self, request):
-        """Active-brand rows plus global (brand IS NULL) rows."""
-        bid = current_brand_id(request)
-        return Expense.objects.filter(Q(brand_id=bid) | Q(brand__isnull=True))
+        """All brands by default; narrowed by an explicit `brand_id` filter param."""
+        return Expense.objects.all()
 
     def _list(self, request):
         p = request.query_params
@@ -282,9 +281,9 @@ class ExpensesAPI(APIView):
         })
 
     def _income_qs(self, request):
+        """All brands by default; narrowed by an explicit `brand_id` filter param."""
         p = request.query_params
-        bid = current_brand_id(request)
-        qs = Income.objects.filter(brand_id=bid)
+        qs = Income.objects.all()
         if p.get('date_from'):
             qs = qs.filter(income_date__gte=p['date_from'])
         if p.get('date_to'):
@@ -362,7 +361,7 @@ class ExpensesAPI(APIView):
         total_investments = Investment.objects.aggregate(
             t=Coalesce(Sum('amount'), Value(0, output_field=DecimalField())),
         )['t']
-        income_base = Income.objects.filter(brand_id=current_brand_id(request))
+        income_base = Income.objects.all()
         total_income = income_base.aggregate(
             t=Coalesce(Sum('amount'), Value(0, output_field=DecimalField())),
         )['t']
