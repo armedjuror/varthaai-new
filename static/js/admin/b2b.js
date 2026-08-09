@@ -3,6 +3,7 @@
 var currentStage = '';
 var currentPage  = 1;
 var searchTimer  = null;
+var nameMatchTimer = null;
 
 $(function () {
   loadDropdowns();
@@ -13,6 +14,19 @@ $(function () {
   $('#b2bSearch').on('input', function () {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(function () { currentPage = 1; loadCompanies(); }, 300);
+  });
+
+  $('#addCompanyName').on('input', function () {
+    var name = $(this).val().trim();
+    clearTimeout(nameMatchTimer);
+    if (name.length < 2) { $('#companyNameMatches').hide().html(''); return; }
+    nameMatchTimer = setTimeout(function () { checkCompanyNameMatches(name); }, 300);
+  });
+  $('#addCompanyName').on('blur', function () {
+    setTimeout(function () { $('#companyNameMatches').hide(); }, 150);
+  });
+  $('#addCompanyModal').on('hidden.bs.modal', function () {
+    $('#companyNameMatches').hide().html('');
   });
 
   $('#addCompanyForm').on('submit', function (e) {
@@ -70,6 +84,25 @@ $(function () {
       .always(hideLoader);
   });
 });
+
+function checkCompanyNameMatches(name) {
+  apiGet('/admin/api/b2b/', { search: name, per_page: 10 }).done(function (res) {
+    if (!res.success) return;
+    var matches = (res.data || {}).companies || [];
+    var $box = $('#companyNameMatches');
+    if (!matches.length) { $box.hide().html(''); return; }
+
+    var html = '<div style="padding:6px 12px;font-size:0.72rem;color:var(--gray-400);text-transform:uppercase;border-bottom:1px solid var(--gray-100)">Possible existing matches</div>';
+    matches.forEach(function (c) {
+      html += '<a href="/admin/b2b/' + c.id + '/" target="_blank" style="display:block;padding:8px 12px;font-size:0.85rem;color:inherit;text-decoration:none;border-bottom:1px solid var(--gray-100)" onmouseover="this.style.background=\'var(--gray-50)\'" onmouseout="this.style.background=\'\'">' +
+        '<strong>' + escHtml(c.company_name) + '</strong>' +
+        (c.city ? ' <span style="color:var(--gray-400)">— ' + escHtml(c.city) + '</span>' : '') +
+        ' <span class="stage-badge stage-badge-' + c.stage + '" style="margin-left:6px">' + capitalize(c.stage) + '</span>' +
+        '</a>';
+    });
+    $box.html(html).show();
+  });
+}
 
 function loadDropdowns() {
   apiGet('/admin/api/b2b/', { view: 'categories' }).done(function (res) {

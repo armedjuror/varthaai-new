@@ -128,9 +128,10 @@
         <div class="modal-body">
           <h6 class="mb-3" style="font-size:0.82rem;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px">Company Details</h6>
           <div class="row g-3">
-            <div class="col-md-6">
+            <div class="col-md-6" style="position:relative">
               <label class="form-label">Company Name <span class="text-danger">*</span></label>
-              <input type="text" class="form-control" id="addCompanyName" required>
+              <input type="text" class="form-control" id="addCompanyName" required autocomplete="off">
+              <div id="companyNameMatches" style="display:none;position:absolute;z-index:20;top:100%;left:0;right:0;background:#fff;border:1px solid var(--gray-200);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.08);max-height:220px;overflow-y:auto;margin-top:2px"></div>
             </div>
             <div class="col-md-3">
               <label class="form-label d-flex justify-content-between align-items-center">
