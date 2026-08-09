@@ -215,6 +215,7 @@ function addItem() {
     flavor_id:     fid,
     flavor_pack_id: packId,
     stock_id:      batchId,
+    batch_number:  $('#itemBatch option:selected').text(),
     quantity:      qty,
     weight_grams:  weight,
     mrp:           mrp,
@@ -268,6 +269,7 @@ function addFreeItem(offerId) {
       flavor_id:      cheapest.flavor_id,
       flavor_pack_id: cheapest.flavor_pack_id,
       stock_id:       cheapest.stock_id,
+      batch_number:   cheapest.batch_number,
       quantity:       1,
       weight_grams:   cheapest.weight_grams,
       mrp:            cheapest.mrp,
@@ -301,6 +303,7 @@ function renderItems() {
             (it.is_free_item ? ' <span style="font-size:0.72rem;background:#f0fdf4;color:#16a34a;padding:1px 8px;border-radius:10px">FREE</span>' : '') +
           '</div>' +
           '<div style="font-size:0.78rem;color:var(--gray-500)">' +
+            (it.batch_number ? 'Batch: ' + escHtml(it.batch_number) + ' · ' : '') +
             it.quantity + ' × ' + it.weight_grams + 'g = ' + (it.quantity * it.weight_grams) + 'g' +
             (it.mrp ? ' · MRP: ' + formatCurrency(it.mrp) : '') +
             ' · Price: ' + formatCurrency(it.selling_price) +
@@ -441,6 +444,7 @@ function loadEditOrder() {
           flavor_id:      parseInt(it.flavor_id),
           flavor_pack_id: it.flavor_pack_id ? parseInt(it.flavor_pack_id) : null,
           stock_id:       it.stock_id ? parseInt(it.stock_id) : null,
+          batch_number:   it.batch_number || null,
           quantity:        parseInt(it.quantity),
           weight_grams:   parseInt(it.weight_grams),
           mrp:            it.mrp !== null ? parseFloat(it.mrp) : null,
@@ -482,6 +486,7 @@ function loadRepeatOrder() {
           flavor_id:      parseInt(it.flavor_id),
           flavor_pack_id: it.flavor_pack_id ? parseInt(it.flavor_pack_id) : null,
           stock_id:       it.stock_id ? parseInt(it.stock_id) : null,
+          batch_number:   it.batch_number || null,
           quantity:        parseInt(it.quantity),
           weight_grams:   parseInt(it.weight_grams),
           mrp:            it.mrp !== null ? parseFloat(it.mrp) : null,

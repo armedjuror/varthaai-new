@@ -153,6 +153,7 @@ def _item_row(it):
         'flavor_id': it.flavor_id,
         'flavor_pack_id': it.flavor_pack_id,
         'stock_id': it.stock_id,
+        'batch_number': it.stock.batch_number if it.stock_id and it.stock else None,
         'quantity': it.quantity,
         'weight_grams': it.weight_grams,
         'total_weight_grams': it.total_weight_grams,
@@ -309,7 +310,7 @@ class B2BOrdersAPI(APIView):
         )
         if not order:
             return err('Order not found.')
-        items = order.items.order_by('id')
+        items = order.items.select_related('stock').order_by('id')
         payments = order.payments.select_related('created_by').order_by('-payment_date')
         return ok({
             'order': _order_detail(order),
@@ -676,12 +677,11 @@ class B2BOrdersAPI(APIView):
         order = (
             B2BOrder.objects
             .filter(id=source_id, brand_id=brand_id)
-            .prefetch_related('items')
             .first()
         )
         if not order:
             return err('Source order not found.')
-        items = list(order.items.order_by('id'))
+        items = list(order.items.select_related('stock').order_by('id'))
         if not items:
             return err('Source order not found.')
         return ok({

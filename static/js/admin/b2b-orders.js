@@ -170,13 +170,14 @@ function renderOrderDetail(order, items, payments) {
   html += '<div class="col-12">' +
     '<h6 style="font-size:0.82rem;color:var(--gray-400);text-transform:uppercase;margin-bottom:8px">Items (' + items.reduce(function(s, it) { return s + (it.flavor_pack_id ? parseInt(it.quantity) : 1); }, 0) + ')</h6>' +
     '<div class="table-responsive"><table class="table table-sm" style="font-size:0.85rem"><thead><tr>' +
-    '<th>Flavor</th><th>Pack</th><th>Qty</th><th>Weight</th><th>MRP</th><th>Price</th><th>Line Total</th>' +
+    '<th>Flavor</th><th>Batch</th><th>Pack</th><th>Qty</th><th>Weight</th><th>MRP</th><th>Price</th><th>Line Total</th>' +
     '</tr></thead><tbody>';
   items.forEach(function (it) {
     var free = parseInt(it.is_free_item);
     var lineTotal = free ? 0 : (parseFloat(it.selling_price) * parseInt(it.quantity));
     html += '<tr' + (free ? ' style="background:#f0fdf4"' : '') + '>' +
       '<td>' + escHtml(it.flavor_name) + (free ? ' <span style="font-size:0.7rem;background:#dcfce7;color:#16a34a;padding:1px 6px;border-radius:8px">FREE</span>' : '') + '</td>' +
+      '<td>' + (it.batch_number ? '<code style="font-size:0.78rem">' + escHtml(it.batch_number) + '</code>' : '<span style="color:var(--gray-400)">—</span>') + '</td>' +
       '<td>' + (it.pack_label || 'Custom') + '</td>' +
       '<td>' + it.quantity + '</td>' +
       '<td>' + it.total_weight_grams + 'g</td>' +
