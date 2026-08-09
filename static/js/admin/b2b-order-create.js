@@ -1,5 +1,7 @@
 /* Varthaai Admin — B2B Order Creation */
 
+function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
+
 var formData    = { flavors: [], packs: [], batches: [], companies: [] };
 var orderItems  = [];
 var offers      = [];
@@ -36,9 +38,10 @@ $(function () {
 });
 
 function populateCompanies() {
-  var opts = '<option value="">Select a converted company…</option>';
+  var opts = '<option value="">Select a company…</option>';
   formData.companies.forEach(function (c) {
-    opts += '<option value="' + c.id + '">' + escHtml(c.company_name) + '</option>';
+    var label = c.company_name + (c.stage && c.stage !== 'converted' ? ' (' + capitalize(c.stage) + ')' : '');
+    opts += '<option value="' + c.id + '">' + escHtml(label) + '</option>';
   });
   $('#orderCompany').html(opts);
 }

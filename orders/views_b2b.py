@@ -262,7 +262,7 @@ class B2BOrdersAPI(APIView):
         ).order_by('flavor_id', '-is_active_batch', 'last_restocked_date')
         companies = (
             B2BCompany.objects
-            .filter(brand_id=brand_id, stage='converted', is_active=True)
+            .filter(brand_id=brand_id, is_active=True)
             .prefetch_related(Prefetch(
                 'contacts',
                 queryset=B2BContact.objects.filter(is_active=True).order_by('name'),
@@ -292,6 +292,7 @@ class B2BOrdersAPI(APIView):
             } for b in batches],
             'companies': [{
                 'id': c.id, 'company_name': c.company_name,
+                'stage': c.stage,
                 'discount_type': c.discount_type,
                 'discount_value': float(c.discount_value) if c.discount_value is not None else None,
                 'payment_terms_days': c.payment_terms_days,
@@ -501,6 +502,19 @@ class B2BOrdersAPI(APIView):
             subject=f'Order {order_id} created',
             description=f'Total: {total:.2f}',
         )
+
+        if company.stage != B2BCompany.Stage.CONVERTED:
+            old_stage = company.stage
+            company.stage = B2BCompany.Stage.CONVERTED
+            company.converted_at = timezone.now()
+            company.save(update_fields=['stage', 'converted_at', 'updated_at'])
+            B2BActivity.objects.create(
+                company=company, admin_user=request.user,
+                type=B2BActivity.Type.STAGE_CHANGE,
+                subject=f'Stage changed from {old_stage} to converted',
+                description=f'Auto-converted by creating order {order_id}',
+                old_stage=old_stage, new_stage=B2BCompany.Stage.CONVERTED,
+            )
 
         if payment_amount > 0:
             self._add_payment(request, brand_id, {
