@@ -690,6 +690,8 @@ class B2BOrdersAPI(APIView):
             'discount_type': order.discount_type,
             'discount_value': float(order.discount_value),
             'notes': order.notes,
+            'due_date': order.due_date.isoformat() if order.due_date else None,
+            'order_date': order.order_date.isoformat(),
             'items': [_item_row(it) for it in items],
             'source_order_id': source_id,
         })

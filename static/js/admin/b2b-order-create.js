@@ -422,14 +422,17 @@ function submitOrder() {
 function loadEditOrder() {
   showLoader('Loading order…');
   apiPost('/admin/api/b2b-orders/', { action: 'repeat_order', source_order_id: EDIT_ORDER_ID })
-    .done(function (res) {
-      if (!res.success) { showAlertModal(res.message, 'danger'); return; }
+    .done(function (envelope) {
+      if (!envelope.success) { showAlertModal(envelope.message, 'danger'); return; }
+      var res = envelope.data || {};
 
       $('#orderCompany').val(res.company_id);
       onCompanyChange();
       if (res.contact_id) $('#orderContact').val(res.contact_id);
       if (res.discount_type) { $('#discountType').val(res.discount_type); $('#discountValue').val(res.discount_value); }
       if (res.notes) $('#orderNotes').val(res.notes);
+      $('#orderDueDate').val(res.due_date || '');
+      $('#orderDate').val(res.order_date ? _toLocalDatetimeInput(res.order_date) : '');
 
       (res.items || []).forEach(function (it) {
         itemCounter++;
@@ -461,8 +464,9 @@ function loadEditOrder() {
 function loadRepeatOrder() {
   showLoader('Loading order…');
   apiPost('/admin/api/b2b-orders/', { action: 'repeat_order', source_order_id: REPEAT_ORDER_ID })
-    .done(function (res) {
-      if (!res.success) { showAlertModal(res.message, 'danger'); return; }
+    .done(function (envelope) {
+      if (!envelope.success) { showAlertModal(envelope.message, 'danger'); return; }
+      var res = envelope.data || {};
 
       $('#orderCompany').val(res.company_id);
       onCompanyChange();

@@ -90,7 +90,13 @@ function formatDateTime(dateStr) {
 
 /* Current local time as a `datetime-local` input value (YYYY-MM-DDTHH:MM). */
 function _nowLocalISO() {
-  var d = new Date();
+  return _toLocalDatetimeInput(new Date());
+}
+
+/* Any parseable date(-string) as a `datetime-local` input value, local time. */
+function _toLocalDatetimeInput(dateOrStr) {
+  var d = (dateOrStr instanceof Date) ? dateOrStr : new Date(dateOrStr);
+  if (isNaN(d.getTime())) return '';
   return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2) +
     'T' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
 }

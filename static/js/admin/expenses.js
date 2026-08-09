@@ -114,12 +114,13 @@ function toggleStockMapping() {
 function loadStats() {
   apiGet('/admin/api/expenses/', { action: 'stats' }).done(function (res) {
     if (!res.success) return;
-    $('#statThisMonth').text(formatCurrency(res.this_month));
-    $('#statPending').text(formatCurrency(res.pending));
-    $('#statCategories').text(res.category_count);
-    $('#statTotal').text(res.total_count);
-    renderExpenseChart(res.trend);
-    renderCategoryChart(res.category_breakdown);
+    var d = res.data || {};
+    $('#statThisMonth').text(formatCurrency(d.this_month));
+    $('#statPending').text(formatCurrency(d.pending));
+    $('#statCategories').text(d.category_count);
+    $('#statTotal').text(d.total_count);
+    renderExpenseChart(d.trend || []);
+    renderCategoryChart(d.category_breakdown || []);
   });
 }
 
@@ -172,14 +173,15 @@ function renderCategoryChart(cats) {
 function loadOverview() {
   apiGet('/admin/api/expenses/', { action: 'overview' }).done(function (res) {
     if (!res.success) return;
-    $('#overviewIncome').text(formatCurrency(res.total_income));
-    $('#overviewExpenses').text(formatCurrency(res.total_expenses));
-    $('#overviewInvestments').text(formatCurrency(res.total_investments));
-    var profit = res.net_profit;
+    var d = res.data || {};
+    $('#overviewIncome').text(formatCurrency(d.total_income));
+    $('#overviewExpenses').text(formatCurrency(d.total_expenses));
+    $('#overviewInvestments').text(formatCurrency(d.total_investments));
+    var profit = d.net_profit;
     $('#overviewProfit').text(formatCurrency(profit))
       .removeClass('text-success text-danger')
       .addClass(profit >= 0 ? 'text-success' : 'text-danger');
-    renderOverviewChart(res.monthly);
+    renderOverviewChart(d.monthly || []);
   });
 }
 
@@ -230,7 +232,7 @@ function loadExpenses(page) {
     }
 
     var html = '';
-    res.data.forEach(function (e) {
+    expItems.forEach(function (e) {
       var catBadge = '<span class="badge" style="background-color:' + escHtml(e.category_color || '#6c757d') + '">' + escHtml(e.category_name) + '</span>';
       var statusCls = 'status-' + e.payment_status;
       var statusLabel = e.payment_status.charAt(0).toUpperCase() + e.payment_status.slice(1);
@@ -253,7 +255,7 @@ function loadExpenses(page) {
         '</tr>';
     });
     $('#expensesTableBody').html(html);
-    renderPagination('#expensesPagination', res.page, res.per_page, res.total, 'loadExpenses');
+    renderPagination('#expensesPagination', expPage.page, expPage.per_page, expPage.total, 'loadExpenses');
   });
 }
 
@@ -367,10 +369,12 @@ function loadInvestments(page) {
   var partner = $('#investPartnerFilter').val() || '';
   apiGet('/admin/api/expenses/', { action: 'investments', page: page || 1, partner: partner }).done(function (res) {
     if (!res.success) return;
+    var d = res.data || {};
+    var items = d.items || [];
 
     // Partner summary cards
     var summaryHtml = '';
-    res.partner_totals.forEach(function (p) {
+    (d.partner_totals || []).forEach(function (p) {
       summaryHtml += '<div class="col-sm-6 col-lg-3"><div class="data-card" style="padding:16px">' +
         '<div style="font-size:0.78rem;color:var(--gray-500)">' + escHtml(p.partner_name) + '</div>' +
         '<div style="font-size:1.5rem;font-weight:700;color:#007bff">' + formatCurrency(p.total) + '</div>' +
@@ -378,26 +382,26 @@ function loadInvestments(page) {
     });
     summaryHtml += '<div class="col-sm-6 col-lg-3"><div class="data-card" style="padding:16px;border-left:3px solid #28a745">' +
       '<div style="font-size:0.78rem;color:var(--gray-500)">Total Investment</div>' +
-      '<div style="font-size:1.5rem;font-weight:700;color:#28a745">' + formatCurrency(res.grand_total) + '</div>' +
+      '<div style="font-size:1.5rem;font-weight:700;color:#28a745">' + formatCurrency(d.grand_total) + '</div>' +
       '</div></div>';
     $('#investmentSummary').html(summaryHtml);
 
     // Partner filter dropdown
     if (!$('#investPartnerFilter option').length || $('#investPartnerFilter option').length <= 1) {
       var filterOpts = '<option value="">All Partners</option>';
-      res.partner_totals.forEach(function (p) {
+      (d.partner_totals || []).forEach(function (p) {
         filterOpts += '<option value="' + escHtml(p.partner_name) + '">' + escHtml(p.partner_name) + '</option>';
       });
       $('#investPartnerFilter').html(filterOpts);
     }
 
     // Table
-    if (!res.data.length) {
+    if (!items.length) {
       $('#investmentsTableBody').html('<tr><td colspan="7" class="text-center" style="padding:40px;color:var(--gray-400)">No investments found.</td></tr>');
       return;
     }
     var html = '';
-    res.data.forEach(function (inv) {
+    items.forEach(function (inv) {
       html += '<tr>' +
         '<td><strong>' + escHtml(inv.partner_name) + '</strong></td>' +
         '<td class="text-end" style="font-weight:600">' + formatCurrency(inv.amount) + '</td>' +
@@ -412,7 +416,7 @@ function loadInvestments(page) {
         '</tr>';
     });
     $('#investmentsTableBody').html(html);
-    renderPagination('#investmentsPagination', res.page, res.per_page, res.total, 'loadInvestments');
+    renderPagination('#investmentsPagination', d.page, d.per_page, d.total, 'loadInvestments');
   });
 }
 
@@ -428,7 +432,7 @@ function editInvestment(id) {
   // Fetch from current table data (simpler than API call)
   apiGet('/admin/api/expenses/', { action: 'investments' }).done(function (res) {
     if (!res.success) return;
-    var inv = res.data.find(function (i) { return parseInt(i.id) === id; });
+    var inv = ((res.data || {}).items || []).find(function (i) { return parseInt(i.id) === id; });
     if (!inv) { showAlertModal('Investment not found.', 'danger'); return; }
     editingInvestId = inv.id;
     $('#investmentModalTitle').text('Edit Investment');
@@ -496,13 +500,14 @@ function loadIncome() {
   };
   apiGet('/admin/api/expenses/', params).done(function (res) {
     if (!res.success) return;
+    var d = res.data || {};
 
-    $('#incomeOrderCount').text(res.summary.order_count);
-    $('#incomeTotalRevenue').text(formatCurrency(res.summary.total_revenue));
+    $('#incomeOrderCount').text((d.summary || {}).order_count);
+    $('#incomeTotalRevenue').text(formatCurrency((d.summary || {}).total_revenue));
 
     // Brand breakdown
     var brandHtml = '';
-    res.by_brand.forEach(function (b) {
+    (d.by_brand || []).forEach(function (b) {
       brandHtml += '<tr>' +
         '<td>' + escHtml(b.brand_name || 'Unknown') + '</td>' +
         '<td class="text-end">' + b.orders + '</td>' +
@@ -513,7 +518,7 @@ function loadIncome() {
 
     // Monthly breakdown
     var monthHtml = '';
-    res.monthly.forEach(function (m) {
+    (d.monthly || []).forEach(function (m) {
       monthHtml += '<tr>' +
         '<td>' + escHtml(m.label) + '</td>' +
         '<td class="text-end">' + m.orders + '</td>' +
@@ -542,10 +547,11 @@ function exportExpenses() {
   showLoader('Exporting...');
   apiGet('/admin/api/expenses/', params).done(function (res) {
     hideLoader();
-    if (!res.success || !res.data.length) { showAlertModal('No data to export.', 'warning'); return; }
+    var items = res.success ? ((res.data || {}).items || []) : [];
+    if (!items.length) { showAlertModal('No data to export.', 'warning'); return; }
 
     var csv = [['Title', 'Category', 'Brand', 'Amount', 'Tax', 'Total', 'Date', 'Vendor', 'Status', 'Invoice'].join(',')];
-    res.data.forEach(function (e) {
+    items.forEach(function (e) {
       csv.push([
         '"' + (e.title || '').replace(/"/g, '""') + '"',
         '"' + (e.category_name || '') + '"',
