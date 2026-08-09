@@ -19,9 +19,11 @@ $(function () {
       populateFlavors();
 
       if (EDIT_ORDER_ID) {
+        $('#paymentCard').hide();
         loadEditOrder();
       } else {
         $('#orderDate').val(_nowLocalISO());
+        $('#orderPayDate').val(_nowLocalISO().slice(0, 10));
         if (REPEAT_ORDER_ID) loadRepeatOrder();
         else if (PRESELECT_COMPANY) {
           $('#orderCompany').val(PRESELECT_COMPANY);
@@ -47,6 +49,10 @@ function populateFlavors() {
     opts += '<option value="' + f.id + '">' + escHtml(f.name) + '</option>';
   });
   $('#itemFlavor').html(opts);
+}
+
+function togglePaymentFields() {
+  $('#paymentFields').toggle($('#recordPaymentNow').is(':checked'));
 }
 
 function onCompanyChange() {
@@ -378,6 +384,13 @@ function submitOrder() {
   if (!orderItems.length) { showAlertModal('Add at least one item.', 'warning'); return; }
 
   var isEdit = !!EDIT_ORDER_ID;
+
+  if (!isEdit && $('#recordPaymentNow').is(':checked')) {
+    var payAmount = parseFloat($('#orderPayAmount').val());
+    if (!payAmount || payAmount <= 0) { showAlertModal('Enter a valid payment amount.', 'warning'); return; }
+    if (!$('#orderPayMethod').val()) { showAlertModal('Select a payment method.', 'warning'); return; }
+  }
+
   var data = {
     action:       isEdit ? 'update_order' : 'create_order',
     company_id:   companyId,
@@ -406,6 +419,14 @@ function submitOrder() {
     })
   };
   if (isEdit) data.order_id = EDIT_ORDER_ID;
+
+  if (!isEdit && $('#recordPaymentNow').is(':checked')) {
+    data.payment_amount    = parseFloat($('#orderPayAmount').val());
+    data.payment_method    = $('#orderPayMethod').val();
+    data.payment_reference = $('#orderPayRef').val() || null;
+    data.payment_notes     = $('#orderPayNotes').val() || null;
+    data.payment_date      = $('#orderPayDate').val() || null;
+  }
 
   showLoader(isEdit ? 'Saving…' : 'Creating order…');
   apiPost('/admin/api/b2b-orders/', data)

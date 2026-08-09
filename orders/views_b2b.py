@@ -466,6 +466,11 @@ class B2BOrdersAPI(APIView):
         if not valid:
             return err('No valid items.')
 
+        payment_amount = _decimal_or_zero(body.get('payment_amount'))
+        payment_method = body.get('payment_method') or ''
+        if payment_amount > 0 and not payment_method:
+            return err('Payment method is required to record a payment.')
+
         disc_type = body.get('discount_type') or ''
         disc_val = _decimal_or_none(body.get('discount_value'))
         disc_amt = self._compute_discount(disc_type, disc_val, subtotal)
@@ -496,6 +501,19 @@ class B2BOrdersAPI(APIView):
             subject=f'Order {order_id} created',
             description=f'Total: {total:.2f}',
         )
+
+        if payment_amount > 0:
+            self._add_payment(request, brand_id, {
+                'company_id': company_id,
+                'amount': body.get('payment_amount'),
+                'payment_method': payment_method,
+                'payment_type': 'payment',
+                'reference_number': body.get('payment_reference') or '',
+                'notes': body.get('payment_notes') or '',
+                'payment_date': body.get('payment_date') or None,
+                'order_id': order_id,
+            })
+
         return ok({'order_id': order_id}, 'Order created!')
 
     @transaction.atomic

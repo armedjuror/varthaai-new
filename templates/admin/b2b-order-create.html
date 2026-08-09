@@ -138,6 +138,46 @@
         </div>
       </div>
 
+      <!-- Record Payment (optional, create mode only) -->
+      <div class="data-card mt-4" id="paymentCard">
+        <div class="data-card-header">
+          <h3>Payment</h3>
+        </div>
+        <div style="padding:16px 20px">
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="recordPaymentNow" onchange="togglePaymentFields()">
+            <label class="form-check-label" for="recordPaymentNow">Record a payment now</label>
+          </div>
+          <div id="paymentFields" class="row g-3" style="display:none">
+            <div class="col-md-6">
+              <label class="form-label">Amount (₹) <span class="text-danger">*</span></label>
+              <input type="number" class="form-control" id="orderPayAmount" step="0.01" min="0.01">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Payment Method <span class="text-danger">*</span></label>
+              <select class="form-select" id="orderPayMethod">
+                <option value="cash">Cash</option>
+                <option value="upi">UPI</option>
+                <option value="bank_transfer">Bank Transfer</option>
+                <option value="cheque">Cheque</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Date</label>
+              <input type="date" class="form-control" id="orderPayDate">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Reference #</label>
+              <input type="text" class="form-control" id="orderPayRef" placeholder="UPI/Cheque ref…">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notes</label>
+              <textarea class="form-control" id="orderPayNotes" rows="2"></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <!-- Right: summary & offers -->
