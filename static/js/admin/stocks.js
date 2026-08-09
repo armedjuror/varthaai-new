@@ -40,15 +40,15 @@ $(function () {
   /* ── Restock form ── */
   $('#restockForm').on('submit', function (e) {
     e.preventDefault();
+    var vendorId = $('#restockVendorId').val();
+    if (!vendorId) { showAlertModal('Vendor is required.', 'danger'); return; }
     var payload = {
       action:            'restock',
       flavor_id:         parseInt($('#restockFlavorId').val()),
       batch_number:      $('#restockBatch').val().trim(),
       quantity_kg:       parseFloat($('#restockQty').val()),
-      vendor_id:         $('#restockVendorId').val() || '',
+      vendor_id:         vendorId,
       cost_price_per_kg: parseFloat($('#restockCostPrice').val()) || 0,
-      supplier_name:     $('#restockSupplier').val().trim(),
-      supplier_contact:  $('#restockContact').val().trim(),
       expiry_date:       $('#restockExpiry').val(),
       storage_location:  $('#restockLocation').val().trim(),
       notes:             $('#restockNotes').val().trim()
@@ -312,7 +312,7 @@ function renderInventory(stocks) {
 
     var vendorLabel = s.vendor_name
       ? escHtml(s.vendor_name)
-      : (s.supplier_name ? escHtml(s.supplier_name) : '<span style="color:var(--gray-400)">—</span>');
+      : '<span style="color:var(--gray-400)">—</span>';
 
     var expiryCell = s.expiry_date
       ? '<span style="font-size:0.82rem;color:' + (new Date(s.expiry_date) < new Date() ? '#dc2626' : 'var(--gray-600)') + '">' + s.expiry_date + '</span>'
@@ -477,7 +477,7 @@ function populateFlavorSelects() {
 }
 
 function populateVendorSelect() {
-  var opts = '<option value="">— No vendor / enter manually —</option>';
+  var opts = '<option value="">Select vendor…</option>';
   _allVendors.filter(function (v) { return parseInt(v.is_active); }).forEach(function (v) {
     opts += '<option value="' + v.id + '">' + escHtml(v.name) + '</option>';
   });
@@ -495,8 +495,9 @@ function openRestockModal(flavorId) {
 
 function generateBatchCode() {
   var vendorId = $('#restockVendorId').val();
-  if (!vendorId) { $('#restockBatch').val(''); return; }
-  apiGet('/admin/api/stocks/', { action: 'generate_batch_code', vendor_id: vendorId })
+  var flavorId = $('#restockFlavorId').val();
+  if (!vendorId || !flavorId) { $('#restockBatch').val(''); return; }
+  apiGet('/admin/api/stocks/', { action: 'generate_batch_code', vendor_id: vendorId, flavor_id: flavorId })
     .done(function (res) {
       if (res.success) $('#restockBatch').val(res.batch_code);
     });

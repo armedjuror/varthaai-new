@@ -96,7 +96,7 @@
                 <th>Reserved</th>
                 <th>Available</th>
                 <th>Status</th>
-                <th>Vendor / Supplier</th>
+                <th>Vendor</th>
                 <th>Expiry</th>
                 <th>Restocked</th>
                 <th></th>
@@ -234,11 +234,11 @@
           <div class="row g-3">
             <div class="col-md-6">
               <label class="form-label">Flavor *</label>
-              <select class="form-select" id="restockFlavorId" required></select>
+              <select class="form-select" id="restockFlavorId" required onchange="generateBatchCode()"></select>
             </div>
             <div class="col-md-3">
               <label class="form-label">Batch Number</label>
-              <input type="text" class="form-control" id="restockBatch" readonly style="background:var(--gray-50);color:var(--gray-500)" placeholder="Select a vendor to generate">
+              <input type="text" class="form-control" id="restockBatch" readonly style="background:var(--gray-50);color:var(--gray-500)" placeholder="Select a flavor and vendor to generate">
               <div class="form-text">Auto-generated from vendor code.</div>
             </div>
             <div class="col-md-3">
@@ -246,22 +246,14 @@
               <input type="number" class="form-control" id="restockQty" min="0.001" step="0.001" required>
             </div>
             <div class="col-md-6">
-              <label class="form-label">Vendor</label>
-              <select class="form-select" id="restockVendorId" onchange="generateBatchCode()">
-                <option value="">— Select vendor or enter manually —</option>
+              <label class="form-label">Vendor *</label>
+              <select class="form-select" id="restockVendorId" required onchange="generateBatchCode()">
+                <option value="">Select vendor…</option>
               </select>
             </div>
             <div class="col-md-6">
               <label class="form-label">Cost Price / kg (₹)</label>
               <input type="number" class="form-control" id="restockCostPrice" min="0" step="0.01">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Supplier Name <span style="color:var(--gray-400);font-size:0.78rem">(if no vendor)</span></label>
-              <input type="text" class="form-control" id="restockSupplier">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Supplier Contact</label>
-              <input type="text" class="form-control" id="restockContact">
             </div>
             <div class="col-md-4">
               <label class="form-label">Expiry Date</label>

@@ -20,6 +20,7 @@ from rest_framework.views import APIView
 
 from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
+from finance.models import Expense, ExpenseCategory
 from orders.models import B2BOrderItem, OrderItem
 from products.models import (
     Flavor,
@@ -348,7 +349,6 @@ class StocksAPI(APIView):
             'reorder_level_kg': _grams_to_kg(reorder),
             'status': _stock_status(s.quantity_grams, s.reserved_quantity_grams, reorder),
             'vendor_name': s.vendor.name if s.vendor else '',
-            'supplier_name': s.supplier_name or '',
             'expiry_date': s.expiry_date.isoformat() if s.expiry_date else '',
             'last_restocked_date': s.last_restocked_date.isoformat() if s.last_restocked_date else '',
             'storage_location': s.storage_location or '',
@@ -505,14 +505,24 @@ class StocksAPI(APIView):
             for v in rows
         ])
 
+    @staticmethod
+    def _build_batch_code(vendor, flavor_id, on_date):
+        seq = Stock.objects.filter(
+            flavor_id=flavor_id,
+            created_at__year=on_date.year,
+            created_at__month=on_date.month,
+        ).count() + 1
+        return f'{vendor.code.upper()}{on_date.strftime("%y")}{on_date.strftime("%m")}{seq}'
+
     def _generate_batch_code(self, request):
         vendor_id = _int(request.query_params.get('vendor_id'))
+        flavor_id = _int(request.query_params.get('flavor_id'))
         vendor = Vendor.objects.filter(id=vendor_id).first()
         if not vendor or not vendor.code:
             return err('Vendor has no code set.')
-        today = timezone.localdate()
-        seq = Stock.objects.filter(vendor_id=vendor_id, created_at__date=today).count() + 1
-        code = f'{vendor.code.upper()}{today.strftime("%y")}{today.strftime("%m")}{seq}'
+        if not flavor_id:
+            return err('Flavor is required to generate a batch code.')
+        code = self._build_batch_code(vendor, flavor_id, timezone.localdate())
         return ok({'batch_code': code})
 
     def _check_vendor_code(self, request):
@@ -557,7 +567,16 @@ class StocksAPI(APIView):
         cost_price = _float(data.get('cost_price_per_kg'))
         vendor_raw = str(data.get('vendor_id') or '').strip()
         vendor_id = _int(vendor_raw) if vendor_raw else None
+        if not vendor_id:
+            return err('Vendor is required.')
+        vendor = Vendor.objects.filter(id=vendor_id).first()
+        if not vendor:
+            return err('Vendor not found.')
         is_first_batch = not flavor.stock_batches.filter(is_active_batch=True).exists()
+
+        batch_number = (data.get('batch_number') or '').strip()
+        if not batch_number and vendor.code:
+            batch_number = self._build_batch_code(vendor, flavor.id, timezone.localdate())
 
         batch = Stock.objects.create(
             flavor=flavor,
@@ -565,9 +584,7 @@ class StocksAPI(APIView):
             is_active_batch=is_first_batch,
             cost_price_per_kg=cost_price or None,
             vendor_id=vendor_id,
-            supplier_name=(data.get('supplier_name') or '').strip(),
-            supplier_contact=(data.get('supplier_contact') or '').strip(),
-            batch_number=(data.get('batch_number') or '').strip(),
+            batch_number=batch_number,
             expiry_date=(data.get('expiry_date') or '').strip() or None,
             storage_location=(data.get('storage_location') or '').strip(),
             notes=(data.get('notes') or '').strip(),
@@ -582,9 +599,33 @@ class StocksAPI(APIView):
             notes=(data.get('notes') or '').strip(),
             created_by=request.user,
         )
+        self._record_purchase_expense(request, flavor, vendor, batch, qty_kg, cost_price)
         _refresh_flavor(flavor)
         message = 'Stock batch added!' + (' Set as active batch.' if is_first_batch else '')
         return ok(message=message)
+
+    @staticmethod
+    def _record_purchase_expense(request, flavor, vendor, batch, qty_kg, cost_price):
+        if cost_price <= 0:
+            return
+        category = ExpenseCategory.objects.filter(name__iexact='Raw Materials').order_by('id').first()
+        if not category:
+            category, _ = ExpenseCategory.objects.get_or_create(
+                name='Raw Materials', defaults={'color': '#85AA4E'},
+            )
+        Expense.objects.create(
+            brand_id=current_brand_id(request),
+            category=category,
+            stock=batch,
+            title=f'Stock purchase — {flavor.name} ({qty_kg} kg)',
+            amount=round(cost_price * qty_kg, 2),
+            expense_date=timezone.localdate(),
+            vendor_name=vendor.name,
+            vendor_contact=vendor.phone or '',
+            payment_method='cash',
+            payment_status='pending',
+            created_by=request.user,
+        )
 
     def _record_movement(self, request):
         data = request.data

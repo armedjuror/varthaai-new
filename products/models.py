@@ -69,8 +69,6 @@ class Stock(models.Model):
     quantity_grams = models.IntegerField(default=0)
     reserved_quantity_grams = models.IntegerField(default=0)
     cost_price_per_kg = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    supplier_name = models.CharField(max_length=255, blank=True)
-    supplier_contact = models.CharField(max_length=255, blank=True)
     vendor = models.ForeignKey(Vendor, on_delete=models.SET_NULL, null=True, blank=True, related_name='stock_batches')
     last_restocked_date = models.DateField(null=True, blank=True)
     expiry_date = models.DateField(null=True, blank=True)
