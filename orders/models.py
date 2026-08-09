@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Coupon(models.Model):
@@ -68,7 +69,7 @@ class Order(models.Model):
     coupon_code = models.CharField(max_length=50, blank=True)
     coupon_discount = models.FloatField(default=0)
     stock_deducted = models.BooleanField(default=False)
-    order_date = models.DateTimeField(auto_now_add=True)
+    order_date = models.DateTimeField(default=timezone.now)
     razorpay_order_id = models.CharField(max_length=255, blank=True)
     razorpay_payment_id = models.CharField(max_length=255, blank=True)
     payment_date = models.DateTimeField(null=True, blank=True)
@@ -164,7 +165,7 @@ class B2BOrder(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, blank=True, related_name='+',
     )
-    order_date = models.DateTimeField(auto_now_add=True)
+    order_date = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

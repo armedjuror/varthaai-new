@@ -88,6 +88,13 @@ function formatDateTime(dateStr) {
   return formatDate(dateStr) + ' ' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
 }
 
+/* Current local time as a `datetime-local` input value (YYYY-MM-DDTHH:MM). */
+function _nowLocalISO() {
+  var d = new Date();
+  return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2) +
+    'T' + ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+}
+
 /* ── Badge helpers ── */
 
 var ORDER_STATUS_LABELS = {

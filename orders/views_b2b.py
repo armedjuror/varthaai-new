@@ -17,6 +17,7 @@ from django.db import transaction
 from django.db.models import Prefetch, Q
 from django.shortcuts import redirect, render
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.views import APIView
 
@@ -484,6 +485,7 @@ class B2BOrdersAPI(APIView):
             source_order_id=body.get('source_order_id') or None,
             notes=(body.get('notes') or '').strip(),
             created_by=request.user,
+            order_date=_parse_dt(body.get('order_date')) or timezone.now(),
         )
         self._save_items(order, valid)
         B2BActivity.objects.create(
@@ -805,6 +807,18 @@ def _decimal_or_none(value):
         return Decimal(str(value))
     except (TypeError, ValueError, InvalidOperation):
         return None
+
+
+def _parse_dt(value):
+    """Parse a `datetime-local` string into an aware datetime (or None)."""
+    if not value:
+        return None
+    dt = parse_datetime(value)
+    if dt is None:
+        return None
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, timezone.get_current_timezone())
+    return dt
 
 
 def _decimal_or_zero(value):

@@ -96,6 +96,7 @@ class StockMovement(models.Model):
     class ReferenceType(models.TextChoices):
         PURCHASE = 'purchase', 'Purchase'
         SALE = 'sale', 'Sale'
+        SAMPLE = 'sample', 'Sample'
         WASTAGE = 'wastage', 'Wastage'
         ADJUSTMENT = 'adjustment', 'Adjustment'
         ORDER_RESERVE = 'order_reserve', 'Order Reserve'

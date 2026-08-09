@@ -18,11 +18,15 @@ $(function () {
       populateCompanies();
       populateFlavors();
 
-      if (EDIT_ORDER_ID) loadEditOrder();
-      else if (REPEAT_ORDER_ID) loadRepeatOrder();
-      else if (PRESELECT_COMPANY) {
-        $('#orderCompany').val(PRESELECT_COMPANY);
-        onCompanyChange();
+      if (EDIT_ORDER_ID) {
+        loadEditOrder();
+      } else {
+        $('#orderDate').val(_nowLocalISO());
+        if (REPEAT_ORDER_ID) loadRepeatOrder();
+        else if (PRESELECT_COMPANY) {
+          $('#orderCompany').val(PRESELECT_COMPANY);
+          onCompanyChange();
+        }
       }
     })
     .fail(function () { showAlertModal('Failed to load form data.', 'danger'); })
@@ -147,8 +151,7 @@ function onFlavorChange() {
   // Batches for this flavor
   var bOpts = '<option value="">Select…</option>';
   formData.batches.filter(function (b) { return parseInt(b.flavor_id) === fid; }).forEach(function (b) {
-    var label = (b.batch_number || 'Batch #' + b.id) + ' — ' + (b.quantity_grams / 1000).toFixed(1) + 'kg avail';
-    if (b.expiry_date) label += ' (exp: ' + b.expiry_date + ')';
+    var label = b.batch_number || 'Batch #' + b.id;
     bOpts += '<option value="' + b.id + '" data-cost="' + b.cost_price_per_kg + '">' + label + '</option>';
   });
   $('#itemBatch').html(bOpts);
@@ -234,78 +237,46 @@ function removeItem(id) {
 }
 
 function addFreeItem(offerId) {
-  // Prompt: pick flavor + pack for the free item
   var offer = offers.find(function (o) { return parseInt(o.id) === offerId; });
   if (!offer) return;
 
-  // Check min quantity met
+  var paidItems = orderItems.filter(function (i) { return !i.is_free_item; });
+
+  // Check min quantity met — total across ALL variants in the order, not per-flavor.
   var totalPacks = 0;
-  orderItems.filter(function (i) { return !i.is_free_item; }).forEach(function (i) { totalPacks += i.quantity; });
+  paidItems.forEach(function (i) { totalPacks += i.quantity; });
   if (totalPacks < parseInt(offer.min_quantity)) {
     showAlertModal('Need at least ' + offer.min_quantity + ' packs to use this offer. Currently: ' + totalPacks + '.', 'warning');
     return;
   }
 
-  // Find min selling price in order items
-  var minPrice = Infinity;
-  orderItems.filter(function (i) { return !i.is_free_item; }).forEach(function (i) {
-    if (i.selling_price < minPrice) minPrice = i.selling_price;
+  // Free item always uses the lowest-value variant already in the order — no
+  // manual flavor/pack selection needed, and no risk of picking a pricier one.
+  var cheapest = null;
+  paidItems.forEach(function (i) {
+    if (!cheapest || i.selling_price < cheapest.selling_price) cheapest = i;
   });
-
-  // Show flavor/pack picker via simple prompt approach using existing dropdowns
-  var fid = parseInt($('#itemFlavor').val());
-  var packVal = $('#itemPack').val();
-  var batchId = parseInt($('#itemBatch').val());
-
-  if (!fid || !batchId) {
-    showAlertModal('Select a flavor and batch in the item form first, then click this button to add it as a free item.', 'warning');
+  if (!cheapest) {
+    showAlertModal('Add order items before applying this offer.', 'warning');
     return;
-  }
-
-  var weight = parseInt($('#itemWeight').val()) || 0;
-  if (!weight) { showAlertModal('Enter weight for the free item.', 'warning'); return; }
-
-  var flavor = formData.flavors.find(function (f) { return parseInt(f.id) === fid; });
-  var packId = null, mrp = null, sp = 0, cp = null, packLabel = null;
-
-  if (packVal !== 'custom') {
-    var $pOpt = $('#itemPack option:selected');
-    packId    = parseInt(packVal);
-    mrp       = parseFloat($pOpt.data('mrp')) || 0;
-    sp        = parseFloat($pOpt.data('sp')) || 0;
-    cp        = parseFloat($pOpt.data('cp')) || 0;
-    packLabel = $pOpt.text().split(' — ')[0];
-  } else {
-    sp = Math.round((weight / 1000) * parseFloat(flavor.sale_price_per_kg) * 100) / 100;
-  }
-
-  // Validate: free item price <= cheapest item
-  if (sp > minPrice) {
-    showAlertModal('Free item price (' + formatCurrency(sp) + ') cannot exceed the cheapest item in the order (' + formatCurrency(minPrice) + ').', 'warning');
-    return;
-  }
-
-  if (cp === null || cp === 0) {
-    var batchCost = parseFloat($('#itemBatch option:selected').data('cost')) || 0;
-    cp = Math.round((weight / 1000) * batchCost * 100) / 100;
   }
 
   for (var fi = 0; fi < parseInt(offer.free_quantity); fi++) {
     itemCounter++;
     orderItems.push({
-      _id:           itemCounter,
-      flavor_id:     fid,
-      flavor_pack_id: packId,
-      stock_id:      batchId,
-      quantity:      1,
-      weight_grams:  weight,
-      mrp:           mrp,
-      selling_price: sp,
-      cost_price:    cp,
-      is_free_item:  1,
-      offer_id:      offerId,
-      flavor_name:   flavor.name,
-      pack_label:    packLabel
+      _id:            itemCounter,
+      flavor_id:      cheapest.flavor_id,
+      flavor_pack_id: cheapest.flavor_pack_id,
+      stock_id:       cheapest.stock_id,
+      quantity:       1,
+      weight_grams:   cheapest.weight_grams,
+      mrp:            cheapest.mrp,
+      selling_price:  cheapest.selling_price,
+      cost_price:     cheapest.cost_price,
+      is_free_item:   1,
+      offer_id:       offerId,
+      flavor_name:    cheapest.flavor_name,
+      pack_label:     cheapest.pack_label
     });
   }
 
@@ -412,6 +383,7 @@ function submitOrder() {
     discount_value: parseFloat($('#discountValue').val()) || null,
     notes:        $('#orderNotes').val() || null,
     due_date:     $('#orderDueDate').val() || null,
+    order_date:   $('#orderDate').val() || null,
     source_order_id: REPEAT_ORDER_ID || null,
     items: orderItems.map(function (it) {
       return {

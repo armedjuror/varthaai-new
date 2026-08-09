@@ -714,6 +714,8 @@ class CreateOrderAPI(APIView):
         final_amount = sale_total + delivery_charge
         order_id = f'{(Brand.objects.filter(id=brand_id).values_list("order_prefix", flat=True).first() or "ORD")}_' + uuid4().hex[:13]
 
+        order_date = _parse_dt(data.get('order_date')) or timezone.now()
+
         with transaction.atomic():
             order = Order.objects.create(
                 id=order_id, brand_id=brand_id, user=user,
@@ -721,6 +723,7 @@ class CreateOrderAPI(APIView):
                 referral=referral_user, coupon=coupon, coupon_code=coupon_code,
                 coupon_discount=coupon_discount, delivery_charge=delivery_charge,
                 status='pending', payment_status='pending',
+                order_date=order_date,
             )
             OrderItem.objects.bulk_create([
                 OrderItem(

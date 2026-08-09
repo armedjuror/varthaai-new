@@ -150,19 +150,24 @@
               <label class="form-label">Delivery Address</label>
               <textarea class="form-control" name="address" rows="2"></textarea>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label">Pincode</label>
               <input type="text" class="form-control" name="pincode">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label">Delivery Charge</label>
               <input type="number" class="form-control" name="delivery_charge" value="0" min="0" step="0.01">
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
               <label class="form-label">Coupon</label>
               <select class="form-select" name="coupon_code">
                 <option value="">No Coupon</option>
               </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Order Date</label>
+              <input type="datetime-local" class="form-control" name="order_date" id="createOrderDate">
+              <div class="form-text">Leave blank for now.</div>
             </div>
           </div>
 

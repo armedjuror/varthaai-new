@@ -9,6 +9,7 @@ an `action` field in the JSON body). Every query is scoped to the active brand
 via the flavor's brand (vendors are global, matching the PHP schema).
 """
 import json
+from datetime import date
 
 from django.db import IntegrityError
 from django.db.models import Count, F, FloatField, Q, Sum
@@ -73,6 +74,16 @@ def _float(value, default=0.0):
     try:
         return float(value)
     except (TypeError, ValueError):
+        return default
+
+
+def _parse_date(value, default=None):
+    text = (str(value) if value is not None else '').strip()
+    if not text:
+        return default
+    try:
+        return date.fromisoformat(text)
+    except ValueError:
         return default
 
 
@@ -509,8 +520,8 @@ class StocksAPI(APIView):
     def _build_batch_code(vendor, flavor_id, on_date):
         seq = Stock.objects.filter(
             flavor_id=flavor_id,
-            created_at__year=on_date.year,
-            created_at__month=on_date.month,
+            last_restocked_date__year=on_date.year,
+            last_restocked_date__month=on_date.month,
         ).count() + 1
         return f'{vendor.code.upper()}{on_date.strftime("%y")}{on_date.strftime("%m")}{seq}'
 
@@ -522,7 +533,8 @@ class StocksAPI(APIView):
             return err('Vendor has no code set.')
         if not flavor_id:
             return err('Flavor is required to generate a batch code.')
-        code = self._build_batch_code(vendor, flavor_id, timezone.localdate())
+        on_date = _parse_date(request.query_params.get('date'), default=timezone.localdate())
+        code = self._build_batch_code(vendor, flavor_id, on_date)
         return ok({'batch_code': code})
 
     def _check_vendor_code(self, request):
@@ -573,10 +585,11 @@ class StocksAPI(APIView):
         if not vendor:
             return err('Vendor not found.')
         is_first_batch = not flavor.stock_batches.filter(is_active_batch=True).exists()
+        restock_date = _parse_date(data.get('restock_date'), default=timezone.localdate())
 
         batch_number = (data.get('batch_number') or '').strip()
         if not batch_number and vendor.code:
-            batch_number = self._build_batch_code(vendor, flavor.id, timezone.localdate())
+            batch_number = self._build_batch_code(vendor, flavor.id, restock_date)
 
         batch = Stock.objects.create(
             flavor=flavor,
@@ -588,7 +601,7 @@ class StocksAPI(APIView):
             expiry_date=(data.get('expiry_date') or '').strip() or None,
             storage_location=(data.get('storage_location') or '').strip(),
             notes=(data.get('notes') or '').strip(),
-            last_restocked_date=timezone.localdate(),
+            last_restocked_date=restock_date,
         )
         StockMovement.objects.create(
             flavor=flavor, stock=batch,
@@ -599,13 +612,13 @@ class StocksAPI(APIView):
             notes=(data.get('notes') or '').strip(),
             created_by=request.user,
         )
-        self._record_purchase_expense(request, flavor, vendor, batch, qty_kg, cost_price)
+        self._record_purchase_expense(request, flavor, vendor, batch, qty_kg, cost_price, restock_date)
         _refresh_flavor(flavor)
         message = 'Stock batch added!' + (' Set as active batch.' if is_first_batch else '')
         return ok(message=message)
 
     @staticmethod
-    def _record_purchase_expense(request, flavor, vendor, batch, qty_kg, cost_price):
+    def _record_purchase_expense(request, flavor, vendor, batch, qty_kg, cost_price, expense_date):
         if cost_price <= 0:
             return
         category = ExpenseCategory.objects.filter(name__iexact='Raw Materials').order_by('id').first()
@@ -619,7 +632,7 @@ class StocksAPI(APIView):
             stock=batch,
             title=f'Stock purchase — {flavor.name} ({qty_kg} kg)',
             amount=round(cost_price * qty_kg, 2),
-            expense_date=timezone.localdate(),
+            expense_date=expense_date,
             vendor_name=vendor.name,
             vendor_contact=vendor.phone or '',
             payment_method='cash',
@@ -634,7 +647,7 @@ class StocksAPI(APIView):
         batch = Stock.objects.filter(
             id=_int(data.get('stock_id')),
         ).select_related('flavor').first()
-        if not batch or ref_type not in ('sale', 'wastage', 'adjustment') or qty_kg <= 0:
+        if not batch or ref_type not in ('sale', 'sample', 'wastage', 'adjustment') or qty_kg <= 0:
             return err('Invalid parameters.')
 
         qty_grams = _kg_to_grams(qty_kg)

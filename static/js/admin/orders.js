@@ -77,6 +77,11 @@ $(function () {
     addOrderItem();
     updateModalTotal();
   });
+
+  // Default order date to now on open
+  $('#createOrderModal').on('show.bs.modal', function () {
+    $('#createOrderDate').val(_nowLocalISO());
+  });
 });
 
 function loadOrders() {
@@ -337,6 +342,7 @@ function submitCreateOrder() {
     delivery_charge: parseFloat($('[name="delivery_charge"]').val()) || 0,
     coupon_code: $('[name="coupon_code"]').val(),
     referral_code: $('[name="referral_code"]').val(),
+    order_date: $('#createOrderDate').val(),
     items: items
   };
 
