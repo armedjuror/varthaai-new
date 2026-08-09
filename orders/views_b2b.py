@@ -25,6 +25,7 @@ from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
 from core.models import Brand, Setting
 from crm.models import B2BActivity, B2BCompany, B2BContact
+from finance.services import sync_b2b_order_income
 from orders.models import B2BOffer, B2BOrder, B2BOrderItem, B2BPayment
 from products.models import Flavor, FlavorPack, Stock
 from products.services import available_grams, deduct_stock, revert_stock
@@ -569,6 +570,7 @@ class B2BOrdersAPI(APIView):
 
         order.items.all().delete()
         self._save_items(order, valid)
+        sync_b2b_order_income(order)
         return ok({'order_id': order.id}, 'Order updated!')
 
     def _save_items(self, order, valid):
@@ -674,6 +676,7 @@ class B2BOrdersAPI(APIView):
 
         order.status = target
         order.save(update_fields=['status', 'stock_deducted', 'updated_at'])
+        sync_b2b_order_income(order)
         return ok(None, f'Order status updated to {target}.')
 
     def _revert_order_stock(self, order, user):
@@ -725,6 +728,7 @@ class B2BOrdersAPI(APIView):
             order.save(update_fields=[
                 'paid_amount', 'balance_amount', 'payment_status', 'updated_at',
             ])
+            sync_b2b_order_income(order)
 
         B2BActivity.objects.create(
             company=company, admin_user=request.user,

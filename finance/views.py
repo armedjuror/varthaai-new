@@ -13,6 +13,12 @@ the active brand's rows plus global (brand IS NULL) rows. An explicit
 `brand_id` filter param overrides this (mirrors the PHP filter). Investments
 and expense categories are not brand-scoped; order income is scoped to the
 active brand.
+
+Income (the "Order Income" tab + the overview's total_income/net_profit) is
+backed by the `finance.Income` ledger — one row per B2C/B2B order that is
+currently fully paid, kept in sync by `finance.services.sync_*_order_income`
+from every order-mutating code path. See `backfill_income` management
+command for (re)populating it from existing paid orders.
 """
 from datetime import date
 
@@ -22,7 +28,6 @@ from django.db.models import (
     DecimalField,
     ExpressionWrapper,
     F,
-    FloatField,
     Q,
     Sum,
     Value,
@@ -37,16 +42,9 @@ from rest_framework.views import APIView
 from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
 from core.models import Brand
-from finance.models import Expense, ExpenseCategory, Investment
-from orders.models import Order, OrderItem
+from finance.models import Expense, ExpenseCategory, Income, Investment
 from products.models import Stock
 
-# oi.quantity (grams) * oi.sale_price_per_kg / 1000 == rupees for the line.
-REVENUE = ExpressionWrapper(
-    F('quantity') * F('sale_price_per_kg') / 1000.0,
-    output_field=FloatField(),
-)
-INACTIVE_ORDER_STATUSES = ['cancelled', 'deleted']
 PER_PAGE_CHOICES = (10, 20, 50)
 INVEST_PER_PAGE = 20
 
@@ -283,53 +281,52 @@ class ExpensesAPI(APIView):
             'grand_total': _fnum(grand_total),
         })
 
-    def _active_orders(self, request):
+    def _income_qs(self, request):
+        p = request.query_params
         bid = current_brand_id(request)
-        return Order.objects.exclude(status__in=INACTIVE_ORDER_STATUSES).filter(brand_id=bid)
+        qs = Income.objects.filter(brand_id=bid)
+        if p.get('date_from'):
+            qs = qs.filter(income_date__gte=p['date_from'])
+        if p.get('date_to'):
+            qs = qs.filter(income_date__lte=p['date_to'])
+        if p.get('brand_id') and int(p['brand_id']) > 0:
+            qs = qs.filter(brand_id=int(p['brand_id']))
+        return qs
 
     def _income(self, request):
-        p = request.query_params
-        orders = self._active_orders(request)
-        if p.get('date_from'):
-            orders = orders.filter(order_date__date__gte=p['date_from'])
-        if p.get('date_to'):
-            orders = orders.filter(order_date__date__lte=p['date_to'])
-        if p.get('brand_id') and int(p['brand_id']) > 0:
-            orders = orders.filter(brand_id=int(p['brand_id']))
-
-        items = OrderItem.objects.filter(order__in=orders)
-        order_count = orders.count()
-        total_revenue = items.aggregate(r=Sum(REVENUE))['r'] or 0.0
+        qs = self._income_qs(request)
+        order_count = qs.count()
+        total_revenue = qs.aggregate(r=Coalesce(Sum('amount'), Value(0, output_field=DecimalField())))['r']
 
         monthly = (
-            items.annotate(m=TruncMonth('order__order_date'))
+            qs.annotate(m=TruncMonth('income_date'))
             .values('m')
-            .annotate(orders=Count('order', distinct=True), revenue=Sum(REVENUE))
+            .annotate(orders=Count('id'), revenue=Sum('amount'))
             .order_by('-m')[:12]
         )
         by_brand = (
-            items.values('order__brand__name', 'order__brand_id')
-            .annotate(orders=Count('order', distinct=True), revenue=Sum(REVENUE))
+            qs.values('brand__name', 'brand_id')
+            .annotate(orders=Count('id'), revenue=Sum('amount'))
             .order_by('-revenue')
         )
 
         return ok({
-            'summary': {'order_count': order_count, 'total_revenue': float(total_revenue)},
+            'summary': {'order_count': order_count, 'total_revenue': _fnum(total_revenue)},
             'monthly': [
                 {
                     'month': r['m'].strftime('%Y-%m'),
                     'label': r['m'].strftime('%b %Y'),
                     'orders': r['orders'],
-                    'revenue': float(r['revenue'] or 0),
+                    'revenue': _fnum(r['revenue']),
                 }
                 for r in monthly
             ],
             'by_brand': [
                 {
-                    'brand_name': r['order__brand__name'],
-                    'brand_id': r['order__brand_id'],
+                    'brand_name': r['brand__name'],
+                    'brand_id': r['brand_id'],
                     'orders': r['orders'],
-                    'revenue': float(r['revenue'] or 0),
+                    'revenue': _fnum(r['revenue']),
                 }
                 for r in by_brand
             ],
@@ -365,9 +362,10 @@ class ExpensesAPI(APIView):
         total_investments = Investment.objects.aggregate(
             t=Coalesce(Sum('amount'), Value(0, output_field=DecimalField())),
         )['t']
-        total_income = OrderItem.objects.filter(
-            order__in=self._active_orders(request),
-        ).aggregate(r=Sum(REVENUE))['r'] or 0.0
+        income_base = Income.objects.filter(brand_id=current_brand_id(request))
+        total_income = income_base.aggregate(
+            t=Coalesce(Sum('amount'), Value(0, output_field=DecimalField())),
+        )['t']
 
         months = []
         first_of_month = timezone.localdate().replace(day=1)
@@ -376,11 +374,9 @@ class ExpensesAPI(APIView):
             exp = base.filter(expense_date__year=m.year, expense_date__month=m.month).aggregate(
                 t=Coalesce(Sum(total_field), Value(0, output_field=DecimalField())),
             )['t']
-            inc = OrderItem.objects.filter(
-                order__in=self._active_orders(request).filter(
-                    order_date__year=m.year, order_date__month=m.month,
-                ),
-            ).aggregate(r=Sum(REVENUE))['r'] or 0.0
+            inc = income_base.filter(
+                income_date__year=m.year, income_date__month=m.month,
+            ).aggregate(t=Coalesce(Sum('amount'), Value(0, output_field=DecimalField())))['t']
             inv = Investment.objects.filter(
                 investment_date__year=m.year, investment_date__month=m.month,
             ).aggregate(t=Coalesce(Sum('amount'), Value(0, output_field=DecimalField())))['t']
@@ -388,15 +384,15 @@ class ExpensesAPI(APIView):
                 'month': m.strftime('%Y-%m'),
                 'label': m.strftime('%b %Y'),
                 'expenses': _fnum(exp),
-                'income': float(inc),
+                'income': _fnum(inc),
                 'investments': _fnum(inv),
             })
 
         return ok({
             'total_expenses': _fnum(total_expenses),
             'total_investments': _fnum(total_investments),
-            'total_income': float(total_income),
-            'net_profit': float(total_income) - _fnum(total_expenses),
+            'total_income': _fnum(total_income),
+            'net_profit': _fnum(total_income) - _fnum(total_expenses),
             'monthly': months,
         })
 

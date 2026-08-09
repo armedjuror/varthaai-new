@@ -21,6 +21,7 @@ from rest_framework.response import Response
 
 from accounts.models import User
 from core.models import Brand
+from finance.services import sync_b2c_order_income
 from orders.models import Coupon, Order, OrderItem
 from orders.views_b2c import _sync_loyalty, _validate_coupon
 from products.models import Flavor
@@ -208,6 +209,7 @@ class VerifyPaymentAPI(StorefrontAPIView):
         order.razorpay_payment_id = payment_id
         order.payment_date = timezone.now()
         order.save(update_fields=['payment_status', 'status', 'razorpay_payment_id', 'payment_date'])
+        sync_b2c_order_income(order)
 
         details = _order_details(order)
         points = services.calculate_purchase_points(details['saleTotal'])
@@ -265,6 +267,7 @@ class RazorpayWebhookAPI(StorefrontAPIView):
         if not order.payment_date:
             order.payment_date = timezone.now()
         order.save(update_fields=['payment_status', 'status', 'payment_date'])
+        sync_b2c_order_income(order)
         if not already_paid:
             details = _order_details(order)
             points = services.calculate_purchase_points(details['saleTotal'] + order.delivery_charge)

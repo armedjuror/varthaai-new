@@ -24,6 +24,7 @@ from accounts.models import PointsTransaction, User
 from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
 from core.models import Brand, Setting
+from finance.services import sync_b2c_order_income
 from orders.models import Coupon, Order, OrderItem
 from products.models import Flavor, FlavorPack
 from products.services import available_grams, deduct_stock, revert_stock
@@ -495,6 +496,7 @@ class OrdersAPI(APIView):
             _deduct_stock_for_order(order, request.user)
         elif status == 'cancelled' and order.stock_deducted:
             _revert_stock_for_order(order, request.user)
+        sync_b2c_order_income(order)
         return ok(message='Order status updated successfully!')
 
     def _update_payment_status(self, request):
@@ -506,6 +508,7 @@ class OrdersAPI(APIView):
         _sync_loyalty(order.id, payment_status)
         order.payment_status = payment_status
         order.save(update_fields=['payment_status', 'updated_at'])
+        sync_b2c_order_income(order)
         return ok(message='Payment status updated successfully!')
 
     def _update(self, request):
@@ -542,6 +545,7 @@ class OrdersAPI(APIView):
 
         if order.user_id and payment_status != old_payment:
             _sync_loyalty(order.id, payment_status)
+        sync_b2c_order_income(order)
         return ok(message='Order updated successfully.')
 
     def _add_item(self, request):
@@ -574,6 +578,7 @@ class OrdersAPI(APIView):
             sale_price_per_kg=sale_price_per_kg, quantity=quantity,
             pack_label=pack_label,
         )
+        sync_b2c_order_income(order)
         return ok({
             'item': {
                 'item_id': item.id,
@@ -595,6 +600,8 @@ class OrdersAPI(APIView):
         deleted, _ignored = OrderItem.objects.filter(
             id=item_id, order_id=order.id,
         ).delete()
+        if deleted:
+            sync_b2c_order_income(order)
         return ok(message='Item removed.') if deleted else err('Item not found.')
 
     def _bulk_update(self, request):
@@ -626,6 +633,7 @@ class OrdersAPI(APIView):
                 _deduct_stock_for_order(o, request.user)
             elif status == 'cancelled' and o.stock_deducted:
                 _revert_stock_for_order(o, request.user)
+            sync_b2c_order_income(o)
 
         msg = f'{len(orders)} order(s) updated to {status}!'
         if skipped:

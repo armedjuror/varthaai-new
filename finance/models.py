@@ -85,6 +85,51 @@ class ExpenseAttachment(models.Model):
         return self.original_filename
 
 
+class Income(models.Model):
+    """Ledger row booked when a B2C or B2B order becomes fully paid.
+
+    Kept in sync by `finance.services.sync_b2c_order_income` /
+    `sync_b2b_order_income`, called from every code path that changes an
+    order's payment_status (admin actions, Razorpay webhook/verify, B2B
+    payment recording). One row per paid order — removed again if the order
+    is later cancelled/deleted or its payment status regresses.
+    """
+    class SourceType(models.TextChoices):
+        B2C_ORDER = 'b2c_order', 'B2C Order'
+        B2B_ORDER = 'b2b_order', 'B2B Order'
+
+    brand = models.ForeignKey('core.Brand', on_delete=models.CASCADE, related_name='incomes')
+    source_type = models.CharField(max_length=20, choices=SourceType.choices)
+    order = models.ForeignKey(
+        'orders.Order', on_delete=models.CASCADE,
+        null=True, blank=True, related_name='income_entries',
+    )
+    b2b_order = models.ForeignKey(
+        'orders.B2BOrder', on_delete=models.CASCADE,
+        null=True, blank=True, related_name='income_entries',
+    )
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    income_date = models.DateField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'incomes'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['order'], condition=models.Q(order__isnull=False),
+                name='uniq_income_per_b2c_order',
+            ),
+            models.UniqueConstraint(
+                fields=['b2b_order'], condition=models.Q(b2b_order__isnull=False),
+                name='uniq_income_per_b2b_order',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.source_type} #{self.order_id or self.b2b_order_id} ({self.amount})'
+
+
 class Investment(models.Model):
     partner_name = models.CharField(max_length=255)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
