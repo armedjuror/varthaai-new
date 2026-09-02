@@ -1,0 +1,347 @@
+{% load static %}
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>B2B Business Report — {{ report.start|date:"d M Y" }} to {{ report.end|date:"d M Y" }}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; line-height: 1.5; color: #333; background: white; }
+
+  .report-container { max-width: 960px; margin: 0 auto; padding: 20px; }
+
+  .report-header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    margin-bottom: 24px; border-bottom: 2px solid #85aa4e; padding-bottom: 20px;
+  }
+  .brand-info h1 { color: #85aa4e; font-size: 2rem; }
+  .brand-info .tagline { color: #666; font-style: italic; }
+  .report-meta { text-align: right; flex: 0 0 260px; }
+  .report-title { font-size: 1.15rem; font-weight: bold; margin-bottom: 6px; }
+  .report-range { color: #333; margin-bottom: 4px; }
+  .report-generated { color: #999; font-size: 0.8rem; }
+
+  .section { margin-bottom: 28px; }
+  .section h2 {
+    color: #85aa4e; font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 1px solid #eee; padding-bottom: 8px; margin-bottom: 14px;
+  }
+
+  .stat-grid { display: flex; flex-wrap: wrap; gap: 14px; }
+  .stat-box { flex: 1 1 150px; background: #f8f9fa; border-radius: 8px; padding: 12px 14px; }
+  .stat-box .value { font-size: 1.3rem; font-weight: 700; color: #222; }
+  .stat-box .label { font-size: 0.72rem; color: #777; text-transform: uppercase; margin-top: 2px; }
+  .stat-box .sub { font-size: 0.78rem; color: #666; margin-top: 3px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eee; }
+  th { background: #f8f9fa; font-weight: 600; font-size: 0.75rem; text-transform: uppercase; color: #555; }
+  td.num, th.num { text-align: right; }
+
+  .bar-track { background: #eef2ee; border-radius: 4px; height: 8px; width: 100%; overflow: hidden; }
+  .bar-fill { background: #85aa4e; height: 100%; }
+
+  .change-up { color: #16a34a; font-weight: 600; }
+  .change-down { color: #dc2626; font-weight: 600; }
+  .change-flat { color: #777; }
+
+  .flag-list { display: flex; flex-direction: column; gap: 8px; }
+  .flag { padding: 10px 14px; border-radius: 6px; font-size: 0.88rem; border-left: 4px solid; }
+  .flag-warning { background: #fef2f2; border-color: #dc2626; color: #7f1d1d; }
+  .flag-info { background: #eff6ff; border-color: #3b82f6; color: #1e3a8a; }
+  .flag-positive { background: #f0fdf4; border-color: #16a34a; color: #14532d; }
+
+  .muted { color: #999; font-size: 0.85rem; }
+  .note { font-size: 0.78rem; color: #999; margin-top: 6px; }
+
+  .footer {
+    margin-top: 40px; text-align: center; font-size: 0.8rem; color: #999;
+    border-top: 1px solid #eee; padding-top: 16px;
+  }
+
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .report-container { margin: 0; padding: 0; }
+    .no-print { display: none !important; }
+    .section { break-inside: avoid; }
+  }
+
+  @media (max-width: 700px) {
+    .report-header { flex-direction: column; }
+    .report-meta { text-align: left; margin-top: 16px; }
+  }
+</style>
+
+<div class="report-container">
+
+  <div style="text-align: right; margin-bottom: 20px;" class="no-print">
+    <a href="{% url 'orders:b2b_dashboard' %}" style="color: #666; text-decoration: none; margin-right: 14px; font-size: 0.9rem;">&larr; Back to Dashboard</a>
+    <button onclick="window.print()" style="background: #85aa4e; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">
+      Print / Save as PDF
+    </button>
+  </div>
+
+  <!-- Header -->
+  <div class="report-header">
+    <div class="brand-info">
+      {% if brand and brand.logo %}
+        <img src="{{ brand.logo.url }}" alt="{{ brand.name }}" style="max-width: 140px">
+      {% else %}
+        <h1>{% if brand %}{{ brand.name }}{% else %}Varthaai{% endif %}</h1>
+      {% endif %}
+      <div class="tagline">B2B Business Report</div>
+    </div>
+    <div class="report-meta">
+      <div class="report-title">{{ report.start|date:"d M Y" }} – {{ report.end|date:"d M Y" }}</div>
+      <div class="report-range">{{ report.previous.range_days }} day period</div>
+      <div class="report-generated">Generated {{ generated_at|date:"d M Y, h:i A" }}</div>
+    </div>
+  </div>
+
+  <!-- Optimization flags -->
+  <div class="section">
+    <h2>Optimization Notes</h2>
+    <div class="flag-list">
+      {% for flag in report.flags %}
+        <div class="flag flag-{{ flag.level }}">{{ flag.message }}</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Headline KPIs -->
+  <div class="section">
+    <h2>Headline</h2>
+    <div class="stat-grid">
+      <div class="stat-box">
+        <div class="value">{{ report.headline.new_leads }}</div>
+        <div class="label">New Leads</div>
+      </div>
+      <div class="stat-box">
+        <div class="value">{{ report.headline.converted_in_range }}</div>
+        <div class="label">Converted This Period</div>
+        <div class="sub">{{ report.headline.converted_of_cohort }} of this period's {{ report.headline.new_leads }} leads have since converted ({{ report.headline.cohort_conversion_rate }}%)</div>
+      </div>
+      <div class="stat-box">
+        <div class="value">{{ report.headline.orders }}</div>
+        <div class="label">Orders</div>
+      </div>
+      <div class="stat-box">
+        <div class="value">₹{{ report.headline.revenue|floatformat:0 }}</div>
+        <div class="label">Revenue</div>
+        <div class="sub">₹{{ report.headline.paid|floatformat:0 }} paid · ₹{{ report.headline.pending|floatformat:0 }} pending</div>
+      </div>
+      <div class="stat-box">
+        <div class="value">₹{{ report.headline.aov|floatformat:0 }}</div>
+        <div class="label">Avg Order Value</div>
+      </div>
+      <div class="stat-box">
+        <div class="value">{{ report.headline.total_packs }}</div>
+        <div class="label">Packs Sold</div>
+      </div>
+      {% if report.headline.avg_convert_days %}
+      <div class="stat-box">
+        <div class="value">{{ report.headline.avg_convert_days }}</div>
+        <div class="label">Avg Days to Convert</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Trend vs previous period -->
+  <div class="section">
+    <h2>Trend vs Previous Period</h2>
+    <p class="muted" style="margin-bottom: 10px;">Compared to {{ report.previous.prev_start|date:"d M Y" }} – {{ report.previous.prev_end|date:"d M Y" }} ({{ report.previous.range_days }} days)</p>
+    <table>
+      <thead>
+        <tr><th>Metric</th><th class="num">This Period</th><th class="num">Previous Period</th><th class="num">Change</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>New Leads</td>
+          <td class="num">{{ report.headline.new_leads }}</td>
+          <td class="num">{{ report.previous.prev_leads }}</td>
+          <td class="num {% if report.previous.leads_change > 0 %}change-up{% elif report.previous.leads_change < 0 %}change-down{% else %}change-flat{% endif %}">{{ report.previous.leads_change }}%</td>
+        </tr>
+        <tr>
+          <td>Converted</td>
+          <td class="num">{{ report.headline.converted_in_range }}</td>
+          <td class="num">{{ report.previous.prev_converted }}</td>
+          <td class="num {% if report.previous.converted_change > 0 %}change-up{% elif report.previous.converted_change < 0 %}change-down{% else %}change-flat{% endif %}">{{ report.previous.converted_change }}%</td>
+        </tr>
+        <tr>
+          <td>Orders</td>
+          <td class="num">{{ report.headline.orders }}</td>
+          <td class="num">{{ report.previous.prev_orders }}</td>
+          <td class="num {% if report.previous.orders_change > 0 %}change-up{% elif report.previous.orders_change < 0 %}change-down{% else %}change-flat{% endif %}">{{ report.previous.orders_change }}%</td>
+        </tr>
+        <tr>
+          <td>Revenue</td>
+          <td class="num">₹{{ report.headline.revenue|floatformat:0 }}</td>
+          <td class="num">₹{{ report.previous.prev_revenue|floatformat:0 }}</td>
+          <td class="num {% if report.previous.revenue_change > 0 %}change-up{% elif report.previous.revenue_change < 0 %}change-down{% else %}change-flat{% endif %}">{{ report.previous.revenue_change }}%</td>
+        </tr>
+        <tr>
+          <td>Packs Sold</td>
+          <td class="num">{{ report.headline.total_packs }}</td>
+          <td class="num">{{ report.previous.prev_packs }}</td>
+          <td class="num {% if report.previous.packs_change > 0 %}change-up{% elif report.previous.packs_change < 0 %}change-down{% else %}change-flat{% endif %}">{{ report.previous.packs_change }}%</td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="note">
+      {% if report.previous.best_revenue_day %}Best revenue day: {{ report.previous.best_revenue_day.d|date:"d M Y" }} (₹{{ report.previous.best_revenue_day.revenue|floatformat:0 }}).{% endif %}
+      {% if report.previous.best_orders_day %} Most orders in a day: {{ report.previous.best_orders_day.d|date:"d M Y" }} ({{ report.previous.best_orders_day.orders }} orders).{% endif %}
+    </p>
+  </div>
+
+  <!-- Pipeline snapshot -->
+  <div class="section">
+    <h2>Pipeline — Current Stage of Leads Created This Period</h2>
+    {% if report.pipeline.cohort_size %}
+    <table>
+      <thead><tr><th>Stage</th><th class="num">Companies</th><th class="num">Share</th><th style="width:40%">&nbsp;</th></tr></thead>
+      <tbody>
+        {% for s in report.pipeline.stages %}
+        <tr>
+          <td>{{ s.label }}</td>
+          <td class="num">{{ s.count }}</td>
+          <td class="num">{{ s.pct }}%</td>
+          <td><div class="bar-track"><div class="bar-fill" style="width: {{ s.pct }}%"></div></div></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="note">{{ report.pipeline.cohort_size }} leads created this period · {{ report.pipeline.conversion_rate }}% converted · {{ report.pipeline.loss_rate }}% lost · {{ report.pipeline.in_progress_rate }}% still in progress</p>
+    {% else %}
+    <p class="muted">No leads created in this period.</p>
+    {% endif %}
+  </div>
+
+  <!-- Flavor insights -->
+  <div class="section">
+    <h2>Flavor Performance</h2>
+    {% if report.flavors.flavors %}
+    <table>
+      <thead><tr><th>Flavor</th><th class="num">Packs Sold</th><th class="num">Share</th><th class="num">Revenue</th><th style="width:25%">&nbsp;</th></tr></thead>
+      <tbody>
+        {% for f in report.flavors.flavors %}
+        <tr>
+          <td>{{ f.flavor_name }}</td>
+          <td class="num">{{ f.packs }}</td>
+          <td class="num">{{ f.pct }}%</td>
+          <td class="num">₹{{ f.revenue|floatformat:0 }}</td>
+          <td><div class="bar-track"><div class="bar-fill" style="width: {{ f.pct }}%"></div></div></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No packs sold in this period.</p>
+    {% endif %}
+  </div>
+
+  <!-- Company insights -->
+  <div class="section">
+    <h2>Top Companies This Period</h2>
+    {% if report.companies.top_companies %}
+    <table>
+      <thead><tr><th>Company</th><th class="num">Orders</th><th class="num">Revenue</th></tr></thead>
+      <tbody>
+        {% for c in report.companies.top_companies %}
+        <tr><td>{{ c.company_name }}</td><td class="num">{{ c.order_count }}</td><td class="num">₹{{ c.revenue|floatformat:0 }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No orders in this period.</p>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <h2>Source Effectiveness</h2>
+    {% if report.companies.sources %}
+    <table>
+      <thead><tr><th>Source</th><th class="num">Leads</th><th class="num">Converted</th><th class="num">Conversion Rate</th></tr></thead>
+      <tbody>
+        {% for s in report.companies.sources %}
+        <tr><td>{{ s.source }}</td><td class="num">{{ s.leads }}</td><td class="num">{{ s.converted }}</td><td class="num">{{ s.conversion_rate }}%</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No leads created in this period.</p>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <h2>Rep Performance</h2>
+    {% if report.companies.reps %}
+    <table>
+      <thead><tr><th>Rep</th><th class="num">Leads</th><th class="num">Converted</th><th class="num">Conversion Rate</th><th class="num">Order Value</th></tr></thead>
+      <tbody>
+        {% for r in report.companies.reps %}
+        <tr><td>{{ r.rep }}</td><td class="num">{{ r.leads }}</td><td class="num">{{ r.converted }}</td><td class="num">{{ r.conversion_rate }}%</td><td class="num">₹{{ r.order_revenue|floatformat:0 }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No leads created in this period.</p>
+    {% endif %}
+  </div>
+
+  <div class="section">
+    <h2>At-Risk Companies</h2>
+    <p class="muted" style="margin-bottom: 10px;">Converted customers with no orders in this period.</p>
+    {% if report.companies.at_risk %}
+    <table>
+      <thead><tr><th>Company</th><th class="num">Last Order</th><th class="num">Days Since</th></tr></thead>
+      <tbody>
+        {% for c in report.companies.at_risk %}
+        <tr>
+          <td>{{ c.company_name }}</td>
+          <td class="num">{% if c.last_order_date %}{{ c.last_order_date|date:"d M Y" }}{% else %}Never ordered{% endif %}</td>
+          <td class="num">{% if c.days_since %}{{ c.days_since }}{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if report.companies.at_risk_truncated %}
+    <p class="note">Showing top {{ report.companies.at_risk|length }} of {{ report.companies.at_risk_total }} at-risk companies.</p>
+    {% endif %}
+    {% else %}
+    <p class="muted">No at-risk companies — all converted customers ordered in this period.</p>
+    {% endif %}
+  </div>
+
+  <!-- Financial health -->
+  <div class="section">
+    <h2>Financial Health</h2>
+    <p class="muted" style="margin-bottom: 10px;">For orders billed in this period, evaluated as of today.</p>
+    <div class="stat-grid">
+      <div class="stat-box">
+        <div class="value">₹{{ report.financial.billed|floatformat:0 }}</div>
+        <div class="label">Billed</div>
+      </div>
+      <div class="stat-box">
+        <div class="value">₹{{ report.financial.paid|floatformat:0 }}</div>
+        <div class="label">Paid</div>
+      </div>
+      <div class="stat-box">
+        <div class="value">₹{{ report.financial.outstanding|floatformat:0 }}</div>
+        <div class="label">Outstanding</div>
+      </div>
+      <div class="stat-box">
+        <div class="value">₹{{ report.financial.overdue|floatformat:0 }}</div>
+        <div class="label">Overdue ({{ report.financial.overdue_count }})</div>
+      </div>
+      <div class="stat-box">
+        <div class="value">{{ report.financial.collection_rate }}%</div>
+        <div class="label">Collection Rate</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <div>{% if brand %}{{ brand.name }}{% else %}Varthaai{% endif %} — B2B Business Report</div>
+    <div style="margin-top: 6px;">This is a computer-generated report based on data as of {{ generated_at|date:"d M Y, h:i A" }}.</div>
+  </div>
+</div>

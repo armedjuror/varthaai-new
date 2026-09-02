@@ -24,8 +24,10 @@ from debugger.models import DebugLearning, DebugMessage, DebugRequest
 def debugger_page(request):
     if not getattr(request.user, 'is_super_admin', False):
         return redirect('core:dashboard')
+    from debugger.auth_mode import get_auth_mode
     return render(request, 'admin/debugger.html', {
         'subscription_auth_available': bool(settings.DEBUGGER_CLAUDE_OAUTH_TOKEN),
+        'current_auth_mode': get_auth_mode(),
     })
 
 

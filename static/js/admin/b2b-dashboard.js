@@ -73,6 +73,15 @@ function resetTrendRange() {
   loadTrend({});
 }
 
+function openB2BReport() {
+  var params = {
+    start_date: $('#trendStartDate').val(),
+    end_date: $('#trendEndDate').val(),
+  };
+  var query = $.param(params);
+  window.open('/admin/b2b-dashboard/report/' + (query ? '?' + query : ''), '_blank');
+}
+
 /* ── Fixed-height list sections + "Show All" modal ─────────────────────── */
 
 function renderCappedSection(name, items, renderFn, targetSel) {

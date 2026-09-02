@@ -90,9 +90,11 @@
     <div class="page-header-actions">
       <div class="btn-group btn-group-sm me-2" role="group" id="authModeToggle"
            title="Which Claude auth new agent runs use — applies globally, effective on the next run">
-        <input type="radio" class="btn-check" name="globalAuthMode" id="gmApi" value="api" checked>
+        <input type="radio" class="btn-check" name="globalAuthMode" id="gmApi" value="api"
+               {% if current_auth_mode != 'subscription' %}checked{% endif %}>
         <label class="btn btn-outline-secondary" for="gmApi"><i class="fas fa-bolt me-1"></i>API</label>
         <input type="radio" class="btn-check" name="globalAuthMode" id="gmSub" value="subscription"
+               {% if current_auth_mode == 'subscription' %}checked{% endif %}
                {% if not subscription_auth_available %}disabled{% endif %}
                title="{% if not subscription_auth_available %}Not configured on this server — run `claude setup-token` and set DEBUGGER_CLAUDE_OAUTH_TOKEN{% endif %}">
         <label class="btn btn-outline-secondary" for="gmSub"><i class="fas fa-wallet me-1"></i>Budget</label>

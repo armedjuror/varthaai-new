@@ -20,7 +20,9 @@ from rest_framework.views import APIView
 
 from core.api import HasModulePermission, current_brand_id, ok
 from core.auth import admin_login_required, require_module
+from core.models import Brand
 from crm.models import B2BActivity, B2BCompany
+from orders import reports_b2b
 from orders.models import B2BOrder, B2BOrderItem
 
 ACTIVE_STATUSES = ['draft', 'confirmed', 'dispatched']
@@ -33,6 +35,21 @@ BALANCE = F('total_amount') - F('paid_amount')
 @ensure_csrf_cookie
 def b2b_dashboard_page(request):
     return render(request, 'admin/b2b-dashboard.html')
+
+
+@admin_login_required
+@require_module('b2b')
+def b2b_report_page(request):
+    brand_id = current_brand_id(request)
+    today = timezone.localdate()
+    start, end = B2BDashboardStatsAPI._trend_range(request.GET, today)
+    report = reports_b2b.build_b2b_report(brand_id, start, end)
+
+    return render(request, 'admin/b2b-report.html', {
+        'brand': Brand.objects.filter(id=brand_id).first(),
+        'report': report,
+        'generated_at': timezone.localtime(),
+    })
 
 
 def _f(value):
@@ -66,7 +83,7 @@ class B2BDashboardStatsAPI(APIView):
         brand_id = current_brand_id(request)
         today = timezone.localdate()
 
-        trend_start, trend_end = self._trend_range(request, today)
+        trend_start, trend_end = self._trend_range(request.query_params, today)
         trend, flavor_names = self._revenue_trend(brand_id, trend_start, trend_end)
 
         return ok({
@@ -83,15 +100,17 @@ class B2BDashboardStatsAPI(APIView):
         })
 
     @staticmethod
-    def _trend_range(request, today):
+    def _trend_range(params, today):
         """
         Trend date range from ?start_date=&end_date= (YYYY-MM-DD), defaulting
         to the last 30 days. Invalid/missing dates fall back to the default;
         a reversed range is swapped; the span is capped at TREND_MAX_SPAN_DAYS.
+        `params` is any dict-like with `.get()` — `request.query_params` (DRF)
+        or `request.GET` (plain Django view) both work.
         """
         default_start = today - timedelta(days=29)
-        start = _parse_date(request.query_params.get('start_date')) or default_start
-        end = _parse_date(request.query_params.get('end_date')) or today
+        start = _parse_date(params.get('start_date')) or default_start
+        end = _parse_date(params.get('end_date')) or today
         if start > end:
             start, end = end, start
         end = min(end, today)

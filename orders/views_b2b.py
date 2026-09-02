@@ -495,6 +495,10 @@ class B2BOrdersAPI(APIView):
         disc_amt = self._compute_discount(disc_type, disc_val, subtotal)
         total = max(Decimal('0'), subtotal - disc_amt)
 
+        initial_status = body.get('status') or B2BOrder.Status.DRAFT
+        if initial_status not in B2BOrder.Status.values:
+            initial_status = B2BOrder.Status.DRAFT
+
         brand = Brand.objects.filter(id=brand_id).first()
         prefix = brand.order_prefix if brand else 'ORD'
         order_id = f'{prefix}B_' + uuid4().hex[:13]
@@ -545,6 +549,14 @@ class B2BOrdersAPI(APIView):
                 'payment_date': body.get('payment_date') or None,
                 'order_id': order_id,
             })
+
+        if initial_status != B2BOrder.Status.DRAFT:
+            status_result = self._update_status(request, brand_id, {
+                'order_id': order_id, 'status': initial_status,
+            })
+            if not status_result.data['success']:
+                transaction.set_rollback(True)
+                return status_result
 
         return ok({'order_id': order_id}, 'Order created!')
 

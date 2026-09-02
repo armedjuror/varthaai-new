@@ -130,10 +130,28 @@
               <input type="date" class="form-control" id="orderDueDate">
               <div class="form-text" id="dueDateHint" style="font-size:0.75rem"></div>
             </div>
+            {% if not edit_order_id %}
+            <div class="col-md-2">
+              <label class="form-label">Status</label>
+              <select class="form-select" id="orderStatus">
+                <option value="draft" selected>Draft</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="dispatched">Dispatched</option>
+                <option value="delivered">Delivered</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+              <div class="form-text" style="font-size:0.75rem">Confirmed+ deducts stock immediately.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Order Notes</label>
+              <textarea class="form-control" id="orderNotes" rows="2" placeholder="Internal notes…"></textarea>
+            </div>
+            {% else %}
             <div class="col-md-6">
               <label class="form-label">Order Notes</label>
               <textarea class="form-control" id="orderNotes" rows="2" placeholder="Internal notes…"></textarea>
             </div>
+            {% endif %}
           </div>
         </div>
       </div>

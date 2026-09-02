@@ -140,6 +140,24 @@ class ApiPermissionTests(TestCase):
         self.client.force_login(self.superuser)
         self.assertEqual(self.client.get(self.page).status_code, 200)
 
+    @override_settings(DEBUGGER_CLAUDE_OAUTH_TOKEN='oat-test')
+    def test_page_renders_current_auth_mode_server_side(self, _enq):
+        """The correct radio must be `checked` in the initial HTML (not just
+        patched in by JS after a fetch) — otherwise every reload flashes API
+        first, which reads as the preference having reverted."""
+        from debugger.auth_mode import set_auth_mode
+        self.client.force_login(self.superuser)
+
+        set_auth_mode(DebugRequest.AuthMode.SUBSCRIPTION)
+        content = self.client.get(self.page).content.decode()
+        gm_sub = content[content.index('id="gmSub"'):content.index('id="gmSub"') + 120]
+        self.assertIn('checked', gm_sub)
+
+        set_auth_mode(DebugRequest.AuthMode.API)
+        content = self.client.get(self.page).content.decode()
+        gm_api = content[content.index('id="gmApi"'):content.index('id="gmApi"') + 120]
+        self.assertIn('checked', gm_api)
+
     def test_api_forbidden_for_non_super(self, _enq):
         self.client.force_login(self.staff)
         self.assertEqual(self.client.get(self.api).status_code, 403)

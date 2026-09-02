@@ -422,6 +422,7 @@ function submitOrder() {
     })
   };
   if (isEdit) data.order_id = EDIT_ORDER_ID;
+  if (!isEdit) data.status = $('#orderStatus').val() || 'draft';
 
   if (!isEdit && $('#recordPaymentNow').is(':checked')) {
     data.payment_amount    = parseFloat($('#orderPayAmount').val());
