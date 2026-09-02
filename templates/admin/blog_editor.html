@@ -1,0 +1,167 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}{% if blog %}Edit Blog{% else %}New Blog{% endif %} — Varthaai Admin{% endblock %}
+
+{% block extra_css %}
+<style>
+  .ba-layout { display:flex; flex-direction:column; gap:16px; }
+  .ba-panel { background:#fff; border-radius:14px; box-shadow:0 1px 3px rgba(0,0,0,.06); padding:20px; }
+  .ba-editor-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width: 900px){ .ba-editor-grid{ grid-template-columns:1fr; } }
+  .ba-preview { border:1px solid #eef0f3; border-radius:8px; padding:14px; min-height:300px; max-height:520px; overflow-y:auto; background:#fbfdf7; }
+  .ba-tag-chip { display:inline-flex; align-items:center; gap:6px; background:#eef7e6; color:#4d6b23; border-radius:20px; padding:4px 10px; font-size:.8rem; margin:2px 4px 2px 0; }
+  .ba-tag-chip button { border:none; background:none; color:#4d6b23; font-weight:700; cursor:pointer; line-height:1; }
+  /* Bounded height + its own scroll (not unbounded flex growth) so this
+     panel can never drag the page taller than the viewport. */
+  .ba-chat-msgs { max-height:420px; overflow-y:auto; display:flex; flex-direction:column; gap:10px; padding:10px; border:1px solid #eef0f3; border-radius:10px; background:#fbfdf7; margin-bottom:12px; }
+  .ba-msg { max-width:90%; padding:10px 14px; border-radius:12px; font-size:.88rem; line-height:1.5; word-wrap:break-word; overflow-wrap:anywhere; }
+  .ba-msg.admin { align-self:flex-end; background:#85AA4E; color:#fff; }
+  .ba-msg.assistant { align-self:flex-start; background:#f2f4f7; color:#1f2937; }
+  .ba-msg .who { font-size:.68rem; font-weight:700; opacity:.7; text-transform:uppercase; margin-bottom:3px; }
+  .ba-msg .insert-btn { margin-top:6px; display:block; }
+  .md > *:first-child { margin-top:0; } .md > *:last-child { margin-bottom:0; }
+  .md p { margin:0 0 .6em; }
+  .md h1,.md h2,.md h3,.md h4 { margin:.6em 0 .35em; line-height:1.25; font-weight:700; }
+  .md ul,.md ol { margin:.2em 0 .6em; padding-left:1.3em; }
+  .md code { background:rgba(135,170,78,.14); padding:.08em .35em; border-radius:4px; font-size:.86em; }
+  .md pre { background:#0f1720; color:#d6e2ee; border-radius:8px; padding:12px; overflow-x:auto; }
+  .md pre code { background:none; padding:0; color:inherit; }
+  .ba-msg.admin .md a { color:#fff; }
+  .typing span{ animation: ba-blink 1.2s infinite; }
+  .typing span:nth-child(2){ animation-delay:.2s;} .typing span:nth-child(3){ animation-delay:.4s;}
+  @keyframes ba-blink{ 0%,100%{opacity:.2} 50%{opacity:1} }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>{% if blog %}Edit Blog{% else %}New Blog{% endif %}</h2>
+    <a href="{% url 'marketing:blogs' %}" class="btn btn-outline-secondary"><i class="fas fa-arrow-left me-2"></i>Back to Blogs</a>
+  </div>
+
+  <div class="ba-layout">
+    <!-- Editor -->
+    <div class="ba-panel">
+      <form id="blogForm">
+        <input type="hidden" id="blogId" value="{{ blog.id|default:'' }}">
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label class="form-label">Title *</label>
+            <input type="text" class="form-control" id="blogTitle" required value="{{ blog.title|default:'' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Tags</label>
+            <input type="text" class="form-control" id="blogTagInput" list="tagOptions" placeholder="Type a tag, press Enter">
+            <datalist id="tagOptions">
+              {% for t in existing_tags %}<option value="{{ t }}">{% endfor %}
+            </datalist>
+            <div id="blogTagChips" class="mt-2"></div>
+            <input type="hidden" id="blogTagsHidden" value="{{ blog_tags_json }}">
+          </div>
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label class="form-label">Meta Title <small class="text-muted">(SEO, ≤60 chars)</small></label>
+            <input type="text" class="form-control" id="blogMetaTitle" maxlength="255" value="{{ blog.meta_title|default:'' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Meta Description <small class="text-muted">(SEO, ≤155 chars)</small></label>
+            <input type="text" class="form-control" id="blogMetaDescription" maxlength="320" value="{{ blog.meta_description|default:'' }}">
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Excerpt <small class="text-muted">(auto-generated if empty)</small></label>
+          <textarea class="form-control" id="blogExcerpt" rows="2">{{ blog.excerpt|default:'' }}</textarea>
+        </div>
+        <div class="ba-editor-grid mb-3">
+          <div>
+            <label class="form-label">Content * <small class="text-muted">(Markdown supported)</small></label>
+            <textarea class="form-control" id="blogContent" rows="16" required placeholder="Write here, or use the AI assistant below to generate a draft…">{{ blog.content|default:'' }}</textarea>
+          </div>
+          <div>
+            <label class="form-label">Live Preview</label>
+            <div class="ba-preview md" id="blogPreview"></div>
+          </div>
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <label class="form-label">Featured Image</label>
+            <input type="file" class="form-control" id="blogFeaturedImage" accept="image/*">
+            {% if blog.featured_image %}
+              <div class="mt-2"><img src="{{ blog.featured_image.url }}" style="max-height:120px;border-radius:8px" alt=""></div>
+              <div class="form-check mt-1"><input class="form-check-input" type="checkbox" id="blogRemoveImage"><label class="form-check-label" for="blogRemoveImage">Remove current image</label></div>
+            {% endif %}
+          </div>
+          <div class="col-md-6">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="blogIsPublished" {% if blog.is_published %}checked{% endif %}>
+              <label class="form-check-label" for="blogIsPublished">Publish immediately</label>
+            </div>
+            <div class="mt-2" id="publishDateContainer" style="{% if not blog.is_published %}display:none{% endif %}">
+              <label class="form-label">Schedule Publish Date</label>
+              <input type="datetime-local" class="form-control" id="blogPublishedAt" value="{% if blog.published_at %}{{ blog.published_at|date:'Y-m-d\TH:i' }}{% endif %}">
+            </div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary" id="saveBlogBtn"><i class="fas fa-save me-2"></i>Save Blog</button>
+      </form>
+    </div>
+
+    <!-- AI Assistant -->
+    <div class="ba-panel">
+      <h5 class="mb-3"><i class="fas fa-wand-magic-sparkles me-2"></i>AI Writing Assistant</h5>
+
+      <div class="row g-2 mb-3">
+        <div class="col-md-3"><input type="text" class="form-control form-control-sm" id="aiTopic" placeholder="Topic / keywords"></div>
+        <div class="col-md-3"><input type="text" class="form-control form-control-sm" id="aiAudience" placeholder="Target audience"></div>
+        <div class="col-md-2"><input type="text" class="form-control form-control-sm" id="aiTone" placeholder="Tone"></div>
+        <div class="col-md-2"><input type="number" min="0" class="form-control form-control-sm" id="aiWordCount" placeholder="Word count"></div>
+        <div class="col-md-2">
+          <select class="form-select form-select-sm" id="aiModel">
+            {% for m in ai_assist_models %}
+              <option value="{{ m.id }}" {% if m.id == ai_assist_default_model %}selected{% endif %}>{{ m.label }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Mention these products <small class="text-muted">(optional)</small></label>
+        <select class="form-select form-select-sm" id="aiFlavorRefs" multiple size="3">
+          {% for f in flavors %}<option value="{{ f.id }}">{{ f.name }}</option>{% endfor %}
+        </select>
+      </div>
+
+      <div class="d-flex gap-2 mb-3 flex-wrap">
+        <button type="button" class="btn btn-sm btn-outline-primary" data-action="generate"><i class="fas fa-pen-nib me-1"></i>Generate draft</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" data-action="rewrite"><i class="fas fa-rotate me-1"></i>Rewrite / improve</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" data-action="suggest_meta"><i class="fas fa-tags me-1"></i>Suggest titles/excerpt/meta</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" data-action="outline"><i class="fas fa-list me-1"></i>Outline</button>
+      </div>
+
+      <div class="ba-chat-msgs" id="aiMsgs"></div>
+
+      <form id="aiChatForm" class="d-flex gap-2">
+        <textarea class="form-control" id="aiChatInput" rows="1" placeholder="Give feedback or ask for changes…"></textarea>
+        <button class="btn btn-primary" type="submit"><i class="fas fa-paper-plane"></i></button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/vendor/marked.min.js' %}"></script>
+<script src="{% static 'js/vendor/purify.min.js' %}"></script>
+<script>
+  window.BLOG_EDITOR_CTX = {
+    blogId: {{ blog.id|default:'null' }},
+    saveUrl: '{% url "marketing:blogs_api" %}',
+    sessionsUrl: '{% url "marketing:blog_ai_sessions" %}',
+    streamUrl: '{% url "marketing:blog_ai_stream" %}',
+    listUrl: '{% url "marketing:blogs" %}'
+  };
+</script>
+<script src="{% static 'js/admin/blog-editor.js' %}?v=1"></script>
+{% endblock %}

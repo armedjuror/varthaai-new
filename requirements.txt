@@ -9,6 +9,9 @@ Django==5.2.16
 djangorestframework==3.17.1
 gunicorn==23.0.0
 idna==3.18
+# TODO: verify current litellm version before merge — no PyPI/web access was
+# available to confirm it in this session.
+litellm==1.55.8
 pillow==12.3.0
 psycopg==3.3.4
 psycopg-binary==3.3.4
