@@ -26,9 +26,9 @@ from core.auth import admin_login_required, require_module
 from core.models import Brand, Setting
 from crm.models import B2BActivity, B2BCompany, B2BContact
 from finance.services import sync_b2b_order_income
-from orders.models import B2BOffer, B2BOrder, B2BOrderItem, B2BPayment
+from orders.models import B2BOffer, B2BOrder, B2BOrderItem, B2BPayment, B2BReturn
 from products.models import Flavor, FlavorPack, Stock
-from products.services import available_grams, deduct_stock, revert_stock
+from products.services import available_grams, deduct_stock, restock_batch, revert_stock
 
 OFFER_TYPES = ['buy_x_get_y', 'discount_percent', 'flat_discount']
 
@@ -121,6 +121,7 @@ def _order_row(o):
         'status': o.status,
         'payment_status': o.payment_status,
         'stock_deducted': 1 if o.stock_deducted else 0,
+        'has_returnable': 1 if any(it.quantity > it.returned_quantity for it in items) else 0,
         'due_date': o.due_date.isoformat() if o.due_date else None,
         'order_date': o.order_date.isoformat(),
     }
@@ -166,6 +167,7 @@ def _item_row(it):
         'offer_id': it.offer_id,
         'flavor_name': it.flavor_name,
         'pack_label': it.pack_label,
+        'returned_quantity': it.returned_quantity,
     }
 
 
@@ -179,6 +181,18 @@ def _payment_row(p):
         'notes': p.notes,
         'payment_date': p.payment_date.isoformat() if p.payment_date else None,
         'created_by_name': p.created_by.name if p.created_by else '',
+    }
+
+
+def _return_row(r):
+    return {
+        'id': r.id,
+        'items': r.items,
+        'return_amount': float(r.return_amount),
+        'refund_amount': float(r.refund_amount),
+        'notes': r.notes,
+        'created_by_name': r.created_by.name if r.created_by else '',
+        'created_at': r.created_at.isoformat(),
     }
 
 
@@ -315,10 +329,12 @@ class B2BOrdersAPI(APIView):
             return err('Order not found.')
         items = order.items.select_related('stock').order_by('id')
         payments = order.payments.select_related('created_by').order_by('-payment_date')
+        returns = order.returns.select_related('created_by').order_by('-created_at')
         return ok({
             'order': _order_detail(order),
             'items': [_item_row(it) for it in items],
             'payments': [_payment_row(p) for p in payments],
+            'returns': [_return_row(r) for r in returns],
         })
 
     def _applicable_offers(self, request, brand_id):
@@ -388,6 +404,7 @@ class B2BOrdersAPI(APIView):
             'confirm_order': self._confirm_order,
             'update_status': self._update_status,
             'add_payment': self._add_payment,
+            'return_items': self._return_items,
             'repeat_order': self._repeat_order,
             'delete_order': self._delete_order,
         }
@@ -737,6 +754,123 @@ class B2BOrdersAPI(APIView):
             description=f'Against order {order_id}' if order_id else 'General payment',
         )
         return ok(None, 'Payment recorded!')
+
+    # ── returns (partial or full; restocks the exact batch, refunds paid
+    #    money and/or reduces the outstanding bill) ──
+    @transaction.atomic
+    def _return_items(self, request, brand_id, body):
+        order = (
+            B2BOrder.objects
+            .filter(id=body.get('order_id'), brand_id=brand_id)
+            .select_related('company')
+            .first()
+        )
+        if not order:
+            return err('Order not found.')
+        if not order.stock_deducted:
+            return err('Only orders with deducted stock (confirmed/dispatched/delivered) can be returned.')
+
+        raw_items = body.get('items') or []
+        item_ids = [_int_or_none(ri.get('item_id')) for ri in raw_items]
+        order_items = {
+            it.id: it for it in
+            B2BOrderItem.objects.select_related('flavor', 'stock').filter(
+                id__in=[i for i in item_ids if i], b2b_order=order,
+            )
+        }
+
+        lines = []
+        return_amount = Decimal('0')
+        for ri in raw_items:
+            item = order_items.get(_int_or_none(ri.get('item_id')))
+            qty = _int_or_none(ri.get('quantity')) or 0
+            if not item or qty <= 0:
+                continue
+            remaining = item.quantity - item.returned_quantity
+            if qty > remaining:
+                return err(f'Cannot return {qty} of {item.flavor_name} — only {remaining} left to return.')
+            weight = qty * item.weight_grams
+            amount = (Decimal('0') if item.is_free_item else item.selling_price * qty)
+            lines.append({'item': item, 'quantity': qty, 'weight': weight, 'amount': amount})
+            return_amount += amount
+
+        if not lines:
+            return err('No valid items to return.')
+
+        refund_method = body.get('refund_method') or 'cash'
+        notes = (body.get('notes') or '').strip()
+
+        for line in lines:
+            item = line['item']
+            if item.stock_id and item.stock:
+                restock_batch(
+                    item.stock, line['weight'],
+                    reference_type='b2b_return', reference_id=order.id,
+                    created_by=request.user, notes=f'Return — B2B order {order.id}',
+                )
+            else:
+                revert_stock(
+                    item.flavor, line['weight'],
+                    reference_type='b2b_return', reference_id=order.id,
+                    created_by=request.user, notes=f'Return — B2B order {order.id}',
+                )
+            item.returned_quantity += line['quantity']
+            item.save(update_fields=['returned_quantity'])
+
+        new_total = max(Decimal('0'), order.total_amount - return_amount)
+        order.total_amount = new_total
+        refund_amount = Decimal('0')
+        if order.paid_amount > new_total:
+            refund_amount = order.paid_amount - new_total
+            order.paid_amount -= refund_amount
+            B2BPayment.objects.create(
+                company=order.company, b2b_order=order, amount=refund_amount,
+                payment_type=B2BPayment.PaymentType.REFUND, payment_method=refund_method,
+                notes=f'Refund for return on order {order.id}',
+                payment_date=date.today(), created_by=request.user,
+            )
+        order.balance_amount = order.total_amount - order.paid_amount
+        if order.paid_amount >= order.total_amount:
+            order.payment_status = B2BOrder.PaymentStatus.PAID
+        elif order.paid_amount > 0:
+            order.payment_status = B2BOrder.PaymentStatus.PARTIAL
+        else:
+            order.payment_status = B2BOrder.PaymentStatus.PENDING
+        order.save(update_fields=[
+            'total_amount', 'paid_amount', 'balance_amount', 'payment_status', 'updated_at',
+        ])
+        sync_b2b_order_income(order)
+
+        B2BReturn.objects.create(
+            b2b_order=order,
+            items=[{
+                'item_id': line['item'].id,
+                'flavor_name': line['item'].flavor_name,
+                'quantity': line['quantity'],
+                'weight_grams': line['weight'],
+                'amount': float(line['amount']),
+            } for line in lines],
+            return_amount=return_amount,
+            refund_amount=refund_amount,
+            notes=notes,
+            created_by=request.user,
+        )
+        summary = ', '.join(f"{line['item'].flavor_name} x{line['quantity']}" for line in lines)
+        B2BActivity.objects.create(
+            company=order.company, admin_user=request.user,
+            type=B2BActivity.Type.RETURN,
+            subject=f'Return of {return_amount:.2f} on order {order.id}',
+            description=(
+                f'{summary}. ' +
+                (f'Refunded {refund_amount:.2f} via {refund_method}.' if refund_amount > 0 else 'Bill reduced, no refund due.')
+                + (f' {notes}' if notes else '')
+            ),
+        )
+        message = (
+            f'Return processed. ₹{refund_amount:.2f} refunded.' if refund_amount > 0
+            else f'Return processed. Bill reduced by ₹{return_amount:.2f}.'
+        )
+        return ok(None, message)
 
     # ── repeat / edit source ──
     def _repeat_order(self, request, brand_id, body):

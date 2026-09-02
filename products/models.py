@@ -103,6 +103,7 @@ class StockMovement(models.Model):
         ORDER_RELEASE = 'order_release', 'Order Release'
         B2B_SALE = 'b2b_sale', 'B2B Sale'
         B2B_REVERSAL = 'b2b_reversal', 'B2B Reversal'
+        B2B_RETURN = 'b2b_return', 'B2B Return'
 
     flavor = models.ForeignKey(Flavor, on_delete=models.CASCADE, related_name='movements')
     stock = models.ForeignKey(Stock, on_delete=models.SET_NULL, null=True, blank=True, related_name='movements')

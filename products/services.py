@@ -89,6 +89,26 @@ def revert_stock(flavor, grams, *, reference_type, reference_id='', created_by=N
     return True
 
 
+@transaction.atomic
+def restock_batch(stock, grams, *, reference_type, reference_id='', created_by=None, notes=''):
+    """
+    Add `grams` back to a *specific* stock batch — used for returns, which
+    restore the exact batch a sale was drawn from (unlike revert_stock, which
+    always targets the active/FIFO batch). Batch is not force-activated; FIFO
+    ordering (by id) naturally picks it up once earlier batches empty.
+    """
+    prev = stock.quantity_grams
+    stock.quantity_grams = prev + int(grams)
+    stock.save(update_fields=['quantity_grams'])
+    StockMovement.objects.create(
+        flavor=stock.flavor, stock=stock, movement_type=StockMovement.MovementType.IN,
+        quantity_grams=int(grams), previous_quantity_grams=prev, new_quantity_grams=stock.quantity_grams,
+        reference_type=reference_type, reference_id=str(reference_id),
+        created_by=created_by, notes=notes,
+    )
+    _refresh_alerts(stock.flavor)
+
+
 def _refresh_alerts(flavor):
     """Create a low/out-of-stock alert if warranted and none is unacknowledged."""
     available = available_grams(flavor)

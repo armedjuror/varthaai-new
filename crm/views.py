@@ -229,7 +229,10 @@ class B2BAPI(APIView):
                 Q(company_name__icontains=search)
                 | Q(city__icontains=search)
                 | Q(gst_number__icontains=search)
-            )
+                | Q(address__icontains=search)
+                | Q(contacts__name__icontains=search)
+                | Q(contacts__phone__icontains=search)
+            ).distinct()
 
         total = qs.count()
         offset = (page - 1) * per_page

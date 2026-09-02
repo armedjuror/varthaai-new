@@ -21,8 +21,17 @@ $(function () {
     recordPayment();
   });
 
+  $('#returnForm').on('submit', function (e) {
+    e.preventDefault();
+    submitReturn();
+  });
+
+  $('#returnItemsBody').on('input', '.return-qty', updateReturnTotal);
+
   $('#payDate').val(new Date().toISOString().slice(0, 10));
 });
+
+var currentOrderDetail = null;
 
 function resetFilters() {
   $('#filterSearch').val('');
@@ -78,6 +87,7 @@ function renderOrders(orders) {
         (o.status === 'draft' ? '<button class="btn-icon edit" title="Confirm" onclick="confirmOrder(\'' + escHtml(o.id) + '\')"><i class="fas fa-check"></i></button>' : '') +
         (o.status === 'draft' ? '<button class="btn-icon delete" title="Delete" onclick="deleteOrder(\'' + escHtml(o.id) + '\')"><i class="fas fa-trash"></i></button>' : '') +
         '<button class="btn-icon edit" title="Collect Payment" onclick="openPaymentModal(\'' + escHtml(o.id) + '\',' + o.company_id + ',' + o.balance_amount + ')"><i class="fas fa-indian-rupee-sign"></i></button>' +
+        (o.stock_deducted && o.has_returnable ? '<button class="btn-icon delete" title="Return Items" onclick="quickReturn(\'' + escHtml(o.id) + '\')"><i class="fas fa-rotate-left"></i></button>' : '') +
         '<a class="btn-icon edit" title="Invoice" href="/admin/b2b-orders/' + encodeURIComponent(o.id) + '/invoice/" target="_blank"><i class="fas fa-print"></i></a>' +
       '</td>' +
     '</tr>';
@@ -146,11 +156,12 @@ function viewOrder(orderId) {
   apiGet('/admin/api/b2b-orders/', { view: 'order', id: orderId })
     .done(function (res) {
       if (!res.success) { $('#orderDetailBody').html('<div class="text-danger">' + res.message + '</div>'); return; }
-      renderOrderDetail(res.data.order, res.data.items, res.data.payments);
+      currentOrderDetail = res.data;
+      renderOrderDetail(res.data.order, res.data.items, res.data.payments, res.data.returns || []);
     });
 }
 
-function renderOrderDetail(order, items, payments) {
+function renderOrderDetail(order, items, payments, returns) {
   var statusActions = '';
   if (order.status === 'draft') {
     statusActions = '<button class="btn btn-sm btn-primary me-2" onclick="confirmOrder(\'' + escHtml(order.id) + '\')"><i class="fas fa-check me-1"></i>Confirm & Deduct Stock</button>';
@@ -168,6 +179,10 @@ function renderOrderDetail(order, items, payments) {
   }
   if (order.status === 'delivered') {
     statusActions += '<a href="/admin/b2b-orders/create/?repeat=' + encodeURIComponent(order.id) + '" class="btn btn-sm btn-outline-primary me-2"><i class="fas fa-redo me-1"></i>Repeat Order</a>';
+  }
+  var hasReturnable = items.some(function (it) { return (it.quantity - it.returned_quantity) > 0; });
+  if (DEDUCTED_STATUSES.indexOf(order.status) !== -1 && hasReturnable) {
+    statusActions += '<button class="btn btn-sm btn-outline-danger me-2" onclick="openReturnModal()"><i class="fas fa-rotate-left me-1"></i>Return Items</button>';
   }
   // Print invoice (always available)
   statusActions += '<a href="/admin/b2b-orders/' + encodeURIComponent(order.id) + '/invoice/" target="_blank" class="btn btn-sm btn-outline-secondary me-2"><i class="fas fa-print me-1"></i>Invoice</a>';
@@ -208,7 +223,7 @@ function renderOrderDetail(order, items, payments) {
   html += '<div class="col-12">' +
     '<h6 style="font-size:0.82rem;color:var(--gray-400);text-transform:uppercase;margin-bottom:8px">Items (' + items.reduce(function(s, it) { return s + (it.flavor_pack_id ? parseInt(it.quantity) : 1); }, 0) + ')</h6>' +
     '<div class="table-responsive"><table class="table table-sm" style="font-size:0.85rem"><thead><tr>' +
-    '<th>Flavor</th><th>Batch</th><th>Pack</th><th>Qty</th><th>Weight</th><th>MRP</th><th>Price</th><th>Line Total</th>' +
+    '<th>Flavor</th><th>Batch</th><th>Pack</th><th>Qty</th><th>Weight</th><th>MRP</th><th>Price</th><th>Line Total</th><th>Returned</th>' +
     '</tr></thead><tbody>';
   items.forEach(function (it) {
     var free = parseInt(it.is_free_item);
@@ -222,9 +237,30 @@ function renderOrderDetail(order, items, payments) {
       '<td>' + (it.mrp ? formatCurrency(it.mrp) : '—') + '</td>' +
       '<td>' + formatCurrency(it.selling_price) + '</td>' +
       '<td style="font-weight:600">' + formatCurrency(lineTotal) + '</td>' +
+      '<td>' + (it.returned_quantity > 0 ? '<span style="color:#dc2626;font-weight:600">' + it.returned_quantity + '</span>' : '—') + '</td>' +
     '</tr>';
   });
   html += '</tbody></table></div></div>';
+
+  // Returns
+  if (returns.length) {
+    html += '<div class="col-12">' +
+      '<h6 style="font-size:0.82rem;color:var(--gray-400);text-transform:uppercase;margin-bottom:8px">Returns (' + returns.length + ')</h6>' +
+      '<div class="table-responsive"><table class="table table-sm" style="font-size:0.85rem"><thead><tr>' +
+      '<th>Date</th><th>Items</th><th>Return Amount</th><th>Refunded</th><th>By</th>' +
+      '</tr></thead><tbody>';
+    returns.forEach(function (r) {
+      var itemsSummary = r.items.map(function (i) { return escHtml(i.flavor_name) + ' x' + i.quantity; }).join(', ');
+      html += '<tr>' +
+        '<td>' + formatDate(r.created_at) + '</td>' +
+        '<td>' + itemsSummary + '</td>' +
+        '<td style="font-weight:600">' + formatCurrency(r.return_amount) + '</td>' +
+        '<td>' + (r.refund_amount > 0 ? formatCurrency(r.refund_amount) : '—') + '</td>' +
+        '<td>' + escHtml(r.created_by_name) + '</td>' +
+      '</tr>';
+    });
+    html += '</tbody></table></div></div>';
+  }
 
   // Payments
   if (payments.length) {
@@ -322,6 +358,88 @@ function recordPayment() {
         // Refresh order detail if open
         var oid = $('#payOrderId').val();
         if (oid) viewOrder(oid);
+        loadOrders();
+      }
+    })
+    .fail(function () { showAlertModal('Request failed.', 'danger'); })
+    .always(hideLoader);
+}
+
+/* ── Returns ── */
+function quickReturn(orderId) {
+  apiGet('/admin/api/b2b-orders/', { view: 'order', id: orderId })
+    .done(function (res) {
+      if (!res.success) { showAlertModal(res.message, 'danger'); return; }
+      currentOrderDetail = res.data;
+      openReturnModal();
+    })
+    .fail(function () { showAlertModal('Failed to load order.', 'danger'); });
+}
+
+function openReturnModal() {
+  if (!currentOrderDetail) return;
+  var order = currentOrderDetail.order;
+  $('#returnOrderId').text(order.id);
+  $('#returnNotes').val('');
+  $('#returnRefundMethod').val('cash');
+
+  var html = '';
+  currentOrderDetail.items.forEach(function (it) {
+    var remaining = it.quantity - it.returned_quantity;
+    if (remaining <= 0) return;
+    html += '<tr>' +
+      '<td>' + escHtml(it.flavor_name) + '</td>' +
+      '<td>' + (it.pack_label || 'Custom') + '</td>' +
+      '<td>' + remaining + '</td>' +
+      '<td><input type="number" class="form-control form-control-sm return-qty" data-item-id="' + it.id + '" data-price="' + it.selling_price + '" min="0" max="' + remaining + '" value="0"></td>' +
+      '<td class="return-line-amount">' + formatCurrency(0) + '</td>' +
+    '</tr>';
+  });
+  $('#returnItemsBody').html(html);
+  updateReturnTotal();
+  $('#returnModal').modal('show');
+}
+
+function updateReturnTotal() {
+  var total = 0;
+  $('#returnItemsBody tr').each(function () {
+    var input = $(this).find('.return-qty');
+    var qty = parseInt(input.val()) || 0;
+    var max = parseInt(input.attr('max')) || 0;
+    if (qty > max) { qty = max; input.val(qty); }
+    if (qty < 0) { qty = 0; input.val(qty); }
+    var price = parseFloat(input.data('price')) || 0;
+    var amount = qty * price;
+    $(this).find('.return-line-amount').text(formatCurrency(amount));
+    total += amount;
+  });
+  $('#returnTotalAmount').text(formatCurrency(total));
+}
+
+function submitReturn() {
+  var items = [];
+  $('#returnItemsBody tr').each(function () {
+    var input = $(this).find('.return-qty');
+    var qty = parseInt(input.val()) || 0;
+    if (qty > 0) items.push({ item_id: parseInt(input.data('item-id')), quantity: qty });
+  });
+  if (!items.length) { showAlertModal('Enter a return quantity for at least one item.', 'warning'); return; }
+
+  var data = {
+    action:         'return_items',
+    order_id:       currentOrderDetail.order.id,
+    items:          items,
+    refund_method:  $('#returnRefundMethod').val(),
+    notes:          $('#returnNotes').val()
+  };
+
+  showLoader('Processing return…');
+  apiPost('/admin/api/b2b-orders/', data)
+    .done(function (res) {
+      showAlertModal(res.message, res.success ? 'success' : 'danger');
+      if (res.success) {
+        $('#returnModal').modal('hide');
+        viewOrder(currentOrderDetail.order.id);
         loadOrders();
       }
     })

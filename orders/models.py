@@ -190,6 +190,7 @@ class B2BOrderItem(models.Model):
     offer = models.ForeignKey(B2BOffer, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     flavor_name = models.CharField(max_length=255)
     pack_label = models.CharField(max_length=50, null=True, blank=True)
+    returned_quantity = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -230,3 +231,26 @@ class B2BPayment(models.Model):
 
     def __str__(self):
         return f'{self.payment_type} {self.amount}'
+
+
+class B2BReturn(models.Model):
+    """One return transaction against a B2B order — may cover one or more
+    items/quantities. Goods are restocked to their original batch immediately;
+    the value returned either refunds paid money or reduces the outstanding
+    bill, split automatically based on how much of the order was already paid."""
+    b2b_order = models.ForeignKey(B2BOrder, on_delete=models.CASCADE, related_name='returns')
+    items = models.JSONField()
+    return_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    refund_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'b2b_returns'
+
+    def __str__(self):
+        return f'Return {self.return_amount} — {self.b2b_order_id}'
