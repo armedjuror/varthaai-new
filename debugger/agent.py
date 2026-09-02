@@ -16,6 +16,16 @@ It can NEVER Write/Edit files or write to the DB. Those guarantees are enforced
 three ways: the allowlist of tools, the PreToolUse deny-hook, and (for the DB)
 the Postgres read-only role itself.
 
+Auth: the `claude` CLI subprocess authenticates either via metered
+ANTHROPIC_API_KEY or a Claude Pro/Max subscription OAuth token
+(DEBUGGER_CLAUDE_OAUTH_TOKEN, from `claude setup-token`) — a single GLOBAL
+toggle (debugger.auth_mode, backed by core.Setting), not a per-thread choice.
+Each run resolves it fresh when it starts (see _run_agent_async), so whichever
+request the worker is processing right now goes with whatever the toggle is
+set to right now; the resolved mode is then stamped onto that DebugRequest for
+display. consult_advisor is a separate direct API call and always bills
+against ANTHROPIC_API_KEY regardless of the toggle.
+
 Phase 1 is analysis only — `propose_fix` records a diff/PR text as a suggestion
 but performs no git or GitHub side effects (Phase 2 wires the PR path).
 """
@@ -484,14 +494,42 @@ def run_agent(request, cwd=None, mode=None):
     return asyncio.run(_run_agent_async(request, cwd=cwd, mode=mode))
 
 
+def _cli_auth_env(auth_mode):
+    """
+    Env override for the `claude` CLI subprocess, keyed on the CURRENT global
+    auth mode (debugger.auth_mode.get_auth_mode() — a toolbar toggle, not a
+    per-request choice). Both branches set BOTH keys explicitly (one real, one
+    blanked) — not just "set the one you want" — because the SDK merges this
+    dict on top of the *entire* inherited process environment
+    (subprocess_cli.py), so a stray ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN
+    already exported in the worker's shell would otherwise silently override
+    the mode the toggle is set to.
+    """
+    from debugger.models import DebugRequest
+
+    if auth_mode == DebugRequest.AuthMode.SUBSCRIPTION and settings.DEBUGGER_CLAUDE_OAUTH_TOKEN:
+        return {
+            'CLAUDE_CODE_OAUTH_TOKEN': settings.DEBUGGER_CLAUDE_OAUTH_TOKEN,
+            'ANTHROPIC_API_KEY': '',
+        }
+    return {
+        'ANTHROPIC_API_KEY': settings.ANTHROPIC_API_KEY,
+        'CLAUDE_CODE_OAUTH_TOKEN': '',
+    }
+
+
 async def _run_agent_async(request, cwd=None, mode=None):
+    from debugger.auth_mode import get_auth_mode
+
     proposals = []
     learnings = []
     server = _register_tools(proposals, learnings)
 
-    env = {}
-    if settings.ANTHROPIC_API_KEY:
-        env['ANTHROPIC_API_KEY'] = settings.ANTHROPIC_API_KEY
+    # Resolved fresh on every run (not stamped on the request at creation) —
+    # this is what makes the toggle global: whichever request the worker is
+    # processing right now goes with whatever the switch is set to right now.
+    auth_mode = await asyncio.to_thread(get_auth_mode)
+    env = _cli_auth_env(auth_mode)
 
     # build_system_prompt / build_prompt touch the ORM; Django forbids sync DB
     # access from inside a running event loop, so run them in a worker thread.
@@ -551,4 +589,5 @@ async def _run_agent_async(request, cwd=None, mode=None):
         'learnings': learnings,
         'tools_used': tools_used,
         'usage': usage,
+        'auth_mode': auth_mode,
     }

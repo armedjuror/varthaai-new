@@ -271,6 +271,13 @@ CELERY_BEAT_SCHEDULE = {
 # ---------------------------------------------------------------------------
 # Claude Agent SDK auth. Rotate this key — it was previously committed to .env.
 ANTHROPIC_API_KEY = env('ANTHROPIC_API_KEY', '')
+# Budget alternative to metered API billing: a long-lived OAuth token tied to a
+# Claude Pro/Max subscription, generated on the server via `claude setup-token`.
+# A global toggle in the Debugger page (debugger.auth_mode, backed by
+# core.Setting) picks which auth new runs use — not a per-request choice — and
+# only powers the main agent loop; consult_advisor always uses
+# ANTHROPIC_API_KEY directly regardless of the toggle (see agent.py).
+DEBUGGER_CLAUDE_OAUTH_TOKEN = env('DEBUGGER_CLAUDE_OAUTH_TOKEN', '')
 DEBUGGER_MODEL = env('DEBUGGER_MODEL', 'claude-sonnet-5')
 # Stronger model consulted (via the consult_advisor tool) for final synthesis
 # only — root cause statements, fix diffs, feature plans. Costs more per call

@@ -37,10 +37,20 @@ class DebugRequest(models.Model):
         CLOSED = 'closed', 'Closed'
         FAILED = 'failed', 'Failed'
 
+    class AuthMode(models.TextChoices):
+        API = 'api', 'API (metered)'
+        SUBSCRIPTION = 'subscription', 'Subscription (budget)'
+
     kind = models.CharField(max_length=10, choices=Kind.choices)
     title = models.CharField(max_length=200)
     body = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
+    # Which Claude auth actually powered this thread's MOST RECENT run — stamped
+    # after each run from the global toggle (debugger.auth_mode.get_auth_mode(),
+    # backed by core.Setting), not chosen per-thread; purely a historical record
+    # for display. consult_advisor is unaffected: it always calls the Anthropic
+    # API directly, never the CLI subprocess.
+    auth_mode = models.CharField(max_length=12, choices=AuthMode.choices, default=AuthMode.API)
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,

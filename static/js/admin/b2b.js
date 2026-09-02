@@ -43,6 +43,7 @@ $(function () {
     fd.append('gst_number',          $('#addGst').val());
     fd.append('location_url',        $('#addLocationUrl').val());
     fd.append('assigned_to',         $('#addAssignedTo').val());
+    fd.append('created_date',        $('#addCreatedDate').val());
     fd.append('notes',               $('#addNotes').val());
     fd.append('contact_name',        $('#addContactName').val());
     fd.append('contact_phone',       $('#addContactPhone').val());

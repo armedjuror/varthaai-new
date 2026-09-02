@@ -1,6 +1,23 @@
 /* Varthaai Admin — B2B Dashboard */
 
 var b2bRevenueChart = null;
+var trendData = [];
+var flavorNames = [];
+
+var METRIC_DEFS = {
+  revenue:       { label: 'Revenue',       kind: 'money' },
+  orders:        { label: 'Orders',        kind: 'count', color: '#2563eb' },
+  leads_created: { label: 'Leads Created', kind: 'count', color: '#8b5cf6' },
+  converted:     { label: 'Converted',     kind: 'count', color: '#16a34a' },
+  packs:         { label: 'Packs per Flavour', kind: 'count' },
+};
+var DAILY_METRIC_ORDER = ['revenue', 'orders', 'leads_created', 'converted', 'packs'];
+var activeMetrics = ['revenue'];
+var FLAVOR_COLORS = ['#0ea5e9', '#f97316', '#ec4899', '#14b8a6', '#a855f7', '#eab308', '#ef4444', '#22c55e'];
+var chartType = 'line';
+
+var DASH_LISTS = {};   // full (uncapped) lists, keyed by section name — used by "Show All" modal
+var CARD_ROW_CAP = 5;
 
 $(function () {
   apiGet('/admin/api/b2b-dashboard/')
@@ -10,14 +27,72 @@ $(function () {
       renderRevenueKpis(d.revenue_stats || {});
       renderStats(d.order_stats, d.pipeline);
       renderPipeline(d.pipeline);
-      renderFollowUps(d.follow_ups || []);
-      renderOverdue(d.overdue_payments || []);
-      renderPendingOrders(d.pending_orders || []);
-      renderTopCompanies(d.top_companies || []);
-      renderRevenueChart(d.revenue_trend || []);
+      renderCappedSection('followups', d.follow_ups || [], renderFollowUps, '#followUpsBody');
+      renderCappedSection('overdue', d.overdue_payments || [], renderOverdue, '#overdueBody');
+      renderCappedSection('pendingOrders', d.pending_orders || [], renderPendingOrders, '#pendingOrdersBody');
+      renderCappedSection('topCompanies', d.top_companies || [], renderTopCompanies, '#topCompaniesBody');
+
+      applyTrendData(d);
+      var range = d.trend_range || {};
+      $('#trendStartDate').val(range.start || '');
+      $('#trendEndDate').val(range.end || '');
+      renderMetricToggle();
+      renderTrendChart(trendData);
     })
     .fail(function () { showAlertModal('Failed to load dashboard.', 'danger'); });
+
+  $('#trendStartDate, #trendEndDate').on('change', function () { loadTrend(); });
 });
+
+function applyTrendData(d) {
+  trendData = d.revenue_trend || [];
+  flavorNames = d.flavor_names || [];
+}
+
+function loadTrend(params) {
+  params = params || {
+    start_date: $('#trendStartDate').val(),
+    end_date: $('#trendEndDate').val(),
+  };
+  apiGet('/admin/api/b2b-dashboard/', params)
+    .done(function (res) {
+      if (!res.success) { showAlertModal(res.message, 'danger'); return; }
+      var d = res.data || {};
+      applyTrendData(d);
+      var range = d.trend_range || {};
+      $('#trendStartDate').val(range.start || '');
+      $('#trendEndDate').val(range.end || '');
+      renderTrendChart(trendData);
+    })
+    .fail(function () { showAlertModal('Failed to load trend data.', 'danger'); });
+}
+
+function resetTrendRange() {
+  $('#trendStartDate').val('');
+  $('#trendEndDate').val('');
+  loadTrend({});
+}
+
+/* ── Fixed-height list sections + "Show All" modal ─────────────────────── */
+
+function renderCappedSection(name, items, renderFn, targetSel) {
+  DASH_LISTS[name] = items;
+  renderFn(items.slice(0, CARD_ROW_CAP), targetSel);
+  var $btn = $('#' + name + 'ShowAllBtn');
+  if (items.length > CARD_ROW_CAP) {
+    $btn.text('Show All (' + items.length + ')').show();
+  } else {
+    $btn.hide();
+  }
+}
+
+function openDashListModal(name, title, renderFn) {
+  $('#dashListModalTitle').text(title);
+  renderFn(DASH_LISTS[name] || [], '#dashListModalBody');
+  $('#dashListModal').modal('show');
+}
+
+/* ── KPI cards ──────────────────────────────────────────────────────────── */
 
 function renderRevenueKpis(rev) {
   var tm = rev.this_month || {};
@@ -77,23 +152,191 @@ function renderRevenueKpis(rev) {
   $('#revenueKpis').html(html);
 }
 
-function renderRevenueChart(trend) {
-  var labels  = trend.map(function (t) { return t.label; });
-  var paid    = trend.map(function (t) { return t.paid; });
-  var pending = trend.map(function (t) { return t.pending; });
+/* ── Trend chart: metric toggle (Revenue / Orders / Leads / Converted / Packs per Flavour) ──
+   Everything renders as a line, all metrics plotted day-wise on the same 30-day x-axis. Pills
+   are clubbable — click to add/remove a metric, at least one stays selected. */
+
+function renderMetricToggle() {
+  var html = '';
+  DAILY_METRIC_ORDER.forEach(function (key) {
+    var active = activeMetrics.indexOf(key) !== -1;
+    html += '<span class="metric-pill' + (active ? ' active' : '') + '" data-metric="' + key + '" onclick="toggleMetric(\'' + key + '\')">' +
+      escHtml(METRIC_DEFS[key].label) + '</span>';
+  });
+  $('#trendMetricToggle').html(html);
+}
+
+function toggleMetric(key) {
+  var idx = activeMetrics.indexOf(key);
+  if (idx !== -1) {
+    if (activeMetrics.length > 1) activeMetrics.splice(idx, 1); // keep at least one selected
+  } else {
+    activeMetrics.push(key);
+  }
+  renderMetricToggle();
+  renderTrendChart(trendData);
+}
+
+function setChartType(type) {
+  chartType = type;
+  $('.chart-type-btn').removeClass('active');
+  $('.chart-type-btn[data-type="' + type + '"]').addClass('active');
+  renderTrendChart(trendData);
+}
+
+function renderTrendChart(trend) {
+  var labels = trend.map(function (t) { return t.label; });
+  var hasMoney = activeMetrics.indexOf('revenue') !== -1;
+  var hasOrders = activeMetrics.indexOf('orders') !== -1;
+  var hasPacks = activeMetrics.indexOf('packs') !== -1;
+  var hasLeads = activeMetrics.indexOf('leads_created') !== -1;
+  var hasConverted = activeMetrics.indexOf('converted') !== -1;
+  var isBar = chartType === 'bar';
+
+  var datasets = [];
+  var legendHtml = '';
+
+  function addLegend(color, label) {
+    legendHtml += '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:' + color + ';margin-right:5px"></span>' + escHtml(label) + '</span>';
+  }
+
+  // Revenue: Paid + Pending always sum to the true total, so this stack is
+  // already "total height + paid/pending split" in both bar and line mode.
+  if (hasMoney) {
+    datasets.push({
+      label: 'Paid', data: trend.map(function (t) { return t.paid; }),
+      borderColor: '#16a34a', backgroundColor: '#16a34a', pointRadius: 2, tension: 0.3,
+      borderRadius: isBar ? 4 : 0, stack: 'rev',
+      yAxisID: 'money', _metricKey: 'revenue',
+    });
+    datasets.push({
+      label: 'Pending', data: trend.map(function (t) { return t.pending; }),
+      borderColor: '#f59e0b', backgroundColor: '#f59e0b', pointRadius: 2, tension: 0.3,
+      borderRadius: isBar ? 4 : 0, stack: 'rev',
+      yAxisID: 'money', _metricKey: 'revenue',
+    });
+    addLegend('#16a34a', 'Paid');
+    addLegend('#f59e0b', 'Pending');
+  }
+
+  var countAxisId = hasMoney ? 'count' : 'money'; // reuse 'money' scale key as the sole left axis when revenue isn't shown
+
+  if (isBar) {
+    // Bar mode: Orders and Packs per Flavour are separate bars, each showing
+    // its own real total (no rescaling one to fit the other).
+    if (hasOrders) {
+      datasets.push({
+        label: 'Orders', data: trend.map(function (t) { return t.orders; }),
+        borderColor: METRIC_DEFS.orders.color, backgroundColor: METRIC_DEFS.orders.color, borderRadius: 4,
+        stack: 'orders', yAxisID: countAxisId, _metricKey: 'orders',
+      });
+      addLegend(METRIC_DEFS.orders.color, 'Orders');
+    }
+    if (hasPacks) {
+      flavorNames.forEach(function (flavor, i) {
+        var color = FLAVOR_COLORS[i % FLAVOR_COLORS.length];
+        datasets.push({
+          label: flavor, data: trend.map(function (t) { return (t.packs_by_flavor || {})[flavor] || 0; }),
+          borderColor: color, backgroundColor: color, borderRadius: 4,
+          stack: 'packs', yAxisID: countAxisId, _metricKey: 'packs',
+        });
+        addLegend(color, flavor + ' (packs)');
+      });
+      if (!flavorNames.length) {
+        legendHtml += '<span style="color:var(--gray-400)">No pack sales in the last 30 days</span>';
+      }
+    }
+
+    if (hasLeads && hasConverted) {
+      // Total height = Leads Created. Colors = Converted share vs the rest.
+      var convertedSeg = trend.map(function (t) { return Math.min(t.converted, t.leads_created); });
+      datasets.push({
+        label: 'Converted', data: convertedSeg,
+        borderColor: '#16a34a', backgroundColor: '#16a34a', borderRadius: 4,
+        stack: 'leads_converted', yAxisID: countAxisId, _metricKey: 'converted',
+        _rawData: trend.map(function (t) { return t.converted; }),
+      });
+      datasets.push({
+        label: 'Leads (Not Converted)', data: trend.map(function (t, idx) { return Math.max(t.leads_created - convertedSeg[idx], 0); }),
+        borderColor: '#8b5cf6', backgroundColor: '#8b5cf6', borderRadius: 4,
+        stack: 'leads_converted', yAxisID: countAxisId, _metricKey: 'leads_created',
+      });
+      addLegend('#16a34a', 'Converted');
+      addLegend('#8b5cf6', 'Leads (Not Converted)');
+    } else if (hasLeads) {
+      datasets.push({
+        label: 'Leads Created', data: trend.map(function (t) { return t.leads_created; }),
+        borderColor: METRIC_DEFS.leads_created.color, backgroundColor: METRIC_DEFS.leads_created.color, borderRadius: 4,
+        stack: 'leads_converted', yAxisID: countAxisId, _metricKey: 'leads_created',
+      });
+      addLegend(METRIC_DEFS.leads_created.color, 'Leads Created');
+    } else if (hasConverted) {
+      datasets.push({
+        label: 'Converted', data: trend.map(function (t) { return t.converted; }),
+        borderColor: METRIC_DEFS.converted.color, backgroundColor: METRIC_DEFS.converted.color, borderRadius: 4,
+        stack: 'leads_converted', yAxisID: countAxisId, _metricKey: 'converted',
+      });
+      addLegend(METRIC_DEFS.converted.color, 'Converted');
+    }
+  } else {
+    // Line mode: plot each metric's real value independently — proportional
+    // envelopes only make sense as stacked-bar segments.
+    var countMetrics = activeMetrics.filter(function (m) { return m !== 'revenue' && m !== 'packs'; });
+    countMetrics.forEach(function (m) {
+      var def = METRIC_DEFS[m];
+      datasets.push({
+        label: def.label, data: trend.map(function (t) { return t[m]; }),
+        borderColor: def.color, backgroundColor: def.color, pointRadius: 2, tension: 0.3,
+        yAxisID: countAxisId, _metricKey: m,
+      });
+      addLegend(def.color, def.label);
+    });
+    if (hasPacks) {
+      flavorNames.forEach(function (flavor, i) {
+        var color = FLAVOR_COLORS[i % FLAVOR_COLORS.length];
+        datasets.push({
+          label: flavor, data: trend.map(function (t) { return (t.packs_by_flavor || {})[flavor] || 0; }),
+          borderColor: color, backgroundColor: color, pointRadius: 2, tension: 0.3,
+          yAxisID: countAxisId, _metricKey: 'packs',
+        });
+        addLegend(color, flavor + ' (packs)');
+      });
+      if (!flavorNames.length) {
+        legendHtml += '<span style="color:var(--gray-400)">No pack sales in the last 30 days</span>';
+      }
+    }
+  }
+
+  $('#trendChartLegend').html(legendHtml);
 
   if (b2bRevenueChart) { b2bRevenueChart.destroy(); }
   var ctx = document.getElementById('b2bRevenueChart').getContext('2d');
 
+  var hasCounts = hasOrders || hasPacks || hasLeads || hasConverted;
+  var scales = {
+    x: { stacked: isBar, grid: { display: false }, border: { display: false }, ticks: { color: '#94a3b8', font: { size: 11 }, maxTicksLimit: 10, maxRotation: 0 } },
+  };
+  if (hasMoney) {
+    scales.money = {
+      stacked: isBar, position: 'left', grid: { color: '#f1f5f9' }, border: { display: false },
+      ticks: { color: '#94a3b8', font: { size: 11 }, callback: function (v) { return v >= 1000 ? '₹' + (v / 1000).toFixed(1) + 'k' : '₹' + v; } },
+    };
+    if (hasCounts) {
+      scales.count = {
+        stacked: isBar, position: 'right', grid: { display: false }, border: { display: false },
+        ticks: { color: '#94a3b8', font: { size: 11 }, precision: 0 },
+      };
+    }
+  } else if (hasCounts) {
+    scales.money = {
+      stacked: isBar, position: 'left', grid: { color: '#f1f5f9' }, border: { display: false },
+      ticks: { color: '#94a3b8', font: { size: 11 }, precision: 0 },
+    };
+  }
+
   b2bRevenueChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: labels,
-      datasets: [
-        { label: 'Paid', data: paid, backgroundColor: '#16a34a', borderRadius: 4, stack: 'rev' },
-        { label: 'Pending', data: pending, backgroundColor: '#f59e0b', borderRadius: 4, stack: 'rev' },
-      ],
-    },
+    type: chartType,
+    data: { labels: labels, datasets: datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
@@ -104,25 +347,32 @@ function renderRevenueChart(trend) {
           backgroundColor: '#1e293b',
           titleColor: '#94a3b8',
           bodyColor: '#f8fafc',
+          footerColor: '#f8fafc',
           padding: 12,
           cornerRadius: 10,
           callbacks: {
-            label: function (ctx) { return '  ' + ctx.dataset.label + ': ' + formatCurrency(ctx.parsed.y); },
+            label: function (ctx) {
+              var isMoney = ctx.dataset._metricKey === 'revenue';
+              var raw = ctx.dataset._rawData ? ctx.dataset._rawData[ctx.dataIndex] : ctx.parsed.y;
+              return '  ' + ctx.dataset.label + ': ' + (isMoney ? formatCurrency(raw) : raw);
+            },
+            footer: function (items) {
+              if (!items.length) return '';
+              var t = trend[items[0].dataIndex];
+              var lines = [];
+              if (hasMoney) lines.push('Total Revenue: ' + formatCurrency(t.revenue));
+              if (isBar && hasOrders) lines.push('Total Orders: ' + t.orders);
+              if (isBar && hasPacks) {
+                var totalPacks = flavorNames.reduce(function (sum, f) { return sum + ((t.packs_by_flavor || {})[f] || 0); }, 0);
+                lines.push('Total Packs Sold: ' + totalPacks);
+              }
+              if (isBar && hasLeads && hasConverted) lines.push('Total Leads: ' + t.leads_created + ' (Converted: ' + t.converted + ')');
+              return lines;
+            },
           },
         },
       },
-      scales: {
-        x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { color: '#94a3b8', font: { size: 11 }, maxTicksLimit: 10, maxRotation: 0 } },
-        y: {
-          stacked: true,
-          grid: { color: '#f1f5f9' },
-          border: { display: false },
-          ticks: {
-            color: '#94a3b8', font: { size: 11 },
-            callback: function (v) { return v >= 1000 ? '₹' + (v / 1000).toFixed(1) + 'k' : '₹' + v; },
-          },
-        },
-      },
+      scales: scales,
     },
   });
 }
@@ -179,9 +429,10 @@ function renderPipeline(pipeline) {
   $('#pipelineCard').show();
 }
 
-function renderFollowUps(items) {
+function renderFollowUps(items, target) {
+  target = target || '#followUpsBody';
   if (!items.length) {
-    $('#followUpsBody').html('<div class="text-center py-4" style="color:var(--gray-400)"><i class="fas fa-check-circle fa-2x mb-2 d-block" style="color:#16a34a"></i>No pending follow-ups</div>');
+    $(target).html('<div class="text-center py-4" style="color:var(--gray-400)"><i class="fas fa-check-circle fa-2x mb-2 d-block" style="color:#16a34a"></i>No pending follow-ups</div>');
     return;
   }
   var html = '<div class="table-responsive"><table class="table table-sm dash-table mb-0"><thead><tr><th></th><th>Company</th><th>Subject</th><th>Due</th><th></th></tr></thead><tbody>';
@@ -198,12 +449,13 @@ function renderFollowUps(items) {
     '</tr>';
   });
   html += '</tbody></table></div>';
-  $('#followUpsBody').html(html);
+  $(target).html(html);
 }
 
-function renderOverdue(items) {
+function renderOverdue(items, target) {
+  target = target || '#overdueBody';
   if (!items.length) {
-    $('#overdueBody').html('<div class="text-center py-4" style="color:var(--gray-400)"><i class="fas fa-check-circle fa-2x mb-2 d-block" style="color:#16a34a"></i>No overdue payments</div>');
+    $(target).html('<div class="text-center py-4" style="color:var(--gray-400)"><i class="fas fa-check-circle fa-2x mb-2 d-block" style="color:#16a34a"></i>No overdue payments</div>');
     return;
   }
   var html = '<div class="table-responsive"><table class="table table-sm dash-table mb-0"><thead><tr><th>Order</th><th>Company</th><th>Balance</th><th>Due</th></tr></thead><tbody>';
@@ -223,12 +475,13 @@ function renderOverdue(items) {
     '</tr>';
   });
   html += '</tbody></table></div>';
-  $('#overdueBody').html(html);
+  $(target).html(html);
 }
 
-function renderPendingOrders(items) {
+function renderPendingOrders(items, target) {
+  target = target || '#pendingOrdersBody';
   if (!items.length) {
-    $('#pendingOrdersBody').html('<div class="text-center py-4" style="color:var(--gray-400)"><i class="fas fa-bag-shopping fa-2x mb-2 d-block"></i>No active orders</div>');
+    $(target).html('<div class="text-center py-4" style="color:var(--gray-400)"><i class="fas fa-bag-shopping fa-2x mb-2 d-block"></i>No active orders</div>');
     return;
   }
   var html = '<div class="table-responsive"><table class="table table-sm dash-table mb-0"><thead><tr><th>Order</th><th>Company</th><th>Amount</th><th>Status</th><th>Payment</th></tr></thead><tbody>';
@@ -242,17 +495,18 @@ function renderPendingOrders(items) {
     '</tr>';
   });
   html += '</tbody></table></div>';
-  $('#pendingOrdersBody').html(html);
+  $(target).html(html);
 }
 
-function renderTopCompanies(items) {
-  if (!items.length) {
-    $('#topCompaniesBody').html('<div class="text-center py-4" style="color:var(--gray-400)">No data yet</div>');
+function renderTopCompanies(items, target) {
+  target = target || '#topCompaniesBody';
+  var filtered = items.filter(function (c) { return parseFloat(c.revenue) || parseInt(c.order_count); });
+  if (!filtered.length) {
+    $(target).html('<div class="text-center py-4" style="color:var(--gray-400)">No data yet</div>');
     return;
   }
   var html = '<div class="table-responsive"><table class="table table-sm dash-table mb-0"><thead><tr><th>Company</th><th>Orders</th><th>Revenue</th><th>Outstanding</th></tr></thead><tbody>';
-  items.forEach(function (c) {
-    if (!parseFloat(c.revenue) && !parseInt(c.order_count)) return;
+  filtered.forEach(function (c) {
     html += '<tr>' +
       '<td><a href="/admin/b2b/' + c.id + '/">' + escHtml(c.company_name) + '</a></td>' +
       '<td>' + (c.order_count || 0) + '</td>' +
@@ -261,7 +515,7 @@ function renderTopCompanies(items) {
     '</tr>';
   });
   html += '</tbody></table></div>';
-  $('#topCompaniesBody').html(html);
+  $(target).html(html);
 }
 
 function markFollowUpDone(activityId, btn) {

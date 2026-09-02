@@ -9,7 +9,7 @@ from `total_amount - paid_amount` (never the stored `balance_amount`):
   - overdue     = that outstanding restricted to a past due_date
   - advance     = abs(sum of negative balances) i.e. overpayment credit
 """
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.db.models import Case, Count, DecimalField, F, Q, Sum, Value, When
 from django.db.models.functions import Coalesce, TruncDate
@@ -21,7 +21,7 @@ from rest_framework.views import APIView
 from core.api import HasModulePermission, current_brand_id, ok
 from core.auth import admin_login_required, require_module
 from crm.models import B2BActivity, B2BCompany
-from orders.models import B2BOrder
+from orders.models import B2BOrder, B2BOrderItem
 
 ACTIVE_STATUSES = ['draft', 'confirmed', 'dispatched']
 MONEY = DecimalField(max_digits=14, decimal_places=2)
@@ -46,6 +46,18 @@ def _pct_change(curr, prev):
     return round((curr - prev) / prev * 100, 1)
 
 
+TREND_MAX_SPAN_DAYS = 366
+
+
+def _parse_date(value):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, '%Y-%m-%d').date()
+    except ValueError:
+        return None
+
+
 class B2BDashboardStatsAPI(APIView):
     permission_classes = [HasModulePermission]
     permission_module = 'b2b'
@@ -54,16 +66,38 @@ class B2BDashboardStatsAPI(APIView):
         brand_id = current_brand_id(request)
         today = timezone.localdate()
 
+        trend_start, trend_end = self._trend_range(request, today)
+        trend, flavor_names = self._revenue_trend(brand_id, trend_start, trend_end)
+
         return ok({
             'pipeline': self._pipeline(brand_id),
             'order_stats': self._order_stats(brand_id, today),
             'revenue_stats': self._revenue_stats(brand_id, today),
-            'revenue_trend': self._revenue_trend(brand_id, today),
+            'revenue_trend': trend,
+            'trend_range': {'start': trend_start.isoformat(), 'end': trend_end.isoformat()},
+            'flavor_names': flavor_names,
             'follow_ups': self._follow_ups(brand_id, today),
             'overdue_payments': self._overdue_payments(brand_id, today),
             'pending_orders': self._pending_orders(brand_id),
             'top_companies': self._top_companies(brand_id),
         })
+
+    @staticmethod
+    def _trend_range(request, today):
+        """
+        Trend date range from ?start_date=&end_date= (YYYY-MM-DD), defaulting
+        to the last 30 days. Invalid/missing dates fall back to the default;
+        a reversed range is swapped; the span is capped at TREND_MAX_SPAN_DAYS.
+        """
+        default_start = today - timedelta(days=29)
+        start = _parse_date(request.query_params.get('start_date')) or default_start
+        end = _parse_date(request.query_params.get('end_date')) or today
+        if start > end:
+            start, end = end, start
+        end = min(end, today)
+        if (end - start).days > TREND_MAX_SPAN_DAYS:
+            start = end - timedelta(days=TREND_MAX_SPAN_DAYS)
+        return start, end
 
     @staticmethod
     def _pipeline(brand_id):
@@ -149,15 +183,16 @@ class B2BDashboardStatsAPI(APIView):
         }
 
     @staticmethod
-    def _revenue_trend(brand_id, today):
+    def _revenue_trend(brand_id, start, end):
         """
-        Daily revenue for the last 30 days, split into paid vs pending
-        (revenue - paid_amount, floored at 0) so the chart can stack them.
+        Daily metrics from `start` to `end` (inclusive): revenue (paid vs
+        pending), order count, new leads created, leads converted, and packs
+        sold per flavor that day. Returns (trend, flavor_names) —
+        flavor_names sorted by total volume over the window, descending.
         """
-        start = today - timedelta(days=29)
         rows = (
             B2BOrder.objects.filter(
-                brand_id=brand_id, order_date__date__gte=start, order_date__date__lte=today,
+                brand_id=brand_id, order_date__date__gte=start, order_date__date__lte=end,
             )
             .exclude(status='cancelled')
             .annotate(d=TruncDate('order_date'))
@@ -170,9 +205,45 @@ class B2BDashboardStatsAPI(APIView):
         )
         by_day = {r['d']: r for r in rows}
 
+        leads_rows = (
+            B2BCompany.objects.filter(
+                brand_id=brand_id, created_at__date__gte=start, created_at__date__lte=end,
+            )
+            .annotate(d=TruncDate('created_at'))
+            .values('d').annotate(cnt=Count('id'))
+        )
+        leads_by_day = {r['d']: r['cnt'] for r in leads_rows}
+
+        converted_rows = (
+            B2BCompany.objects.filter(
+                brand_id=brand_id, converted_at__date__gte=start, converted_at__date__lte=end,
+            )
+            .annotate(d=TruncDate('converted_at'))
+            .values('d').annotate(cnt=Count('id'))
+        )
+        converted_by_day = {r['d']: r['cnt'] for r in converted_rows}
+
+        pack_rows = (
+            B2BOrderItem.objects.filter(
+                b2b_order__brand_id=brand_id,
+                b2b_order__order_date__date__gte=start,
+                b2b_order__order_date__date__lte=end,
+            )
+            .exclude(b2b_order__status='cancelled')
+            .annotate(d=TruncDate('b2b_order__order_date'))
+            .values('d', 'flavor_name')
+            .annotate(packs=Coalesce(Sum('quantity'), Value(0)))
+        )
+        packs_by_day = {}
+        flavor_totals = {}
+        for r in pack_rows:
+            packs_by_day.setdefault(r['d'], {})[r['flavor_name']] = r['packs']
+            flavor_totals[r['flavor_name']] = flavor_totals.get(r['flavor_name'], 0) + r['packs']
+        flavor_names = sorted(flavor_totals, key=lambda f: -flavor_totals[f])
+
         trend = []
         cur = start
-        while cur <= today:
+        while cur <= end:
             r = by_day.get(cur)
             revenue = _f(r['revenue']) if r else 0.0
             paid = _f(r['paid']) if r else 0.0
@@ -183,9 +254,12 @@ class B2BDashboardStatsAPI(APIView):
                 'paid': paid,
                 'pending': max(revenue - paid, 0.0),
                 'orders': r['orders'] if r else 0,
+                'leads_created': leads_by_day.get(cur, 0),
+                'converted': converted_by_day.get(cur, 0),
+                'packs_by_flavor': packs_by_day.get(cur, {}),
             })
             cur += timedelta(days=1)
-        return trend
+        return trend, flavor_names
 
     @staticmethod
     def _follow_ups(brand_id, today):
@@ -197,7 +271,7 @@ class B2BDashboardStatsAPI(APIView):
                 is_follow_up_done=False,
             )
             .select_related('company')
-            .order_by('follow_up_date')[:20]
+            .order_by('follow_up_date')
         )
         return [
             {
@@ -221,7 +295,7 @@ class B2BDashboardStatsAPI(APIView):
             .filter(balance__gt=0)
             .filter(Q(due_date__isnull=True) | Q(due_date__lt=today))
             .select_related('company')
-            .order_by(F('due_date').asc(nulls_last=True))[:20]
+            .order_by(F('due_date').asc(nulls_last=True))
         )
         return [
             {
@@ -242,7 +316,7 @@ class B2BDashboardStatsAPI(APIView):
         orders = (
             B2BOrder.objects.filter(brand_id=brand_id, status__in=ACTIVE_STATUSES)
             .select_related('company')
-            .order_by('-order_date')[:15]
+            .order_by('-order_date')
         )
         return [
             {
@@ -277,7 +351,8 @@ class B2BDashboardStatsAPI(APIView):
                     Value(0), output_field=MONEY,
                 ),
             )
-            .order_by('-revenue')[:10]
+            .filter(Q(revenue__gt=0) | Q(order_count__gt=0))
+            .order_by('-revenue')
         )
         return [
             {

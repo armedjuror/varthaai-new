@@ -167,13 +167,18 @@
               <label class="form-label">Pincode</label>
               <input type="text" class="form-control" id="addPincode">
             </div>
-            <div class="col-md-6">
+            <div class="col-md-4">
               <label class="form-label">GST Number</label>
               <input type="text" class="form-control" id="addGst">
             </div>
-            <div class="col-md-6">
+            <div class="col-md-4">
               <label class="form-label">Assigned To</label>
               <select class="form-select" id="addAssignedTo"><option value="">Select…</option></select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Created Date</label>
+              <input type="date" class="form-control" id="addCreatedDate" max="{% now 'Y-m-d' %}">
+              <div class="form-text">Leave blank to use today.</div>
             </div>
             <div class="col-md-6">
               <label class="form-label">Location URL</label>

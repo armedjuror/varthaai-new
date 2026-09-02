@@ -7,6 +7,8 @@ served by the orders app). One APIView handles GET (`?view=`) and
 POST-with-`action`, matching the PHP endpoint. Everything is scoped to the
 active brand via `current_brand_id`.
 """
+from datetime import datetime
+
 from django.contrib.auth import get_user_model
 from django.db.models import Count, Q
 from django.shortcuts import render
@@ -292,6 +294,12 @@ class B2BAPI(APIView):
             assigned_to_id=_int_or_none(body.get('assigned_to')),
             notes=(body.get('notes') or '').strip(),
         )
+        created_date = _parse_date(body.get('created_date'))
+        if created_date and created_date <= timezone.localdate():
+            created_dt = timezone.make_aware(
+                datetime.combine(created_date, timezone.localtime().time()),
+            )
+            B2BCompany.objects.filter(pk=company.pk).update(created_at=created_dt)
         contact_name = (body.get('contact_name') or '').strip()
         if contact_name:
             B2BContact.objects.create(
@@ -472,4 +480,14 @@ def _decimal_or_none(value):
     try:
         return float(value) if value not in (None, '', 'null') else None
     except (TypeError, ValueError):
+        return None
+
+
+def _parse_date(value):
+    value = (value or '').strip()
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, '%Y-%m-%d').date()
+    except ValueError:
         return None

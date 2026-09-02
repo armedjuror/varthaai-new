@@ -9,6 +9,7 @@
   let currentTab = 'all';
 
   const KIND_LABEL = { bug: 'Bug', feature: 'Feature', query: 'Query' };
+  const AUTH_LABEL = { api: 'API', subscription: 'Budget' };
   const STATUS_LABEL = {
     new: 'Queued', analyzing: 'Analyzing…', awaiting_input: 'Your turn',
     ready: 'Ready', pr_requested: 'PR requested', pr_open: 'PR open',
@@ -40,12 +41,32 @@
   function statusPill(s) {
     return `<span class="st-pill st-${s}">${STATUS_LABEL[s] || s}</span>`;
   }
+  function authBadge(m) {
+    if (m !== 'subscription') return '';
+    return `<span class="kind-badge auth-budget" title="Ran on subscription auth"><i class="fas fa-wallet"></i> ${AUTH_LABEL[m]}</span>`;
+  }
+
+  /* ── Global auth mode toggle ── */
+  function syncAuthModeToggle(mode) {
+    const el = document.getElementById(mode === 'subscription' ? 'gmSub' : 'gmApi');
+    if (el && !el.checked) el.checked = true;
+  }
+  document.querySelectorAll('#authModeToggle input[name="globalAuthMode"]').forEach(el => {
+    el.addEventListener('change', async () => {
+      const res = await apiPost(API, { action: 'set_auth_mode', mode: el.value });
+      if (!res.success) {
+        showAlertModal(res.message, 'danger');
+        syncAuthModeToggle(el.value === 'subscription' ? 'api' : 'subscription');
+      }
+    });
+  });
 
   /* ── List ── */
   async function loadList() {
     const kind = document.getElementById('filterKind').value;
     const params = Object.assign({}, kind ? { kind } : {}, STATUS_TABS[currentTab] || {});
     const res = await apiGet(API, params);
+    if (res.data && res.data.auth_mode) syncAuthModeToggle(res.data.auth_mode);
     const items = (res.data && res.data.requests) || [];
     const box = document.getElementById('reqList');
     if (!items.length) {
@@ -56,7 +77,7 @@
       <div class="dbg-item ${r.id === currentId ? 'active' : ''}" data-id="${r.id}">
         <h6>${escHtml(r.title)}</h6>
         <div class="meta">
-          ${kindBadge(r.kind)} ${statusPill(r.status)}
+          ${kindBadge(r.kind)} ${statusPill(r.status)} ${authBadge(r.auth_mode)}
           ${r.pr_url ? '<i class="fab fa-github text-muted" title="PR opened"></i>' : ''}
         </div>
         <small class="text-muted">${formatDateTime(r.updated_at)}</small>
@@ -84,6 +105,8 @@
       `<span class="kind-badge kind-${d.kind}" id="tKind">${KIND_LABEL[d.kind]}</span>`;
     document.getElementById('tStatus').outerHTML =
       `<span class="st-pill st-${d.status} ms-1" id="tStatus">${STATUS_LABEL[d.status] || d.status}</span>`;
+    document.getElementById('tAuth').outerHTML =
+      `<span id="tAuth" class="ms-1">${authBadge(d.auth_mode)}</span>`;
     document.getElementById('tTitle').textContent = d.title;
 
     // RCA / plan panel

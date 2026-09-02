@@ -31,6 +31,32 @@ npm install -g @anthropic-ai/claude-code   # provides the `claude` binary
 which claude                                # must resolve on the worker's PATH
 ```
 
+### Optional: subscription auth (budget option)
+A global toggle in the Debugger page header (API / Budget) switches whether
+runs bill against the metered API key or a Claude Pro/Max subscription
+instead — it's not a per-thread setting; whichever request the worker is
+processing when it starts a run goes with whatever the toggle is set to at
+that moment. To enable the subscription option:
+```bash
+claude setup-token   # interactive, one-time — needs a browser (run it anywhere,
+                      # not necessarily on the headless box; it prints a token)
+```
+Put the printed token in `.env`:
+```
+DEBUGGER_CLAUDE_OAUTH_TOKEN=sk-ant-oat...
+```
+Notes:
+- The token is valid for a year; re-run `claude setup-token` to rotate it.
+- Subscription rate limits are sized for one person typing in a terminal, not
+  an unattended multi-turn agent — expect to hit them faster than API limits.
+  If a run fails with a rate-limit error, retry it in API mode.
+- `consult_advisor` (the final-synthesis escalation to a stronger model) always
+  calls the Anthropic API directly and bills against `ANTHROPIC_API_KEY`
+  regardless of the toggle — subscription mode only covers the main
+  investigation loop.
+- If `DEBUGGER_CLAUDE_OAUTH_TOKEN` is unset, the "Budget" option is disabled in
+  the toggle and every run uses the API key.
+
 ## 3. Redis (Celery broker)
 ```bash
 sudo apt install redis-server
