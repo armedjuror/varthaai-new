@@ -89,6 +89,14 @@ def build_messages(session, action, admin_message, blog_content):
         turn += ('\n\n---\nCurrent draft content:\n' + blog_content) if turn else ('Current draft content:\n' + blog_content)
     if turn:
         messages.append({'role': 'user', 'content': turn})
+    elif len(messages) == 1:
+        # No admin message, no blog content, no prior turns — e.g. a bare
+        # "Generate" click with only topic/tone/audience filled in (those
+        # live in the system prompt above, not here). Anthropic requires the
+        # message list to start with a 'user' turn once litellm extracts the
+        # system prompt; without this, an all-system list becomes genuinely
+        # empty and the request is rejected upstream.
+        messages.append({'role': 'user', 'content': 'Please go ahead now, using the session context above.'})
     return messages
 
 
