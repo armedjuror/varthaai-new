@@ -85,17 +85,110 @@
     return bodyEl;
   }
 
-  function addInsertButton(bodyEl, textGetter) {
+  /* ── Parsing assistant output into form fields ──
+     Each action's system prompt (marketing/ai.py) asks for a specific shape;
+     these mirror that shape so "Insert" lands text in the right field
+     instead of always dumping it into the main content textarea. */
+
+  function setField(id, value) {
+    if (value === undefined || value === null) return false;
+    document.getElementById(id).value = value;
+    return true;
+  }
+
+  function mergeTags(newTags) {
+    var added = 0;
+    newTags.forEach(function (t) {
+      t = t.trim();
+      if (!t) return;
+      var exists = tags.some(function (existing) { return existing.toLowerCase() === t.toLowerCase(); });
+      if (!exists) { tags.push(t); added++; }
+    });
+    if (added) renderTags();
+    return added;
+  }
+
+  // "# Title\n\nBody...\n\n---\nExcerpt: ..." (see GENERATE prompt)
+  function parseGeneratedDraft(text) {
+    var lines = text.split('\n');
+    var title = '';
+    var titleIdx = lines.findIndex(function (l) { return /^#\s+\S/.test(l.trim()); });
+    if (titleIdx !== -1) {
+      title = lines[titleIdx].trim().replace(/^#\s+/, '').trim();
+      lines.splice(titleIdx, 1);
+    }
+    var body = lines.join('\n');
+    var excerpt = '';
+    var m = body.match(/\n-{3,}\s*\n\s*\**Excerpt\**:?\s*([\s\S]*)$/i);
+    if (m) {
+      excerpt = m[1].trim();
+      body = body.slice(0, m.index).trim();
+    }
+    return { title: title, excerpt: excerpt, body: body.trim() };
+  }
+
+  // "- Title: ...\n- Excerpt: ...\n- Meta Title: ...\n- Meta Description: ...\n- Tags: a, b, c"
+  function parseMetaSuggestions(text) {
+    var fields = {};
+    var re = /^[-*\d.\s]*\**(title|excerpt|meta title|meta description|tags)\**\s*:\s*(.+)$/i;
+    text.split('\n').forEach(function (line) {
+      var m = line.trim().match(re);
+      if (!m) return;
+      var key = m[1].toLowerCase().replace(/\s+/g, '_');
+      fields[key] = m[2].trim().replace(/^\*\*|\*\*$/g, '').trim();
+    });
+    return fields;
+  }
+
+  function addInsertButton(bodyEl, action, textGetter) {
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn btn-sm btn-outline-success insert-btn';
-    btn.innerHTML = '<i class="fas fa-arrow-left me-1"></i>Insert into editor';
-    btn.addEventListener('click', function () {
-      var text = textGetter();
-      contentEl.value = contentEl.value ? (contentEl.value + '\n\n' + text) : text;
-      renderPreview();
-      showAlertModal('Inserted into the editor — review before saving.', 'success');
-    });
+
+    if (action === 'suggest_meta') {
+      btn.innerHTML = '<i class="fas fa-arrow-left me-1"></i>Apply suggestions';
+      btn.addEventListener('click', function () {
+        var f = parseMetaSuggestions(textGetter());
+        var filled = [];
+        if (setField('blogTitle', f.title)) filled.push('title');
+        if (setField('blogExcerpt', f.excerpt)) filled.push('excerpt');
+        if (setField('blogMetaTitle', f.meta_title)) filled.push('meta title');
+        if (setField('blogMetaDescription', f.meta_description)) filled.push('meta description');
+        var addedTags = f.tags ? mergeTags(f.tags.split(',')) : 0;
+        if (addedTags) filled.push(addedTags + ' tag' + (addedTags === 1 ? '' : 's'));
+        showAlertModal(
+          filled.length ? ('Applied: ' + filled.join(', ') + ' — review before saving.') : 'Could not parse a suggestion from the response.',
+          filled.length ? 'success' : 'warning',
+        );
+      });
+    } else if (action === 'generate') {
+      btn.innerHTML = '<i class="fas fa-arrow-left me-1"></i>Insert into editor';
+      btn.addEventListener('click', function () {
+        var parsed = parseGeneratedDraft(textGetter());
+        var filled = [];
+        if (parsed.title && setField('blogTitle', parsed.title)) filled.push('title');
+        if (parsed.excerpt && setField('blogExcerpt', parsed.excerpt)) filled.push('excerpt');
+        contentEl.value = parsed.body || textGetter();
+        filled.push('content');
+        renderPreview();
+        showAlertModal('Filled in: ' + filled.join(', ') + ' — review before saving.', 'success');
+      });
+    } else if (action === 'rewrite') {
+      btn.innerHTML = '<i class="fas fa-arrow-left me-1"></i>Replace editor content';
+      btn.addEventListener('click', function () {
+        contentEl.value = textGetter();
+        renderPreview();
+        showAlertModal('Editor content replaced with the rewrite — review before saving.', 'success');
+      });
+    } else {
+      btn.innerHTML = '<i class="fas fa-arrow-left me-1"></i>Insert into editor';
+      btn.addEventListener('click', function () {
+        var text = textGetter();
+        contentEl.value = contentEl.value ? (contentEl.value + '\n\n' + text) : text;
+        renderPreview();
+        showAlertModal('Inserted into the editor — review before saving.', 'success');
+      });
+    }
     bodyEl.parentNode.appendChild(btn);
   }
 
@@ -117,7 +210,7 @@
         // Land as editable text regardless of a clean finish or a dropped
         // connection — never leave the admin staring at a spinner or losing
         // whatever streamed so far.
-        addInsertButton(bodyEl, function () { return full; });
+        addInsertButton(bodyEl, action, function () { return full; });
       }
 
       fetch(ctx.streamUrl, {

@@ -43,9 +43,15 @@ _SYSTEM_PROMPTS = {
     BlogDraftMessage.Action.SUGGEST_META: (
         "You are an SEO assistant for Varthaai's blog. Given the draft content, "
         "suggest: a title (<= 60 chars), an excerpt (<= 200 chars), a meta title "
-        "(<= 60 chars) and a meta description (<= 155 chars). Return them as a "
-        "small Markdown list labelled Title / Excerpt / Meta Title / Meta "
-        "Description — nothing else."
+        "(<= 60 chars), a meta description (<= 155 chars), and 3-6 relevant tags "
+        "(short lowercase keywords/phrases, comma-separated). Return ONLY a "
+        "Markdown list with exactly these five lines, each on its own line, "
+        "nothing else:\n"
+        "- Title: ...\n"
+        "- Excerpt: ...\n"
+        "- Meta Title: ...\n"
+        "- Meta Description: ...\n"
+        "- Tags: tag one, tag two, tag three"
     ),
     BlogDraftMessage.Action.OUTLINE: (
         "You are a content strategist for Varthaai's blog. Produce a Markdown "
