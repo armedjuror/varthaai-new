@@ -8,7 +8,6 @@ gate is required). Responses use the standard {success, message, data} envelope.
 """
 import re
 
-from django.conf import settings
 from django.shortcuts import redirect, render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.permissions import BasePermission
@@ -24,11 +23,7 @@ from debugger.models import DebugLearning, DebugMessage, DebugRequest
 def debugger_page(request):
     if not getattr(request.user, 'is_super_admin', False):
         return redirect('core:dashboard')
-    from debugger.auth_mode import get_auth_mode
-    return render(request, 'admin/debugger.html', {
-        'subscription_auth_available': bool(settings.DEBUGGER_CLAUDE_OAUTH_TOKEN),
-        'current_auth_mode': get_auth_mode(),
-    })
+    return render(request, 'admin/debugger.html')
 
 
 class IsSuperAdmin(BasePermission):
@@ -64,7 +59,6 @@ def _req_summary(r):
         'kind': r.kind,
         'title': r.title,
         'status': r.status,
-        'auth_mode': r.auth_mode,
         'has_proposal': r.has_proposed_fix,
         'pr_url': r.pr_url,
         'created_at': r.created_at.isoformat(),
@@ -147,12 +141,7 @@ class DebuggerAPI(APIView):
             qs = qs.filter(status__in=[s for s in status.split(',') if s])
         if exclude_status:
             qs = qs.exclude(status__in=[s for s in exclude_status.split(',') if s])
-        from debugger.auth_mode import get_auth_mode
-        return ok({
-            'requests': [_req_summary(r) for r in qs[:200]],
-            'auth_mode': get_auth_mode(),
-            'subscription_available': bool(settings.DEBUGGER_CLAUDE_OAUTH_TOKEN),
-        })
+        return ok({'requests': [_req_summary(r) for r in qs[:200]]})
 
     def post(self, request):
         body = request.data if isinstance(request.data, dict) else {}
@@ -167,7 +156,6 @@ class DebuggerAPI(APIView):
             'approve_plan': self._approve_plan,
             'sync_pr': self._sync_pr,
             'retry': self._retry,
-            'set_auth_mode': self._set_auth_mode,
         }.get(action)
         if not handler:
             return err('Unknown action.')
@@ -348,14 +336,3 @@ class DebuggerAPI(APIView):
             return err('No PR is open for this thread.')
         queued = _enqueue_task(sync_pr_reviews, r.id)
         return ok({'queued': queued}, message='Checking for new PR review activity…')
-
-    def _set_auth_mode(self, request, body):
-        """Flip the GLOBAL Claude auth switch. Takes effect on whichever
-        request the worker processes next — not a per-thread setting."""
-        from debugger.auth_mode import set_auth_mode
-        mode = (body.get('mode') or '').strip()
-        try:
-            set_auth_mode(mode)
-        except ValueError as exc:
-            return err(str(exc))
-        return ok({'auth_mode': mode}, message='Auth mode updated.')

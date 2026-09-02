@@ -106,9 +106,7 @@ def process_request(self, request_id, mode=None):
         },
     )
 
-    if result.get('auth_mode'):
-        request.auth_mode = result['auth_mode']
-    fields = ['status', 'auth_mode', 'updated_at']
+    fields = ['status', 'updated_at']
     if request.kind in (DebugRequest.Kind.BUG, DebugRequest.Kind.FEATURE):
         request.rca = text
         fields.append('rca')
@@ -301,8 +299,6 @@ def finalize_learning(self, request_id):
         if learnings:
             title = learnings[-1].get('title', '')
             draft = learnings[-1].get('content', '')
-        if result.get('auth_mode'):
-            request.auth_mode = result['auth_mode']
     except SoftTimeLimitExceeded:
         elapsed = time.monotonic() - start
         logger.warning('finalize_learning timed out for %s after %.0fs', request_id, elapsed)
@@ -316,7 +312,7 @@ def finalize_learning(self, request_id):
     request.learning_title = (title or request.title)[:200]
     request.learning_draft = draft
     request.status = DebugRequest.Status.LEARNING_REVIEW
-    request.save(update_fields=['learning_title', 'learning_draft', 'status', 'auth_mode', 'updated_at'])
+    request.save(update_fields=['learning_title', 'learning_draft', 'status', 'updated_at'])
     return {'request_id': request_id, 'has_draft': bool(draft)}
 
 

@@ -59,9 +59,31 @@ _SYSTEM_PROMPTS = {
 }
 
 
-def build_messages(session, action, admin_message, blog_content):
-    """Assemble the litellm `messages` list for one turn: system prompt for the
-    action + this session's prior turns + the new instruction."""
+def _resolve_turn_content(admin_message, blog_content):
+    """
+    The exact text a turn sends the model, folding blog_content in under the
+    admin's free-text message (if any). Never empty — Anthropic requires the
+    message list to start with a 'user' turn, so a bare action click with no
+    typed message and no draft content (e.g. first-ever "Generate") still
+    needs *something* real to persist and send.
+    """
+    turn = admin_message or ''
+    if blog_content:
+        turn += ('\n\n---\nCurrent draft content:\n' + blog_content) if turn else ('Current draft content:\n' + blog_content)
+    return turn or 'Please go ahead now, using the session context above.'
+
+
+def build_messages(session, action):
+    """
+    Assemble the litellm `messages` list for one turn: system prompt for the
+    action + the full persisted conversation. The caller must persist this
+    turn's admin message (see _resolve_turn_content) BEFORE calling this, so
+    the message list is always a straight replay of stored rows — no
+    separate in-memory "current turn" to drift out of sync with what actually
+    got saved. That also guarantees the first stored row (and therefore the
+    first non-system message) is always 'user', since a turn is never
+    persisted without one.
+    """
     system = _SYSTEM_PROMPTS.get(action, _SYSTEM_PROMPTS[BlogDraftMessage.Action.CHAT])
     context_bits = []
     if session.topic:
@@ -83,20 +105,14 @@ def build_messages(session, action, admin_message, blog_content):
             'role': 'user' if m.role == BlogDraftMessage.Role.ADMIN else 'assistant',
             'content': m.content,
         })
-
-    turn = admin_message or ''
-    if blog_content:
-        turn += ('\n\n---\nCurrent draft content:\n' + blog_content) if turn else ('Current draft content:\n' + blog_content)
-    if turn:
-        messages.append({'role': 'user', 'content': turn})
-    elif len(messages) == 1:
-        # No admin message, no blog content, no prior turns — e.g. a bare
-        # "Generate" click with only topic/tone/audience filled in (those
-        # live in the system prompt above, not here). Anthropic requires the
-        # message list to start with a 'user' turn once litellm extracts the
-        # system prompt; without this, an all-system list becomes genuinely
-        # empty and the request is rejected upstream.
-        messages.append({'role': 'user', 'content': 'Please go ahead now, using the session context above.'})
+    if len(messages) > 1 and messages[1]['role'] == 'assistant':
+        # Defensive: sessions created before this fix can have persisted
+        # history that starts with an assistant turn (an admin row was
+        # skipped on an earlier bare action click). Anthropic requires
+        # 'user' first regardless of how the history got that way — patch it
+        # in-memory so an already-broken session self-heals on its next turn
+        # rather than erroring forever.
+        messages.insert(1, {'role': 'user', 'content': 'Please continue.'})
     return messages
 
 
@@ -106,15 +122,14 @@ def stream_completion(session, action, admin_message, model_id, blog_content):
     model_id = model_id or settings.AI_ASSIST_DEFAULT_MODEL
     provider = model_id.split('/', 1)[0] if '/' in model_id else 'anthropic'
 
-    if admin_message or blog_content:
-        BlogDraftMessage.objects.create(
-            session=session,
-            role=BlogDraftMessage.Role.ADMIN,
-            action=action,
-            content=admin_message or '',
-        )
+    BlogDraftMessage.objects.create(
+        session=session,
+        role=BlogDraftMessage.Role.ADMIN,
+        action=action,
+        content=_resolve_turn_content(admin_message, blog_content),
+    )
 
-    messages = build_messages(session, action, admin_message, blog_content)
+    messages = build_messages(session, action)
 
     chunks = []
     full_text = []

@@ -25,7 +25,6 @@
   .kind-bug{ background:#fdecea; color:#c0392b;}
   .kind-feature{ background:#eaf3fb; color:#2c6fb3;}
   .kind-query{ background:#eef7e6; color:#5a7a2e;}
-  .auth-budget{ background:#fff6e0; color:#8a6d00;}
 
   .st-pill{ font-size:.68rem; font-weight:600; padding:2px 8px; border-radius:20px; background:#eef0f3; color:#555;}
   .st-analyzing,.st-new{ background:#fff4d6; color:#8a6d00;}
@@ -88,17 +87,6 @@
       <p>Report a bug, request a feature, or ask a question. The agent investigates using code, a read-only database, and server logs.</p>
     </div>
     <div class="page-header-actions">
-      <div class="btn-group btn-group-sm me-2" role="group" id="authModeToggle"
-           title="Which Claude auth new agent runs use — applies globally, effective on the next run">
-        <input type="radio" class="btn-check" name="globalAuthMode" id="gmApi" value="api"
-               {% if current_auth_mode != 'subscription' %}checked{% endif %}>
-        <label class="btn btn-outline-secondary" for="gmApi"><i class="fas fa-bolt me-1"></i>API</label>
-        <input type="radio" class="btn-check" name="globalAuthMode" id="gmSub" value="subscription"
-               {% if current_auth_mode == 'subscription' %}checked{% endif %}
-               {% if not subscription_auth_available %}disabled{% endif %}
-               title="{% if not subscription_auth_available %}Not configured on this server — run `claude setup-token` and set DEBUGGER_CLAUDE_OAUTH_TOKEN{% endif %}">
-        <label class="btn btn-outline-secondary" for="gmSub"><i class="fas fa-wallet me-1"></i>Budget</label>
-      </div>
       <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newReqModal">
         <i class="fas fa-plus me-1"></i>New Request
       </button>
@@ -140,7 +128,6 @@
             <div>
               <span class="kind-badge" id="tKind"></span>
               <span class="st-pill ms-1" id="tStatus"></span>
-              <span id="tAuth"></span>
               <h5 class="mt-2 mb-0" id="tTitle"></h5>
             </div>
             <div class="d-flex gap-1">

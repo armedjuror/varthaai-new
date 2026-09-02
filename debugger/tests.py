@@ -140,24 +140,6 @@ class ApiPermissionTests(TestCase):
         self.client.force_login(self.superuser)
         self.assertEqual(self.client.get(self.page).status_code, 200)
 
-    @override_settings(DEBUGGER_CLAUDE_OAUTH_TOKEN='oat-test')
-    def test_page_renders_current_auth_mode_server_side(self, _enq):
-        """The correct radio must be `checked` in the initial HTML (not just
-        patched in by JS after a fetch) — otherwise every reload flashes API
-        first, which reads as the preference having reverted."""
-        from debugger.auth_mode import set_auth_mode
-        self.client.force_login(self.superuser)
-
-        set_auth_mode(DebugRequest.AuthMode.SUBSCRIPTION)
-        content = self.client.get(self.page).content.decode()
-        gm_sub = content[content.index('id="gmSub"'):content.index('id="gmSub"') + 120]
-        self.assertIn('checked', gm_sub)
-
-        set_auth_mode(DebugRequest.AuthMode.API)
-        content = self.client.get(self.page).content.decode()
-        gm_api = content[content.index('id="gmApi"'):content.index('id="gmApi"') + 120]
-        self.assertIn('checked', gm_api)
-
     def test_api_forbidden_for_non_super(self, _enq):
         self.client.force_login(self.staff)
         self.assertEqual(self.client.get(self.api).status_code, 403)
@@ -191,38 +173,6 @@ class ApiPermissionTests(TestCase):
         self.client.force_login(self.superuser)
         res = self.client.post(
             self.api, {'action': 'create', 'kind': 'nope', 'title': 'x'},
-            content_type='application/json')
-        self.assertFalse(res.json()['success'])
-
-    def test_create_defaults_to_api_auth_mode(self, _enq):
-        self.client.force_login(self.superuser)
-        res = self.client.post(
-            self.api, {'action': 'create', 'kind': 'bug', 'title': 'x'},
-            content_type='application/json')
-        rid = res.json()['data']['id']
-        self.assertEqual(DebugRequest.objects.get(id=rid).auth_mode, DebugRequest.AuthMode.API)
-
-    def test_list_response_includes_global_auth_mode(self, _enq):
-        self.client.force_login(self.superuser)
-        data = self.client.get(self.api).json()['data']
-        self.assertIn('auth_mode', data)
-        self.assertIn('subscription_available', data)
-
-    def test_set_auth_mode_action(self, _enq):
-        self.client.force_login(self.superuser)
-        with override_settings(DEBUGGER_CLAUDE_OAUTH_TOKEN='oat-test'):
-            res = self.client.post(
-                self.api, {'action': 'set_auth_mode', 'mode': 'subscription'},
-                content_type='application/json')
-        self.assertTrue(res.json()['success'])
-        from debugger.auth_mode import get_auth_mode
-        self.assertEqual(get_auth_mode(), DebugRequest.AuthMode.SUBSCRIPTION)
-
-    @override_settings(DEBUGGER_CLAUDE_OAUTH_TOKEN='')
-    def test_set_auth_mode_rejects_subscription_when_unconfigured(self, _enq):
-        self.client.force_login(self.superuser)
-        res = self.client.post(
-            self.api, {'action': 'set_auth_mode', 'mode': 'subscription'},
             content_type='application/json')
         self.assertFalse(res.json()['success'])
 
@@ -496,61 +446,6 @@ class ConsultAdvisorTests(TestCase):
     def test_advisor_tool_is_wired_into_allowed_tools(self):
         from debugger import agent
         self.assertIn(agent.ADVISOR_TOOL, agent.ALLOWED_TOOLS)
-
-
-class GlobalAuthModeTests(TestCase):
-    """debugger.auth_mode is the single global switch (core.Setting-backed) —
-    not a per-request field the admin sets at creation."""
-
-    def test_defaults_to_api(self):
-        from debugger.auth_mode import get_auth_mode
-        self.assertEqual(get_auth_mode(), DebugRequest.AuthMode.API)
-
-    @override_settings(DEBUGGER_CLAUDE_OAUTH_TOKEN='oat-test')
-    def test_set_then_get_round_trips(self):
-        from debugger.auth_mode import get_auth_mode, set_auth_mode
-        set_auth_mode(DebugRequest.AuthMode.SUBSCRIPTION)
-        self.assertEqual(get_auth_mode(), DebugRequest.AuthMode.SUBSCRIPTION)
-        set_auth_mode(DebugRequest.AuthMode.API)
-        self.assertEqual(get_auth_mode(), DebugRequest.AuthMode.API)
-
-    @override_settings(DEBUGGER_CLAUDE_OAUTH_TOKEN='')
-    def test_set_subscription_raises_when_unconfigured(self):
-        from debugger.auth_mode import set_auth_mode
-        with self.assertRaises(ValueError):
-            set_auth_mode(DebugRequest.AuthMode.SUBSCRIPTION)
-
-    def test_set_invalid_mode_raises(self):
-        from debugger.auth_mode import set_auth_mode
-        with self.assertRaises(ValueError):
-            set_auth_mode('nope')
-
-
-class CliAuthEnvTests(TestCase):
-    """The env dict handed to the `claude` CLI subprocess must always pin BOTH
-    keys explicitly, so a stray var already in the worker's shell can't silently
-    override the current global auth mode."""
-
-    def test_api_mode_sets_api_key_and_blanks_oauth_token(self):
-        from debugger import agent
-        with override_settings(ANTHROPIC_API_KEY='sk-test', DEBUGGER_CLAUDE_OAUTH_TOKEN='oat-test'):
-            env = agent._cli_auth_env(DebugRequest.AuthMode.API)
-        self.assertEqual(env['ANTHROPIC_API_KEY'], 'sk-test')
-        self.assertEqual(env['CLAUDE_CODE_OAUTH_TOKEN'], '')
-
-    def test_subscription_mode_sets_oauth_token_and_blanks_api_key(self):
-        from debugger import agent
-        with override_settings(ANTHROPIC_API_KEY='sk-test', DEBUGGER_CLAUDE_OAUTH_TOKEN='oat-test'):
-            env = agent._cli_auth_env(DebugRequest.AuthMode.SUBSCRIPTION)
-        self.assertEqual(env['CLAUDE_CODE_OAUTH_TOKEN'], 'oat-test')
-        self.assertEqual(env['ANTHROPIC_API_KEY'], '')
-
-    def test_subscription_mode_falls_back_to_api_when_token_unconfigured(self):
-        from debugger import agent
-        with override_settings(ANTHROPIC_API_KEY='sk-test', DEBUGGER_CLAUDE_OAUTH_TOKEN=''):
-            env = agent._cli_auth_env(DebugRequest.AuthMode.SUBSCRIPTION)
-        self.assertEqual(env['ANTHROPIC_API_KEY'], 'sk-test')
-        self.assertEqual(env['CLAUDE_CODE_OAUTH_TOKEN'], '')
 
     @mock.patch('debugger.agent.anthropic')
     def test_call_advisor_returns_text(self, mock_anthropic):
