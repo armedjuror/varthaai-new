@@ -5,15 +5,25 @@ index/shop/blog/blog-detail/policy/dashboard/print-invoice/logout.
 Every page gets a CSRF cookie and the `is_loggedin` / `storefront_user`
 context the shared navbar and dashboard rely on.
 """
-from django.db.models import Sum
+import re
+
+import markdown as markdown_lib
+from django.core.paginator import Paginator
+from django.db.models import Q, Sum
 from django.shortcuts import redirect, render
+from django.utils import timezone
+from django.utils.safestring import mark_safe
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 from accounts.models import PointsTransaction
 from core.models import Setting
+from marketing.models import Blog
 from orders.models import Order
 
 from storefront import services
+
+BLOG_PAGE_SIZE = 9
+_MD_STRIP_RE = re.compile(r'[#*`_~\[\]()]')
 
 
 def _ctx(request, **extra):
@@ -23,9 +33,27 @@ def _ctx(request, **extra):
     return ctx
 
 
+def _published_blogs():
+    return (
+        Blog.objects.filter(is_published=True)
+        .filter(Q(published_at__isnull=True) | Q(published_at__lte=timezone.now()))
+        .select_related('created_by')
+    )
+
+
+def _blog_excerpt(blog_obj):
+    if blog_obj.excerpt:
+        return blog_obj.excerpt
+    plain = _MD_STRIP_RE.sub('', blog_obj.content).replace('\n', ' ').strip()
+    return (plain[:150] + '...') if len(plain) > 150 else plain
+
+
 @ensure_csrf_cookie
 def home(request):
-    return render(request, 'storefront/home.html', _ctx(request))
+    latest_blogs = list(_published_blogs().order_by('-published_at', '-created_at')[:3])
+    for b in latest_blogs:
+        b.list_excerpt = _blog_excerpt(b)
+    return render(request, 'storefront/home.html', _ctx(request, latest_blogs=latest_blogs))
 
 
 @ensure_csrf_cookie
@@ -35,13 +63,23 @@ def shop(request):
 
 @ensure_csrf_cookie
 def blog(request):
-    return render(request, 'storefront/blog.html', _ctx(request))
+    qs = _published_blogs().order_by('-published_at', '-created_at')
+    for b in qs:
+        b.list_excerpt = _blog_excerpt(b)
+    paginator = Paginator(qs, BLOG_PAGE_SIZE)
+    page_obj = paginator.get_page(request.GET.get('page'))
+    return render(request, 'storefront/blog.html', _ctx(request, page_obj=page_obj))
 
 
 @ensure_csrf_cookie
 def blog_detail(request):
-    return render(request, 'storefront/blog-detail.html',
-                  _ctx(request, slug=request.GET.get('slug', '')))
+    slug = request.GET.get('slug', '')
+    blog_obj = _published_blogs().filter(slug=slug).first() if slug else None
+    if blog_obj:
+        blog_obj.content_html = mark_safe(
+            markdown_lib.markdown(blog_obj.content, extensions=['extra', 'sane_lists'])
+        )
+    return render(request, 'storefront/blog-detail.html', _ctx(request, blog=blog_obj))
 
 
 @ensure_csrf_cookie

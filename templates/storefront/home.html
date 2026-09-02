@@ -203,14 +203,31 @@
   </div>
 </section>
 
+{% if latest_blogs %}
 <!-- Blog Section -->
-<section id="blog" class="blog-section" style="display: none;">
+<section id="blog" class="blog-section">
   <div class="container">
     <div class="section-heading">
       <h2>Latest from our blog</h2>
       <div class="separator"></div>
     </div>
-    <div class="row g-4" id="blog-posts"></div>
+    <div class="row g-4">
+      {% for blog in latest_blogs %}
+      <div class="col-md-4">
+        <div class="blog-card h-100" style="border: 1px solid #eee; border-radius: 10px; overflow: hidden; transition: transform 0.3s ease;">
+          {% if blog.featured_image %}
+          <img src="{{ blog.featured_image.url }}" alt="{{ blog.title }}" class="img-fluid rounded mb-3" style="height: 200px; object-fit: cover; width: 100%;">
+          {% endif %}
+          <div class="p-3">
+            <h5 class="mb-2"><a href="/blog-detail/?slug={{ blog.slug }}" style="color: inherit; text-decoration: none;">{{ blog.title }}</a></h5>
+            <p class="text-muted small mb-2">{{ blog.published_at|default:blog.created_at|date:"F j, Y" }}</p>
+            <p class="mb-3">{{ blog.list_excerpt }}</p>
+            <a href="/blog-detail/?slug={{ blog.slug }}" class="btn btn-sm btn-outline-primary">Read More</a>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
     <div class="row mt-4">
       <div class="col-12 text-center">
         <a href="/blog/" class="btn btn-outline-primary">View All Blogs</a>
@@ -218,6 +235,7 @@
     </div>
   </div>
 </section>
+{% endif %}
 {% endblock %}
 
 {% block modals %}
@@ -308,9 +326,6 @@
 
     // Load reviews
     loadReviews();
-
-    // Load latest blogs
-    loadLatestBlogs();
 
     $(document).on('click', '.delete-invoice-item', function() {
       let index = $(this).attr('data-item-index');

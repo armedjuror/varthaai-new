@@ -46,7 +46,7 @@ class BrandsAPI(APIView):
             {
                 'id': b.id,
                 'name': b.name,
-                'logo': b.logo.name if b.logo else '',
+                'logo': b.logo.url if b.logo else '',
                 'website': b.website,
                 'instagram': b.instagram,
                 'order_prefix': b.order_prefix,
@@ -66,7 +66,7 @@ class BrandsAPI(APIView):
         body = request.data if isinstance(request.data, dict) else {}
         action = body.get('action', '')
         if action == 'add':
-            return self._add(body)
+            return self._add(request, body)
         if action == 'edit':
             return self._edit(request, body)
         if action == 'toggle':
@@ -75,7 +75,7 @@ class BrandsAPI(APIView):
             return self._delete(body)
         return _fail('Unknown action.')
 
-    def _add(self, body):
+    def _add(self, request, body):
         name = _clean(body, 'name')
         order_prefix = _clean(body, 'order_prefix').upper()
         if not name or not order_prefix:
@@ -83,7 +83,7 @@ class BrandsAPI(APIView):
         brand = Brand.objects.create(
             name=name,
             order_prefix=order_prefix,
-            logo=_clean(body, 'logo'),
+            logo=request.FILES.get('logo'),
             website=_clean(body, 'website'),
             instagram=_clean(body, 'instagram'),
         )
@@ -103,9 +103,13 @@ class BrandsAPI(APIView):
             return _fail('Error updating brand.')
         brand.name = name
         brand.order_prefix = order_prefix
-        brand.logo = _clean(body, 'logo')
         brand.website = _clean(body, 'website')
         brand.instagram = _clean(body, 'instagram')
+        logo = request.FILES.get('logo')
+        if logo:
+            brand.logo = logo
+        elif _clean(body, 'remove_logo') == '1':
+            brand.logo = None
         brand.save(update_fields=['name', 'order_prefix', 'logo', 'website', 'instagram', 'updated_at'])
         return Response({'success': True, 'message': 'Brand updated!'})
 

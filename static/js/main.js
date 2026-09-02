@@ -180,66 +180,6 @@ function loadReviews() {
     });
 }
 
-// Load latest blogs
-function loadLatestBlogs() {
-    $.ajax({
-        url: '/api/blogs/?limit=3',
-        type: 'GET',
-        dataType: 'json',
-        success: function(response) {
-            const blogContainer = $('#blog-posts');
-            const blogSection = $('.blog-section');
-            
-            if (response.success && response.data && response.data.length > 0) {
-                blogContainer.empty();
-                blogSection.show(); // Show the section if blogs exist
-                
-                response.data.forEach(function(blog) {
-                    const imageHtml = blog.featured_image 
-                        ? `<img src="${blog.featured_image}" alt="${blog.title}" class="img-fluid rounded mb-3" style="height: 200px; object-fit: cover; width: 100%;">`
-                        : '';
-                    
-                    const date = new Date(blog.published_at || blog.created_at);
-                    const formattedDate = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-                    
-                    // Parse markdown excerpt or generate from content
-                    let excerpt = blog.excerpt || '';
-                    if (!excerpt && blog.content) {
-                        // Strip markdown and get first 150 chars
-                        const plainText = blog.content.replace(/[#*`_~\[\]()]/g, '').replace(/\n/g, ' ').trim();
-                        excerpt = plainText.substring(0, 150);
-                        if (plainText.length > 150) excerpt += '...';
-                    }
-                    
-                    const blogHtml = `
-                        <div class="col-md-4">
-                            <div class="blog-card h-100" style="border: 1px solid #eee; border-radius: 10px; overflow: hidden; transition: transform 0.3s ease;">
-                                ${imageHtml}
-                                <div class="p-3">
-                                    <h5 class="mb-2"><a href="/blog-detail/?slug=${blog.slug}" style="color: inherit; text-decoration: none;">${blog.title}</a></h5>
-                                    <p class="text-muted small mb-2">${formattedDate}</p>
-                                    <p class="mb-3">${excerpt}</p>
-                                    <a href="/blog-detail/?slug=${blog.slug}" class="btn btn-sm btn-outline-primary">Read More</a>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                    
-                    blogContainer.append(blogHtml);
-                });
-            } else {
-                // Hide the entire blog section if no blogs
-                blogSection.hide();
-            }
-        },
-        error: function(xhr, status, error) {
-            console.error('Error loading blogs:', error);
-            // Hide section on error too
-            $('.blog-section').hide();
-        }
-    });
-}
-
 function addOrderItem(productId, quantity){
     // let flavorId = $('#flavor').val();
     // let quantity;

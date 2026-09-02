@@ -1,9 +1,10 @@
 {% extends 'storefront/base.html' %}
 {% load static %}
 
-{% block title %}Blog - Varthaai{% endblock %}
+{% block title %}{% if blog %}{{ blog.title }} - Varthaai{% else %}Blog - Varthaai{% endif %}{% endblock %}
 
 {% block extra_head %}
+{% if blog and blog.meta_description %}<meta name="description" content="{{ blog.meta_description }}">{% endif %}
 <style>
   .blog-detail-section { padding: 120px 0 60px; min-height: 80vh; }
   .blog-header { margin-bottom: 40px; }
@@ -42,62 +43,25 @@
             <i class="fas fa-arrow-left me-2"></i>Back to Blog
           </a>
         </div>
-        <div id="blog-content">
-          <div class="text-center"><p class="text-muted">Loading blog post...</p></div>
+        {% if blog %}
+        <div class="blog-header">
+          <h1 class="blog-title">{{ blog.title }}</h1>
+          <div class="blog-meta">
+            <i class="far fa-calendar me-1"></i> {{ blog.published_at|default:blog.created_at|date:"F j, Y" }}
+            {% if blog.created_by.name %}<span class="ms-3"><i class="far fa-user me-1"></i> {{ blog.created_by.name }}</span>{% endif %}
+          </div>
         </div>
+        {% if blog.featured_image %}
+        <img src="{{ blog.featured_image.url }}" alt="{{ blog.title }}" class="blog-featured-image">
+        {% endif %}
+        <div class="blog-content">
+          {{ blog.content_html }}
+        </div>
+        {% else %}
+        <div class="alert alert-danger">Blog post not found.</div>
+        {% endif %}
       </div>
     </div>
   </div>
 </section>
-{% endblock %}
-
-{% block extra_js %}
-<script>
-$(document).ready(function() {
-  const slug = '{{ slug|escapejs }}';
-  if (!slug) {
-    $('#blog-content').html('<div class="alert alert-danger">Blog post not found.</div>');
-    return;
-  }
-  loadBlogDetail(slug);
-});
-
-function loadBlogDetail(slug) {
-  $.ajax({
-    url: '/api/blogs/?slug=' + encodeURIComponent(slug),
-    type: 'GET',
-    dataType: 'json',
-    success: function(response) {
-      if (response.success && response.data) {
-        const blog = response.data;
-        const date = new Date(blog.published_at || blog.created_at);
-        const formattedDate = date.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-        const imageHtml = blog.featured_image
-          ? `<img src="${blog.featured_image}" alt="${blog.title}" class="blog-featured-image">`
-          : '';
-        const blogHtml = `
-          <div class="blog-header">
-            <h1 class="blog-title">${blog.title}</h1>
-            <div class="blog-meta">
-              <i class="far fa-calendar me-1"></i> ${formattedDate}
-              ${blog.author_name ? `<span class="ms-3"><i class="far fa-user me-1"></i> ${blog.author_name}</span>` : ''}
-            </div>
-          </div>
-          ${imageHtml}
-          <div class="blog-content">
-            ${typeof marked !== 'undefined' ? marked.parse(blog.content) : blog.content.replace(/\n/g, '<br>')}
-          </div>`;
-        $('#blog-content').html(blogHtml);
-        document.title = blog.title + ' - Varthaai Blog';
-      } else {
-        $('#blog-content').html('<div class="alert alert-danger">Blog post not found.</div>');
-      }
-    },
-    error: function(xhr, status, error) {
-      console.error('Error loading blog:', error);
-      $('#blog-content').html('<div class="alert alert-danger">Error loading blog post. Please try again later.</div>');
-    }
-  });
-}
-</script>
 {% endblock %}

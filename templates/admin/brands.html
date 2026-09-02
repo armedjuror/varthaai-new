@@ -65,8 +65,8 @@
               <div class="form-text">Short prefix for order IDs (e.g. VO → VO_66f3a1…). Max 10 chars.</div>
             </div>
             <div class="col-12">
-              <label class="form-label">Logo URL</label>
-              <input type="text" class="form-control" name="logo" placeholder="images/logo.png or https://…">
+              <label class="form-label">Logo</label>
+              <input type="file" class="form-control" name="logo" accept="image/*">
             </div>
             <div class="col-12">
               <label class="form-label">Website</label>
@@ -108,8 +108,17 @@
               <input type="text" class="form-control" name="order_prefix" required maxlength="10" style="text-transform:uppercase">
             </div>
             <div class="col-12">
-              <label class="form-label">Logo URL</label>
-              <input type="text" class="form-control" name="logo">
+              <label class="form-label">Logo</label>
+              <div class="mb-2">
+                <img id="editLogoPreview" src="" alt="Current logo"
+                     style="max-width:80px;max-height:80px;object-fit:contain;border-radius:4px;display:none">
+              </div>
+              <input type="file" class="form-control" name="logo" id="editLogo" accept="image/*">
+              <div class="form-check mt-2">
+                <input type="checkbox" class="form-check-input" name="remove_logo" id="editRemoveLogo" value="1">
+                <label class="form-check-label" for="editRemoveLogo">Remove current logo</label>
+              </div>
+              <div class="form-text">Choose a file to replace the current logo. Leave empty to keep it.</div>
             </div>
             <div class="col-12">
               <label class="form-label">Website</label>
@@ -136,13 +145,6 @@
 <script>
 let brandsData = [];
 
-// A brand logo is a free-text path/URL. Absolute URLs are used as-is; a bare
-// path (e.g. "images/logo.png") is served from MEDIA_URL.
-function logoSrc(logo) {
-  if (!logo) return '';
-  return /^https?:\/\//i.test(logo) ? logo : '/media/' + logo.replace(/^\/+/, '');
-}
-
 async function loadBrands() {
   const res  = await apiGet('/admin/api/brands/');
   brandsData = res.data || [];
@@ -159,7 +161,7 @@ function renderBrands() {
     <tr>
       <td>
         <div class="d-flex align-items-center gap-2">
-          ${b.logo ? `<img src="${logoSrc(b.logo)}" alt="" style="width:32px;height:32px;object-fit:contain;border-radius:4px">` : '<div style="width:32px;height:32px;background:#f3f4f6;border-radius:4px"></div>'}
+          ${b.logo ? `<img src="${esc(b.logo)}" alt="" style="width:32px;height:32px;object-fit:contain;border-radius:4px">` : '<div style="width:32px;height:32px;background:#f3f4f6;border-radius:4px"></div>'}
           <div>
             <div class="fw-semibold">${esc(b.name)}</div>
             <small class="text-muted">ID: ${b.id}</small>
@@ -192,9 +194,13 @@ function openEdit(id) {
   f.id.value           = b.id;
   f.name.value         = b.name;
   f.order_prefix.value = b.order_prefix;
-  f.logo.value         = b.logo  ?? '';
+  f.logo.value         = '';
   f.website.value      = b.website   ?? '';
   f.instagram.value    = b.instagram ?? '';
+  document.getElementById('editRemoveLogo').checked = false;
+  const preview = document.getElementById('editLogoPreview');
+  if (b.logo) { preview.src = b.logo; preview.style.display = ''; }
+  else { preview.src = ''; preview.style.display = 'none'; }
   bootstrap.Modal.getOrCreateInstance(document.getElementById('editBrandModal')).show();
 }
 
@@ -226,15 +232,15 @@ function deleteBrand(id) {
 document.getElementById('addBrandForm').addEventListener('submit', async e => {
   e.preventDefault();
   const f = e.target;
+  const fd = new FormData();
+  fd.append('action',       'add');
+  fd.append('name',         f.name.value.trim());
+  fd.append('order_prefix', f.order_prefix.value.trim().toUpperCase());
+  fd.append('website',      f.website.value.trim());
+  fd.append('instagram',    f.instagram.value.trim());
+  if (f.logo.files[0]) fd.append('logo', f.logo.files[0]);
   showLoader();
-  const res = await apiPost('/admin/api/brands/', {
-    action:       'add',
-    name:         f.name.value.trim(),
-    order_prefix: f.order_prefix.value.trim().toUpperCase(),
-    logo:         f.logo.value.trim(),
-    website:      f.website.value.trim(),
-    instagram:    f.instagram.value.trim(),
-  });
+  const res = await apiPostForm('/admin/api/brands/', fd);
   hideLoader();
   if (res.success) {
     bootstrap.Modal.getInstance(document.getElementById('addBrandModal')).hide();
@@ -249,16 +255,17 @@ document.getElementById('addBrandForm').addEventListener('submit', async e => {
 document.getElementById('editBrandForm').addEventListener('submit', async e => {
   e.preventDefault();
   const f = e.target;
+  const fd = new FormData();
+  fd.append('action',       'edit');
+  fd.append('id',           parseInt(f.id.value));
+  fd.append('name',         f.name.value.trim());
+  fd.append('order_prefix', f.order_prefix.value.trim().toUpperCase());
+  fd.append('website',      f.website.value.trim());
+  fd.append('instagram',    f.instagram.value.trim());
+  if (f.logo.files[0]) fd.append('logo', f.logo.files[0]);
+  if (document.getElementById('editRemoveLogo').checked) fd.append('remove_logo', '1');
   showLoader();
-  const res = await apiPost('/admin/api/brands/', {
-    action:       'edit',
-    id:           parseInt(f.id.value),
-    name:         f.name.value.trim(),
-    order_prefix: f.order_prefix.value.trim().toUpperCase(),
-    logo:         f.logo.value.trim(),
-    website:      f.website.value.trim(),
-    instagram:    f.instagram.value.trim(),
-  });
+  const res = await apiPostForm('/admin/api/brands/', fd);
   hideLoader();
   if (res.success) {
     bootstrap.Modal.getInstance(document.getElementById('editBrandModal')).hide();
