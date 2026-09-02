@@ -23,7 +23,10 @@ from orders.models import Order
 from storefront import services
 
 BLOG_PAGE_SIZE = 9
+SITE_URL = 'https://varthaai.com'
 _MD_STRIP_RE = re.compile(r'[#*`_~\[\]()]')
+_H1_OPEN_RE = re.compile(r'<h1(\s[^>]*)?>', re.IGNORECASE)
+_H1_CLOSE_RE = re.compile(r'</h1>', re.IGNORECASE)
 
 
 def _ctx(request, **extra):
@@ -76,8 +79,15 @@ def blog_detail(request):
     slug = request.GET.get('slug', '')
     blog_obj = _published_blogs().filter(slug=slug).first() if slug else None
     if blog_obj:
-        blog_obj.content_html = mark_safe(
-            markdown_lib.markdown(blog_obj.content, extensions=['extra', 'sane_lists'])
+        html = markdown_lib.markdown(blog_obj.content, extensions=['extra', 'sane_lists'])
+        # Demote in-content H1s so `.blog-title` remains the page's only H1.
+        html = _H1_OPEN_RE.sub('<h2>', html)
+        html = _H1_CLOSE_RE.sub('</h2>', html)
+        blog_obj.content_html = mark_safe(html)
+        blog_obj.seo_description = blog_obj.meta_description or _blog_excerpt(blog_obj)
+        blog_obj.canonical_url = f'{SITE_URL}/blog/{blog_obj.slug}'
+        blog_obj.absolute_image_url = (
+            SITE_URL + blog_obj.featured_image.url if blog_obj.featured_image else ''
         )
     return render(request, 'storefront/blog-detail.html', _ctx(request, blog=blog_obj))
 

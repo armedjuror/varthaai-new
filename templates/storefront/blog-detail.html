@@ -3,8 +3,37 @@
 
 {% block title %}{% if blog %}{{ blog.title }} - Varthaai{% else %}Blog - Varthaai{% endif %}{% endblock %}
 
+{% block canonical %}{% if blog %}<link rel="canonical" href="{{ blog.canonical_url }}">{% else %}{{ block.super }}{% endif %}{% endblock %}
+
+{% block meta_description %}{% if blog %}<meta name="description" content="{{ blog.seo_description }}">{% else %}{{ block.super }}{% endif %}{% endblock %}
+
+{% block og_tags %}
+{% if blog %}
+<meta property="og:title" content="{{ blog.title }}">
+<meta property="og:description" content="{{ blog.seo_description }}">
+{% if blog.absolute_image_url %}<meta property="og:image" content="{{ blog.absolute_image_url }}">{% endif %}
+<meta property="og:url" content="{{ blog.canonical_url }}">
+{% else %}
+{{ block.super }}
+{% endif %}
+{% endblock %}
+
 {% block extra_head %}
-{% if blog and blog.meta_description %}<meta name="description" content="{{ blog.meta_description }}">{% endif %}
+{% if blog %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "{{ blog.title|escapejs }}",
+  {% if blog.absolute_image_url %}"image": ["{{ blog.absolute_image_url|escapejs }}"],{% endif %}
+  "datePublished": "{{ blog.published_at|default:blog.created_at|date:'c' }}",
+  "author": {
+    "@type": "Person",
+    "name": "{{ blog.created_by.name|default:'Varthaai'|escapejs }}"
+  }
+}
+</script>
+{% endif %}
 <style>
   .blog-detail-section { padding: 120px 0 60px; min-height: 80vh; }
   .blog-header { margin-bottom: 40px; }
@@ -14,8 +43,7 @@
   .blog-content { font-size: 1.1rem; line-height: 1.8; color: #333; }
   .blog-content p { margin-bottom: 20px; }
   .blog-content img { max-width: 100%; height: auto; border-radius: 8px; margin: 20px 0; }
-  .blog-content h1, .blog-content h2, .blog-content h3, .blog-content h4, .blog-content h5, .blog-content h6 { margin-top: 30px; margin-bottom: 15px; font-weight: 600; color: var(--dark-color); }
-  .blog-content h1 { font-size: 2rem; }
+  .blog-content h2, .blog-content h3, .blog-content h4, .blog-content h5, .blog-content h6 { margin-top: 30px; margin-bottom: 15px; font-weight: 600; color: var(--dark-color); }
   .blog-content h2 { font-size: 1.75rem; }
   .blog-content h3 { font-size: 1.5rem; }
   .blog-content h4 { font-size: 1.25rem; }

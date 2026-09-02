@@ -6,17 +6,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Varthaai - Premium Kerala Banana Chips{% endblock %}</title>
   <meta name="csrf-token" content="{{ csrf_token }}">
-  <link rel="canonical" href="https://varthaai.com">
-  <meta name="description"
-        content="Experience the authentic taste of Kerala with Varthaai premium banana chips. Handcrafted with love, our chips bring the tradition and flavor of Kerala banana chips to your special moments.">
+  {% block canonical %}<link rel="canonical" href="https://varthaai.com">{% endblock %}
+  {% block meta_description %}<meta name="description"
+        content="Experience the authentic taste of Kerala with Varthaai premium banana chips. Handcrafted with love, our chips bring the tradition and flavor of Kerala banana chips to your special moments.">{% endblock %}
   <meta name="keywords"
         content="Varthaai, banana chips, Kerala snacks, premium banana chips, authentic Kerala food, snacks, varutha kaaya">
   <meta name="author" content="Varthaai Foods">
+  {% block og_tags %}
   <meta property="og:title" content="Varthaai - Premium Kerala Banana Chips">
   <meta property="og:description"
         content="Experience the authentic taste of Kerala with Varthaai premium banana chips.">
   <meta property="og:image" content="https://varthaai.com/images/favicon.png">
   <meta property="og:url" content="https://varthaai.com">
+  {% endblock %}
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Varthaai">
   <meta name="twitter:card" content="summary_large_image">
