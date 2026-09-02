@@ -8,8 +8,12 @@ schema). Approving/rejecting a review cascades to its loyalty points
 transaction, matching the PHP (`points_transactions.reference` stores the
 review id as a string).
 """
+import json
+
+from django.conf import settings
 from django.db.models import Avg, Count, Q
-from django.shortcuts import render
+from django.http import StreamingHttpResponse
+from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.utils.html import strip_tags
@@ -20,8 +24,10 @@ from rest_framework.views import APIView
 from accounts.models import PointsTransaction
 from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
+from products.models import Flavor
 
-from marketing.models import Blog, Review
+from marketing import ai
+from marketing.models import Blog, BlogDraftMessage, BlogDraftSession, Review
 
 PER_PAGE_CHOICES = (10, 20, 50, 100)
 
@@ -40,6 +46,30 @@ def reviews_page(request):
 @ensure_csrf_cookie
 def blogs_page(request):
     return render(request, 'admin/blogs.html')
+
+
+@admin_login_required
+@require_module('blogs')
+@ensure_csrf_cookie
+def blog_editor_page(request, pk=None):
+    blog = None
+    if pk:
+        blog = Blog.objects.filter(id=pk).first()
+        if blog is None:
+            return redirect('marketing:blogs')
+    existing_tags = sorted({
+        t for row in Blog.objects.exclude(tags=[]).values_list('tags', flat=True)
+        for t in (row or [])
+    })
+    flavors = list(Flavor.objects.filter(is_active=True).order_by('name').values('id', 'name'))
+    return render(request, 'admin/blog_editor.html', {
+        'blog': blog,
+        'blog_tags_json': json.dumps(blog.tags if blog else []),
+        'existing_tags': existing_tags,
+        'flavors': flavors,
+        'ai_assist_models': settings.AI_ASSIST_MODELS,
+        'ai_assist_default_model': settings.AI_ASSIST_DEFAULT_MODEL,
+    })
 
 
 def _sync_points_status(review_id, status):
@@ -181,6 +211,31 @@ def _auto_excerpt(content):
     return excerpt
 
 
+def _clean_tags(raw):
+    """Normalize the `tags` field from a form/JSON POST into a deduped list
+    of trimmed strings (accepts a JSON-encoded string, a comma-separated
+    string, or an actual list — the JS client sends JSON, but this stays
+    defensive against a plain form post)."""
+    if raw is None:
+        values = []
+    elif isinstance(raw, (list, tuple)):
+        values = list(raw)
+    elif isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            values = parsed if isinstance(parsed, list) else [raw]
+        except (TypeError, ValueError):
+            values = raw.split(',')
+    else:
+        values = []
+    seen = []
+    for v in values:
+        t = str(v).strip()
+        if t and t not in seen:
+            seen.append(t)
+    return seen
+
+
 def _serialize_blog(b):
     return {
         'id': b.id,
@@ -188,6 +243,9 @@ def _serialize_blog(b):
         'slug': b.slug,
         'content': b.content,
         'excerpt': b.excerpt,
+        'meta_title': b.meta_title,
+        'meta_description': b.meta_description,
+        'tags': b.tags,
         'featured_image': b.featured_image.url if b.featured_image else None,
         'is_published': 1 if b.is_published else 0,
         'published_at': b.published_at.isoformat() if b.published_at else None,
@@ -211,6 +269,7 @@ class BlogsAPI(APIView):
 
         status_filter = request.query_params.get('status', 'all')
         search = (request.query_params.get('search') or '').strip()
+        tag_filter = (request.query_params.get('tag') or '').strip()
 
         qs = Blog.objects.select_related('created_by')
         if status_filter == 'published':
@@ -223,6 +282,8 @@ class BlogsAPI(APIView):
                 | Q(content__icontains=search)
                 | Q(excerpt__icontains=search),
             )
+        if tag_filter:
+            qs = qs.filter(tags__contains=[tag_filter])
 
         rows = [_serialize_blog(b) for b in qs.order_by('-created_at')]
         agg = Blog.objects.aggregate(
@@ -297,6 +358,9 @@ class BlogsAPI(APIView):
         blog.slug = _unique_slug(title, exclude_id=blog.id)
         blog.is_published = is_published
         blog.published_at = published_at
+        blog.meta_title = (data.get('meta_title') or '').strip()
+        blog.meta_description = (data.get('meta_description') or '').strip()
+        blog.tags = _clean_tags(data.get('tags'))
         # Featured image: replace only when a new file is uploaded; clear on
         # explicit remove; otherwise keep the existing one.
         image = request.FILES.get('featured_image')
@@ -306,5 +370,98 @@ class BlogsAPI(APIView):
             blog.featured_image = None
 
         blog.save()
+        session_id = data.get('session_id')
+        if session_id:
+            BlogDraftSession.objects.filter(id=session_id).update(
+                blog=blog, status=BlogDraftSession.Status.APPLIED,
+            )
         message = 'Blog created successfully!' if action == 'create' else 'Blog updated successfully!'
         return ok(_serialize_blog(blog), message=message)
+
+
+# ── Blog AI writing assistant ───────────────────────────────────────────────
+
+def _session_dict(s):
+    return {
+        'id': s.id,
+        'blog_id': s.blog_id,
+        'topic': s.topic,
+        'target_audience': s.target_audience,
+        'tone': s.tone,
+        'word_count_target': s.word_count_target,
+        'flavor_refs': s.flavor_refs,
+        'status': s.status,
+        'created_at': s.created_at.isoformat(),
+        'updated_at': s.updated_at.isoformat(),
+        'messages': [
+            {
+                'id': m.id,
+                'role': m.role,
+                'action': m.action,
+                'content': m.content,
+                'model': m.model,
+                'created_at': m.created_at.isoformat(),
+            }
+            for m in s.messages.all()
+        ],
+    }
+
+
+class BlogAISessionAPI(APIView):
+    """Create a new AI drafting session, or resume an existing one with its
+    full message history (so a half-finished session survives a refresh)."""
+    permission_classes = [HasModulePermission]
+    permission_module = 'blogs'
+
+    def get(self, request):
+        session_id = request.query_params.get('id')
+        if not session_id:
+            return err('Session id is required.')
+        session = BlogDraftSession.objects.filter(id=session_id).prefetch_related('messages').first()
+        if session is None:
+            return err('Session not found.', status=404)
+        return ok(_session_dict(session))
+
+    def post(self, request):
+        data = request.data
+        session = BlogDraftSession.objects.create(
+            blog_id=data.get('blog_id') or None,
+            created_by=request.user,
+            topic=(data.get('topic') or '').strip(),
+            target_audience=(data.get('target_audience') or '').strip(),
+            tone=(data.get('tone') or '').strip(),
+            word_count_target=data.get('word_count_target') or None,
+            flavor_refs=data.get('flavor_refs') or [],
+        )
+        return ok(_session_dict(session), message='Session created.')
+
+
+class BlogAIStreamView(APIView):
+    """Streams one assistant turn (SSE) for a drafting session and persists it."""
+    permission_classes = [HasModulePermission]
+    permission_module = 'blogs'
+
+    def post(self, request):
+        data = request.data
+        session = BlogDraftSession.objects.filter(id=data.get('session_id')).first()
+        if session is None:
+            return err('Session not found.', status=404)
+        action = data.get('action') or BlogDraftMessage.Action.CHAT
+        if action not in BlogDraftMessage.Action.values:
+            return err('Unknown action.')
+        model_id = data.get('model_id') or settings.AI_ASSIST_DEFAULT_MODEL
+        allowed_ids = {m['id'] for m in settings.AI_ASSIST_MODELS}
+        if model_id not in allowed_ids:
+            return err('Unknown or unavailable model.')
+        response = StreamingHttpResponse(
+            ai.stream_completion(
+                session, action,
+                (data.get('message') or '').strip(),
+                model_id,
+                data.get('blog_content') or '',
+            ),
+            content_type='text/event-stream',
+        )
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'  # nginx: don't buffer this SSE response (see deploy/BLOG_AI.md)
+        return response

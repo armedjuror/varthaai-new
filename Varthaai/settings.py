@@ -302,3 +302,17 @@ DEBUGGER_DB_ROW_LIMIT = int(env('DEBUGGER_DB_ROW_LIMIT', '200'))
 # observed "reached maximum number of turns" failure on a cross-app feature
 # request. Tune via env if it needs to move again.
 DEBUGGER_MAX_TURNS = int(env('DEBUGGER_MAX_TURNS', '60'))
+
+# ---------------------------------------------------------------------------
+# Blog AI writing assistant (marketing app). Uses litellm — NOT the agentic
+# claude-agent-sdk above — for lightweight per-turn chat completions, so the
+# provider/model can be swapped per request. Reuses ANTHROPIC_API_KEY. See
+# deploy/BLOG_AI.md for the streaming-infra caveats (gunicorn/nginx).
+# ---------------------------------------------------------------------------
+AI_ASSIST_MODELS = [
+    # TODO: verify this model id against a live Anthropic model list before
+    # relying on it in production — no web/API access was available to
+    # confirm it in this session. Mirrors DEBUGGER_MODEL's existing default.
+    {'id': 'anthropic/claude-sonnet-5', 'label': 'Claude Sonnet', 'provider': 'anthropic'},
+]
+AI_ASSIST_DEFAULT_MODEL = 'anthropic/claude-sonnet-5'
