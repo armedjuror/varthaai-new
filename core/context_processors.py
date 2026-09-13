@@ -5,9 +5,14 @@ brand switcher list) into every template. Consumed by templates/admin/base.html.
 from core.api import BRAND_SESSION_KEY
 
 # Nav modules used to gate sidebar items (mirror of the PHP sidebar checks).
+# content_scripts/content_posters/content_verdict are documented in
+# content-generator-plan.md §14.2 but deliberately NOT added here yet — no
+# page exists behind them until Phase 2/3/5 land (see that doc's build
+# order). Add them here when those pages ship, not before.
 NAV_MODULES = [
     'dashboard', 'orders', 'coupons', 'flavors', 'packs', 'customers', 'reviews',
     'b2b', 'stocks', 'expenses', 'blogs',
+    'content_dashboard', 'content_calendar', 'content_tasks',
 ]
 
 

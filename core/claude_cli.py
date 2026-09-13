@@ -1,10 +1,16 @@
 """
 Generic runner for the `claude` CLI in headless mode (`claude -p ...`), shared
-by every agentic-Claude app in this codebase (currently `debugger`; a future
-`content` app will reuse it too). Nothing here is app-specific — callers
-supply their own prompt, tool allow/deny lists, MCP server config, and hook
-settings; this module only knows how to (a) enforce a global concurrency cap
-on `claude` subprocesses and (b) shell out to one and parse its output.
+by every agentic-Claude app in this codebase (`debugger`, `content`). Nothing
+here is app-specific — callers supply their own prompt, tool allow/deny lists,
+MCP server config, and hook settings; this module only knows how to (a)
+enforce a global concurrency cap on `claude` subprocesses, (b) shell out to
+one authenticated off the CLI's own login session (never ANTHROPIC_API_KEY —
+see run_claude_cli's docstring), and (c) parse its output. This applies even
+to calls that need no tools at all (pure text/JSON generation, e.g. the
+Content Studio's Planner Agent or the Debugger Agent's advisor) — those still
+go through this function with an empty tool allowlist, not a direct
+`anthropic` SDK call, so there is exactly one way this codebase talks to
+Claude and exactly one place auth is decided.
 
 Why a Redis-backed semaphore instead of an in-process one: deployment runs a
 single `celery -A Varthaai worker -B` process, but Celery can still fan work
@@ -48,6 +54,17 @@ class ClaudeCliError(RuntimeError):
 
 class ClaudeCliBusyError(RuntimeError):
     """No concurrency slot became available within acquire_timeout."""
+
+
+# Every built-in tool name the CLI recognizes — pass as `disallowed_tools` for
+# a call that needs zero tool access (pure text/JSON in, text/JSON out): plain
+# structured generation, captioning, "write me a plan as JSON", etc. Belt-and-
+# braces alongside not passing `allowed_tools` at all. Shared so every such
+# caller (content.agents.planner, debugger.agent._call_advisor,
+# debugger/management/commands/compress_learnings.py, ...) denies the exact
+# same list rather than each keeping a slightly different copy.
+NO_TOOLS = ['Read', 'Grep', 'Glob', 'Bash', 'Write', 'Edit', 'NotebookEdit',
+            'WebFetch', 'WebSearch', 'TodoWrite']
 
 
 # --------------------------------------------------------------------------- #
@@ -245,6 +262,16 @@ def run_claude_cli(
     its own .claude/settings.json). Pass whatever context you need explicitly
     via `system_prompt`.
 
+    No service in this codebase authenticates with ANTHROPIC_API_KEY — every
+    `claude` call goes through this function and runs off the CLI's own
+    logged-in session (`claude login`; verified empirically: `claude -p ...`
+    with ANTHROPIC_API_KEY unset in the environment still resolves and reports
+    `"apiKeySource":"none"`). ANTHROPIC_API_KEY is stripped from the
+    subprocess environment unconditionally, even if present in the parent
+    process's os.environ (e.g. a stray .env value) or passed in via `env=` —
+    if it's present, the CLI prefers API-key billing over the login session,
+    silently defeating this guarantee, so there is no opt-out.
+
     Raises ClaudeCliBusyError / ClaudeCliError as described above.
     """
     settings_obj = dict(extra_settings or {})
@@ -277,6 +304,9 @@ def run_claude_cli(
     run_env = dict(os.environ)
     if env:
         run_env.update(env)
+    # Unconditional, after the env= merge — see the docstring above for why
+    # this has no opt-out.
+    run_env.pop('ANTHROPIC_API_KEY', None)
 
     resolved_acquire_timeout = (
         acquire_timeout if acquire_timeout is not None

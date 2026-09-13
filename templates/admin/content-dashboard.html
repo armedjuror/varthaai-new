@@ -1,0 +1,137 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Content Studio — Varthaai Admin{% endblock %}
+
+{% block content %}
+
+<div class="page-body">
+
+  <div class="page-header">
+    <div>
+      <h1>Content Studio</h1>
+      <p>Planner → Copywriter → Designer pipeline for Varthaai's reel series, posters and blog.</p>
+    </div>
+  </div>
+
+  <!-- Stat cards -->
+  <div class="row g-3 mb-4">
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat-card">
+        <div class="stat-icon green"><i class="fas fa-calendar-days"></i></div>
+        <div class="stat-body"><h2 id="statPlanned">—</h2><p>Planned this month</p></div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat-card">
+        <div class="stat-icon amber"><i class="fas fa-inbox"></i></div>
+        <div class="stat-body"><h2 id="statInput">—</h2><p>Awaiting your input</p></div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat-card">
+        <div class="stat-icon blue"><i class="fas fa-eye"></i></div>
+        <div class="stat-body"><h2 id="statReview">—</h2><p>Awaiting your review</p></div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="stat-card">
+        <div class="stat-icon teal"><i class="fas fa-check"></i></div>
+        <div class="stat-body"><h2 id="statPosted">—</h2><p>Posted this month</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-7">
+      <div class="data-card">
+        <div class="data-card-header">
+          <div>
+            <h3>Pending Tasks</h3>
+          </div>
+          <a class="btn-view-all" href="{% url 'content:tasks' %}">View all →</a>
+        </div>
+        <div id="pendingTasksList">
+          <div class="empty-state"><i class="fas fa-list-check"></i>Loading…</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-5">
+      <div class="data-card">
+        <div class="data-card-header"><h3>Recent scripts &amp; posters</h3></div>
+        <div id="recentList">
+          <div class="empty-state"><i class="fas fa-file-lines"></i>Loading…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="noPlanNote" class="caption-note" style="display:none;margin-top:20px;padding:14px 18px;border:1px dashed var(--gray-300);border-radius:var(--card-radius);font-size:0.82rem;color:var(--gray-500)">
+    No approved content plan for the current period yet. The Planner Agent
+    (Phase 1 of <code>content-generator-plan.md</code>) generates and lets
+    you review one — not wired up yet.
+  </div>
+
+</div><!-- /.page-body -->
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  var KIND_LABELS = {
+    input_needed: 'Input needed',
+    plan_review: 'Plan review',
+    script_review: 'Script review',
+    poster_review: 'Poster review',
+  };
+
+  async function loadDashboard() {
+    const res = await apiGet('/admin/api/content/dashboard/');
+    if (!res.success) { showAlertModal(res.message, 'danger'); return; }
+    const d = res.data;
+
+    document.getElementById('statPlanned').textContent = d.stats.planned_this_month;
+    document.getElementById('statInput').textContent = d.stats.awaiting_input;
+    document.getElementById('statReview').textContent = d.stats.awaiting_review;
+    document.getElementById('statPosted').textContent = d.stats.posted_this_month;
+
+    if (!d.has_active_plan) document.getElementById('noPlanNote').style.display = '';
+
+    const tasksEl = document.getElementById('pendingTasksList');
+    if (!d.pending_tasks.length) {
+      tasksEl.innerHTML = '<div class="empty-state"><i class="fas fa-check-circle"></i>Nothing pending.</div>';
+    } else {
+      tasksEl.innerHTML = d.pending_tasks.map(function (t) {
+        return '<div class="task-row" style="display:flex;align-items:flex-start;gap:12px;padding:13px 20px;border-bottom:1px solid var(--gray-100)">' +
+          '<span class="status status-pending" style="flex-shrink:0">' + (KIND_LABELS[t.kind] || t.kind) + '</span>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="font-weight:600;font-size:0.85rem">' + escHtml(t.title) + '</div>' +
+            (t.due_date ? '<div style="font-size:0.74rem;color:var(--gray-400)">Due ' + formatDate(t.due_date) + '</div>' : '') +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    const recentEl = document.getElementById('recentList');
+    const recent = (d.recent_scripts || []).map(function (s) {
+      return { title: s.plan_item__working_title, sub: s.skill_used, status: s.status };
+    }).concat((d.recent_posters || []).map(function (p) {
+      return { title: p.plan_item__working_title, sub: 'poster', status: p.status };
+    }));
+    if (!recent.length) {
+      recentEl.innerHTML = '<div class="empty-state"><i class="fas fa-file-lines"></i>Nothing generated yet.</div>';
+    } else {
+      recentEl.innerHTML = recent.map(function (r) {
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-bottom:1px solid var(--gray-100)">' +
+          '<div><div style="font-weight:600;font-size:0.85rem">' + escHtml(r.title || '') + '</div>' +
+          '<div style="font-size:0.72rem;color:var(--gray-400)">' + escHtml(r.sub || '') + '</div></div>' +
+          '<span class="badge badge-info">' + escHtml(r.status) + '</span>' +
+        '</div>';
+      }).join('');
+    }
+  }
+
+  loadDashboard();
+</script>
+{% endblock %}

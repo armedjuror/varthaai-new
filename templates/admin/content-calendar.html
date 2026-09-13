@@ -1,0 +1,201 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Content Calendar — Varthaai Admin{% endblock %}
+
+{% block content %}
+
+<div class="page-body">
+
+  <div class="page-header">
+    <div>
+      <h1>Content Calendar</h1>
+      <p>Every planned post across all series, newest plan period first.</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#generatePlanModal">
+        <i class="fas fa-wand-magic-sparkles me-1"></i>Generate Plan
+      </button>
+    </div>
+  </div>
+
+  <div class="data-card" id="plansCard" style="display:none">
+    <div class="data-card-header">
+      <h3>Plan periods</h3>
+    </div>
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Period</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="plansBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="data-card">
+    <div class="data-card-header">
+      <h3>Plan items</h3>
+    </div>
+    <div class="table-responsive">
+      <table class="table" id="calendarTable">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Series</th>
+            <th>Title</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="calendarBody">
+          <tr><td colspan="4" class="text-center py-4">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /.page-body -->
+
+<!-- Generate Plan Modal -->
+<div class="modal fade" id="generatePlanModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-wand-magic-sparkles me-2"></i>Generate Plan</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="generatePlanForm">
+        <div class="modal-body">
+          <p class="text-muted" style="font-size:0.85rem">
+            The Planner Agent proposes recurring-series slots (per each series' cadence) plus
+            occasion posters for real festivals/observances in this period. It never overwrites
+            an item already in the plan — re-running only fills gaps.
+          </p>
+          <div class="row g-3">
+            <div class="col-6">
+              <label class="form-label">From <span class="text-danger">*</span></label>
+              <input type="date" class="form-control" name="period_start" required>
+            </div>
+            <div class="col-6">
+              <label class="form-label">To <span class="text-danger">*</span></label>
+              <input type="date" class="form-control" name="period_end" required>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm">Generate</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const STATUS_LABELS = {
+    draft: 'Draft', generating: 'Generating…', needs_review: 'Needs review', approved: 'Approved',
+  };
+
+  function defaultNextMonthRange() {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const end = new Date(now.getFullYear(), now.getMonth() + 2, 0);
+    const iso = (d) => d.toISOString().slice(0, 10);
+    return { start: iso(start), end: iso(end) };
+  }
+
+  function renderPlans(plans) {
+    const card = document.getElementById('plansCard');
+    const tbody = document.getElementById('plansBody');
+    if (!plans.length) {
+      card.style.display = 'none';
+      return;
+    }
+    card.style.display = '';
+    tbody.innerHTML = plans.map(function (p) {
+      const label = STATUS_LABELS[p.status] || p.status;
+      const badgeClass = p.status === 'approved' ? 'status-delivered' :
+        p.status === 'generating' ? 'status-pending' :
+        p.status === 'needs_review' ? 'status-confirmed' : 'status-cancelled';
+      const err = p.generation_error
+        ? '<div class="text-danger" style="font-size:0.75rem;margin-top:2px">' + escHtml(p.generation_error) + '</div>'
+        : '';
+      return '<tr>' +
+        '<td>' + formatDate(p.period_start) + ' – ' + formatDate(p.period_end) + '</td>' +
+        '<td><span class="status ' + badgeClass + '">' + escHtml(label) + '</span>' + err + '</td>' +
+        '<td></td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  let pollTimer = null;
+
+  async function loadCalendar() {
+    const res = await apiGet('/admin/api/content/calendar/');
+    const tbody = document.getElementById('calendarBody');
+    if (!res.success) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">' + escHtml(res.message) + '</td></tr>';
+      return;
+    }
+    const items = res.data.items || [];
+    const plans = res.data.plans || [];
+    renderPlans(plans);
+
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">' +
+        'No plan items yet — click "Generate Plan" above to have the Planner Agent propose one.</td></tr>';
+    } else {
+      tbody.innerHTML = items.map(function (i) {
+        return '<tr>' +
+          '<td>' + formatDate(i.planned_date) + '</td>' +
+          '<td>' + escHtml(i.series || '—') + '</td>' +
+          '<td>' + escHtml(i.working_title) + '</td>' +
+          '<td><span class="status status-pending">' + escHtml(i.status) + '</span></td>' +
+        '</tr>';
+      }).join('');
+    }
+
+    // Keep polling while any plan is mid-generation so the status badge and
+    // the item list update themselves once the Planner finishes.
+    const stillGenerating = plans.some(function (p) { return p.status === 'generating'; });
+    clearTimeout(pollTimer);
+    if (stillGenerating) {
+      pollTimer = setTimeout(loadCalendar, 3000);
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    const range = defaultNextMonthRange();
+    const form = document.getElementById('generatePlanForm');
+    form.period_start.value = range.start;
+    form.period_end.value = range.end;
+
+    form.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const submitBtn = form.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+      const res = await apiPost('/admin/api/content/planner/trigger/', {
+        period_start: form.period_start.value,
+        period_end: form.period_end.value,
+      });
+      submitBtn.disabled = false;
+      if (!res.success) {
+        showAlertModal(res.message, 'error');
+        return;
+      }
+      bootstrap.Modal.getInstance(document.getElementById('generatePlanModal')).hide();
+      showAlertModal('Generating plan — this runs in the background and the calendar will update automatically.', 'success');
+      loadCalendar();
+    });
+  });
+
+  loadCalendar();
+</script>
+{% endblock %}

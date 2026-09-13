@@ -17,7 +17,7 @@ import shutil
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
-from core.claude_cli import run_claude_cli
+from core.claude_cli import NO_TOOLS, run_claude_cli
 from debugger.models import DebugLearning
 
 _SYSTEM_PROMPT = (
@@ -31,12 +31,6 @@ _SYSTEM_PROMPT = (
     'of the original thread). Respond with ONLY a JSON object of the form '
     '{"title": "...", "content": "..."} and nothing else.'
 )
-
-# This command needs zero tool access (pure text-in/JSON-out), so every
-# built-in tool name the CLI recognizes is explicitly denied — belt and
-# braces alongside not passing any `allowed_tools` at all.
-_NO_TOOLS = ['Read', 'Grep', 'Glob', 'Bash', 'Write', 'Edit', 'NotebookEdit',
-             'WebFetch', 'WebSearch', 'TodoWrite']
 
 
 class Command(BaseCommand):
@@ -92,7 +86,7 @@ def _compress(learning):
     result = run_claude_cli(
         user_prompt,
         system_prompt=_SYSTEM_PROMPT,
-        disallowed_tools=_NO_TOOLS,
+        disallowed_tools=NO_TOOLS,
         model=settings.DEBUGGER_MODEL,
         max_turns=1,
     )

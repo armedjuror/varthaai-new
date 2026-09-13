@@ -15,4 +15,6 @@ urlpatterns = [
     # Brands slice (super_admin only)
     path('brands/', brands_views.brands_page, name='brands'),
     path('api/brands/', brands_views.BrandsAPI.as_view(), name='brands_api'),
+    path('brands/<int:pk>/kit/', brands_views.brand_kit_page, name='brand_kit'),
+    path('api/brands/<int:pk>/kit/', brands_views.BrandKitAPI.as_view(), name='brand_kit_api'),
 ]

@@ -15,10 +15,15 @@ Capabilities given to Claude:
     the CLI spawns via --mcp-config; see _build_mcp_config below).
   * read_logs    — journalctl (app) + nginx logfiles, read-only.
   * consult_advisor — escalates final synthesis (root cause / fix diff / plan)
-    to a stronger model (settings.DEBUGGER_ADVISOR_MODEL) via a direct
-    Anthropic API call, NOT another agentic `claude` run — the advisor gets no
-    tools of its own, only the text summary it's given (_call_advisor below,
-    called from inside debugger/mcp_server.py's consult_advisor tool).
+    to a stronger model (settings.DEBUGGER_ADVISOR_MODEL) via a SECOND headless
+    `claude -p` turn (run_claude_cli again, with an empty tool allowlist —
+    NOT the direct `anthropic` SDK, which no service in this codebase uses
+    any more; see core/claude_cli.py), so the advisor still gets no tools of
+    its own, only the text summary it's given (_call_advisor below, called
+    from inside debugger/mcp_server.py's consult_advisor tool — itself a
+    child process of THIS outer `claude` run, which already holds one
+    concurrency slot; the advisor call needs a second slot concurrently, so
+    CLAUDE_CLI_MAX_CONCURRENT must stay >= 2 or this self-deadlocks).
 
 It can NEVER Write/Edit files or write to the DB. Those guarantees are enforced
 three ways: the CLI allow/deny tool lists, the PreToolUse deny-hook script,
@@ -37,21 +42,9 @@ from pathlib import Path
 from django.conf import settings
 from django.contrib.postgres.search import SearchQuery, SearchRank
 
-from core.claude_cli import run_claude_cli
+from core.claude_cli import NO_TOOLS, run_claude_cli
 
 logger = logging.getLogger(__name__)
-
-# Direct Anthropic API client for the advisor tool — deliberately NOT another
-# agentic `claude` run, so the advisor model gets no tool/filesystem/DB access
-# of its own (text in, text out). Import lazily so the rest of the app
-# (models, migrations, views) loads even where the `anthropic` package is
-# absent.
-try:
-    import anthropic
-    ANTHROPIC_AVAILABLE = True
-except Exception:  # pragma: no cover - depends on deploy env
-    ANTHROPIC_AVAILABLE = False
-
 
 MCP_SERVER_NAME = 'varthaai_debugger'
 DB_TOOL = f'mcp__{MCP_SERVER_NAME}__db_query_ro'
@@ -96,28 +89,37 @@ def _extract_new_files(raw_list):
 
 def _call_advisor(summary):
     """
-    Synchronous call to the advisor model (a direct Anthropic API call, NOT
-    another agentic `claude` run — the advisor gets no tool/filesystem/DB
-    access of its own, only the text it's given). Returns the advisor's text,
-    or raises on failure. Called from debugger/mcp_server.py's consult_advisor
-    tool (a separate OS process — that's why this is a plain, self-contained
-    function rather than a closure over any in-process state).
+    Synchronous call to the advisor model — a second headless `claude -p`
+    turn via run_claude_cli, with an empty tool allowlist (NO_TOOLS), NOT the
+    direct `anthropic` SDK: the advisor still gets no tool/filesystem/DB
+    access of its own, only the text it's given; only the transport and auth
+    changed (see core/claude_cli.py — no service here uses ANTHROPIC_API_KEY).
+    Returns the advisor's text, or raises on failure. Called from
+    debugger/mcp_server.py's consult_advisor tool (a separate OS process —
+    that's why this is a plain, self-contained function rather than a closure
+    over any in-process state).
+
+    This call is itself nested inside an OUTER `claude` run that already
+    holds one concurrency slot (the investigation calling consult_advisor) —
+    it needs a SECOND slot concurrently. See module docstring: requires
+    CLAUDE_CLI_MAX_CONCURRENT >= 2.
     """
-    if not ANTHROPIC_AVAILABLE:
-        raise RuntimeError('anthropic package not installed')
-    if not settings.ANTHROPIC_API_KEY:
-        raise RuntimeError('ANTHROPIC_API_KEY not configured')
-    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-    response = client.messages.create(
+    if not shutil.which(settings.CLAUDE_CLI_BIN):
+        raise RuntimeError(f'claude CLI not found on PATH ({settings.CLAUDE_CLI_BIN!r})')
+    result = run_claude_cli(
+        summary,
+        disallowed_tools=NO_TOOLS,
         model=settings.DEBUGGER_ADVISOR_MODEL,
-        max_tokens=4096,
-        thinking={'type': 'adaptive'},
-        messages=[{'role': 'user', 'content': summary}],
+        max_turns=1,
     )
-    if response.stop_reason == 'refusal':
-        raise RuntimeError('advisor declined to respond')
-    return '\n\n'.join(
-        b.text for b in response.content if getattr(b, 'type', None) == 'text')
+    if result.get('is_error'):
+        raise RuntimeError(
+            f'advisor call failed (subtype={result.get("subtype")}): '
+            f'{result.get("text") or "(no text)"}')
+    text = (result.get('text') or '').strip()
+    if not text:
+        raise RuntimeError('advisor returned no text')
+    return text
 
 
 # --------------------------------------------------------------------------- #
@@ -341,10 +343,6 @@ def run_agent(request, cwd=None, mode=None):
     system_prompt = build_system_prompt(request, mode)
     user_prompt = build_prompt(request)
 
-    env = {}
-    if settings.ANTHROPIC_API_KEY:
-        env['ANTHROPIC_API_KEY'] = settings.ANTHROPIC_API_KEY
-
     result = run_claude_cli(
         user_prompt,
         system_prompt=system_prompt,
@@ -354,7 +352,6 @@ def run_agent(request, cwd=None, mode=None):
         extra_settings=_build_hook_settings(),
         model=settings.DEBUGGER_MODEL,
         cwd=cwd or settings.DEBUGGER_CODE_DIR,
-        env=env,
         max_turns=settings.DEBUGGER_MAX_TURNS,
     )
 

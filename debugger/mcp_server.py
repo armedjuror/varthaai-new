@@ -24,10 +24,13 @@ Python tool functions). The tools themselves are unchanged in behavior:
                        boundary (see core.claude_cli._parse_stream_json).
   * record_learning    — same story as propose_fix: acknowledgement only, the
                        real title/content is recovered from the tool_use input.
-  * consult_advisor    — a DIRECT Anthropic API call (debugger.agent._call_
-                       advisor), deliberately NOT another `claude` CLI/agentic
-                       call — the advisor model gets no tool/filesystem/DB
-                       access of its own, only the text it's given.
+  * consult_advisor    — a SECOND headless `claude -p` call with no tools
+                       granted (debugger.agent._call_advisor, via
+                       core.claude_cli.run_claude_cli) — the advisor model
+                       still gets no tool/filesystem/DB access of its own,
+                       only the text it's given; it is nested inside THIS
+                       already-running `claude` process, so it needs its own
+                       concurrency slot (CLAUDE_CLI_MAX_CONCURRENT >= 2).
 
 It can NEVER write files or write to the DB — see debugger/guards.py (enforced
 independently by the PreToolUse hook script, debugger/guard_hook.py) and the
@@ -144,8 +147,8 @@ async def consult_advisor(summary: str) -> str:
     if not summary:
         raise ValueError('Empty summary — nothing to advise on.')
     try:
-        # _call_advisor is a blocking network call (anthropic SDK); offload so
-        # it doesn't stall the server's event loop.
+        # _call_advisor blocks on a subprocess.run() call (a second `claude`
+        # CLI invocation); offload so it doesn't stall the server's event loop.
         text = await asyncio.to_thread(_call_advisor, summary)
     except Exception as exc:
         raise ValueError(f'Advisor call failed: {exc}') from exc

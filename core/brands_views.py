@@ -10,12 +10,13 @@ Brand *switching* is handled elsewhere (`accounts:brand_switch` + the base.html
 topbar switcher), so this API only covers CRUD: add / edit / toggle / delete.
 """
 from django.shortcuts import redirect, render
+from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import User
-from core.api import HasModulePermission, current_brand_id
+from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required
 from core.models import Brand
 from orders.models import Order
@@ -27,6 +28,47 @@ def brands_page(request):
     if not getattr(request.user, 'is_super_admin', False):
         return redirect('core:dashboard')
     return render(request, 'admin/brands.html')
+
+
+@admin_login_required
+@ensure_csrf_cookie
+def brand_kit_page(request, pk):
+    if not getattr(request.user, 'is_super_admin', False):
+        return redirect('core:dashboard')
+    brand = Brand.objects.filter(id=pk).first()
+    if brand is None:
+        return redirect('core:brands')
+    return render(request, 'admin/brand-kit.html', {'brand': brand})
+
+
+class BrandKitAPI(APIView):
+    """Brand Kit content lives on Brand itself — same super_admin-only gate
+    as the rest of brands_views.py, no separate permission_module (§2)."""
+    permission_classes = [HasModulePermission]  # any logged-in admin may GET
+
+    def get(self, request, pk):
+        brand = Brand.objects.filter(id=pk).first()
+        if brand is None:
+            return err('Brand not found.', status=404)
+        return ok({
+            'id': brand.id,
+            'name': brand.name,
+            'brand_kit': brand.brand_kit,
+            'brand_kit_updated_at': brand.brand_kit_updated_at.isoformat() if brand.brand_kit_updated_at else None,
+            'brand_kit_updated_by': brand.brand_kit_updated_by.name if brand.brand_kit_updated_by else None,
+        })
+
+    def post(self, request, pk):
+        if not getattr(request.user, 'is_super_admin', False):
+            return err('Super admin only.')
+        brand = Brand.objects.filter(id=pk).first()
+        if brand is None:
+            return err('Brand not found.', status=404)
+        brand.brand_kit = (request.data.get('brand_kit') or '').strip() if isinstance(request.data, dict) else ''
+        brand.brand_kit_updated_at = timezone.now()
+        brand.brand_kit_updated_by = request.user
+        brand.save(update_fields=['brand_kit', 'brand_kit_updated_at', 'brand_kit_updated_by', 'updated_at'])
+        return ok(message='Brand Kit saved.')
 
 
 def _fail(message):

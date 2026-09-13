@@ -1,6 +1,6 @@
 # Varthaai — Django Migration Guide
 
-You are building a Django port of an existing PHP admin panel + storefront for Varthaai, a food brand (peanut butter etc.) with B2B and B2C sales. The existing app is live at varthaai.com.
+You are building a Django port of an existing PHP admin panel + storefront for Varthaai, a kerala based banana chips brand with B2B and B2C sales. The existing app is live at varthaai.com.
 
 ## Tech Stack
 

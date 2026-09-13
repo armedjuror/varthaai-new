@@ -1,0 +1,90 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Pending Tasks — Varthaai Admin{% endblock %}
+
+{% block content %}
+
+<div class="page-body">
+
+  <div class="page-header">
+    <div>
+      <h1>Pending Tasks</h1>
+      <p>Everything blocking the content pipeline until you act — inputs needed and items awaiting your review.</p>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="row g-2 align-items-center">
+      <div class="col-auto">
+        <select class="form-select form-select-sm" id="kindFilter" style="width:auto">
+          <option value="">All kinds</option>
+          <option value="input_needed">Input needed</option>
+          <option value="plan_review">Plan review</option>
+          <option value="script_review">Script review</option>
+          <option value="poster_review">Poster review</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="data-card">
+    <div class="data-card-header">
+      <h3>Open items</h3>
+    </div>
+    <div class="table-responsive">
+      <table class="table" id="tasksTable">
+        <thead>
+          <tr>
+            <th>Kind</th>
+            <th>Title</th>
+            <th>Due</th>
+          </tr>
+        </thead>
+        <tbody id="tasksBody">
+          <tr><td colspan="3" class="text-center py-4">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /.page-body -->
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  var KIND_LABELS = {
+    input_needed: 'Input needed',
+    plan_review: 'Plan review',
+    script_review: 'Script review',
+    poster_review: 'Poster review',
+  };
+
+  async function loadTasks() {
+    const kind = document.getElementById('kindFilter').value;
+    const res = await apiGet('/admin/api/content/tasks/', kind ? { kind: kind } : {});
+    const tbody = document.getElementById('tasksBody');
+    if (!res.success) {
+      tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-muted">' + escHtml(res.message) + '</td></tr>';
+      return;
+    }
+    const items = res.data.items || [];
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="3" class="text-center py-4 text-muted">Nothing pending right now.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map(function (t) {
+      return '<tr>' +
+        '<td><span class="status status-pending">' + (KIND_LABELS[t.kind] || t.kind) + '</span></td>' +
+        '<td><div class="fw-semibold">' + escHtml(t.title) + '</div>' +
+          (t.description ? '<div style="font-size:0.78rem;color:var(--gray-500)">' + escHtml(t.description) + '</div>' : '') + '</td>' +
+        '<td>' + (t.due_date ? formatDate(t.due_date) : '—') + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  document.getElementById('kindFilter').addEventListener('change', loadTasks);
+  loadTasks();
+</script>
+{% endblock %}

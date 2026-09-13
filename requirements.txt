@@ -7,6 +7,10 @@ charset-normalizer==3.4.9
 Django==5.2.16
 djangorestframework==3.17.1
 gunicorn==23.0.0
+# TODO: verify current google-genai version before merge — no PyPI/web access
+# was available to confirm it in this session. Needed only by
+# content/agents/designer.py's generate_poster_image() (Gemini image calls).
+google-genai==1.3.0
 idna==3.18
 # MCP Python SDK — used to build the Debugger Agent's custom tool server
 # (debugger/mcp_server.py), spoken to over stdio by the `claude` CLI via

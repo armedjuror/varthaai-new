@@ -440,41 +440,49 @@ class BuildFixBranchTests(TestCase):
 
 
 class ConsultAdvisorTests(TestCase):
-    """The advisor tool is a direct Anthropic API call (not the Agent SDK) so
-    the advisor model gets no tool/filesystem/DB access of its own."""
+    """The advisor tool is a second headless `claude -p` call (run_claude_cli
+    with an empty tool allowlist), NOT the direct Anthropic API — no service
+    in this codebase authenticates with ANTHROPIC_API_KEY (core/claude_cli.py).
+    The advisor still gets no tool/filesystem/DB access of its own."""
 
     def test_advisor_tool_is_wired_into_allowed_tools(self):
         from debugger import agent
         self.assertIn(agent.ADVISOR_TOOL, agent.ALLOWED_TOOLS)
 
-    @mock.patch('debugger.agent.anthropic')
-    def test_call_advisor_returns_text(self, mock_anthropic):
+    @mock.patch('debugger.agent.shutil.which', return_value='/usr/bin/claude')
+    @mock.patch('debugger.agent.run_claude_cli')
+    def test_call_advisor_returns_text(self, mock_run, mock_which):
         from debugger import agent
 
-        block = mock.Mock(type='text', text='Root cause: coupon applied after total.')
-        response = mock.Mock(stop_reason='end_turn', content=[block])
-        mock_anthropic.Anthropic.return_value.messages.create.return_value = response
-
-        with override_settings(ANTHROPIC_API_KEY='sk-test'):
-            result = agent._call_advisor('evidence summary')
+        mock_run.return_value = {
+            'text': 'Root cause: coupon applied after total.', 'is_error': False,
+        }
+        result = agent._call_advisor('evidence summary')
         self.assertEqual(result, 'Root cause: coupon applied after total.')
 
-    @mock.patch('debugger.agent.anthropic')
-    def test_call_advisor_raises_on_refusal(self, mock_anthropic):
+    @mock.patch('debugger.agent.shutil.which', return_value='/usr/bin/claude')
+    @mock.patch('debugger.agent.run_claude_cli')
+    def test_call_advisor_raises_on_error_result(self, mock_run, mock_which):
         from debugger import agent
 
-        response = mock.Mock(stop_reason='refusal', content=[])
-        mock_anthropic.Anthropic.return_value.messages.create.return_value = response
+        mock_run.return_value = {'text': '', 'is_error': True, 'subtype': 'error'}
+        with self.assertRaises(RuntimeError):
+            agent._call_advisor('evidence summary')
 
-        with override_settings(ANTHROPIC_API_KEY='sk-test'):
-            with self.assertRaises(RuntimeError):
-                agent._call_advisor('evidence summary')
-
-    def test_call_advisor_raises_without_api_key(self):
+    @mock.patch('debugger.agent.shutil.which', return_value='/usr/bin/claude')
+    @mock.patch('debugger.agent.run_claude_cli')
+    def test_call_advisor_raises_on_empty_text(self, mock_run, mock_which):
         from debugger import agent
-        with override_settings(ANTHROPIC_API_KEY=''):
-            with self.assertRaises(RuntimeError):
-                agent._call_advisor('evidence summary')
+
+        mock_run.return_value = {'text': '', 'is_error': False}
+        with self.assertRaises(RuntimeError):
+            agent._call_advisor('evidence summary')
+
+    @mock.patch('debugger.agent.shutil.which', return_value=None)
+    def test_call_advisor_raises_without_cli_on_path(self, mock_which):
+        from debugger import agent
+        with self.assertRaises(RuntimeError):
+            agent._call_advisor('evidence summary')
 
 
 class ProcessRequestErrorHandlingTests(TestCase):

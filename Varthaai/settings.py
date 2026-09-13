@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import os
 from pathlib import Path
 
+from celery.schedules import crontab
 from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -71,6 +72,7 @@ LOCAL_APPS = [
     'marketing',
     'storefront',
     'debugger',
+    'content',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -264,12 +266,24 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'debugger.tasks.poll_open_prs',
         'schedule': DEBUGGER_PR_POLL_SECONDS,
     },
+    # Content Studio: seed next month's plan on the 28th (content-generator-
+    # plan.md §8). The same run_planner_task also backs the admin's manual
+    # "Generate plan" trigger — one code path either way.
+    'content-plan-next-month': {
+        'task': 'content.tasks.seed_next_month_plans',
+        'schedule': crontab(hour=6, minute=0, day_of_month=28),
+    },
 }
 
 # ---------------------------------------------------------------------------
 # Debugger Agent (super-admin RCA + PR bot). See debugger/ app.
 # ---------------------------------------------------------------------------
-# Claude Agent SDK auth. Rotate this key — it was previously committed to .env.
+# NOT used by the Debugger Agent or the Content Studio any more — both
+# authenticate `claude` calls off the CLI's own login session (see
+# core/claude_cli.py; rotate that key was the old guidance, no longer
+# applies). Still used by the Blog AI writing assistant (marketing/ai.py,
+# via litellm) below, which hasn't been converted off the direct Anthropic
+# API yet — see content-generator-plan.md's note on retiring it.
 ANTHROPIC_API_KEY = env('ANTHROPIC_API_KEY', '')
 DEBUGGER_MODEL = env('DEBUGGER_MODEL', 'claude-sonnet-5')
 # Stronger model consulted (via the consult_advisor tool) for final synthesis
@@ -339,3 +353,28 @@ AI_ASSIST_MODELS = [
     {'id': 'anthropic/claude-sonnet-5', 'label': 'Claude Sonnet', 'provider': 'anthropic'},
 ]
 AI_ASSIST_DEFAULT_MODEL = 'anthropic/claude-sonnet-5'
+
+# ---------------------------------------------------------------------------
+# Content Studio — Planner + Designer Agents (content/agents/, see
+# content-generator-plan.md). Two separate model calls:
+#   - Plan generation (planner.py), inspiration captioning
+#     (ingest_poster_inspirations), and brief generation (designer.py) are
+#     all headless `claude -p` turns via core.claude_cli.run_claude_cli with
+#     an empty tool allowlist (captioning grants only Read, to view the
+#     image file — see that command's docstring) — same pattern as
+#     debugger's consult_advisor, NOT a direct `anthropic` SDK call. No
+#     service in this codebase authenticates with ANTHROPIC_API_KEY except
+#     the not-yet-converted Blog AI assistant (see that setting's comment).
+#   - Actual poster image generation/editing needs an image-output model —
+#     Claude doesn't do that, so this one call goes to Gemini (a different
+#     provider, GEMINI_API_KEY, unrelated to the point above).
+# ---------------------------------------------------------------------------
+# Cheap model — plan/caption/brief calls are short, high-volume, not
+# final-synthesis quality (unlike DEBUGGER_ADVISOR_MODEL).
+CONTENT_TEXT_MODEL = env('CONTENT_TEXT_MODEL', 'claude-sonnet-5')
+# TODO: verify against Google's current model list before relying on this in
+# production — no web access was available to confirm it in this session.
+# poster-generation-plan.md §10 names this as the class of model needed
+# (image-editing, multi-image-input capable); pin the specific id once checked.
+GEMINI_API_KEY = env('GEMINI_API_KEY', '')
+GEMINI_POSTER_MODEL = env('GEMINI_POSTER_MODEL', 'gemini-3-pro-image-preview')

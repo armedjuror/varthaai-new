@@ -12,6 +12,17 @@ class Brand(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Brand Kit (markdown) — identity/visual/voice reference consumed by the
+    # `content` app's agents and poster generation. Edited on its own page
+    # (not the Add/Edit modal above — this is long-form), loaded fresh per
+    # agent run rather than cached, so an edit here takes effect immediately.
+    brand_kit = models.TextField(blank=True)
+    brand_kit_updated_at = models.DateTimeField(null=True, blank=True)
+    brand_kit_updated_by = models.ForeignKey(
+        'accounts.AdminUser', on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+
     class Meta:
         db_table = 'brands'
 

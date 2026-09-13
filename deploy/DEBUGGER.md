@@ -16,34 +16,47 @@ and server logs.
   unit-tested in `debugger/tests.py`, unchanged by the SDK→CLI migration).
 - Phase 1 is analysis only — no PR is created. (PR automation is Phase 2.)
 
-## 1. Rotate the Anthropic key
-A live-looking `ANTHROPIC_API_KEY` was previously present in `.env`. **Rotate it**
-in the Anthropic console, then set the new value in `.env`:
+## 1. Model config
+`ANTHROPIC_API_KEY` is **NOT used by the Debugger Agent** (or the Content
+Studio) — see step 2. It's only still needed elsewhere in this app (the Blog
+AI writing assistant, `marketing/ai.py`, not yet converted — see
+content-generator-plan.md). If a live-looking key was previously present in
+`.env` for the Debugger Agent's old direct-API/Agent-SDK path, it can be
+rotated/removed for that purpose; just don't remove it outright if the Blog
+AI assistant is still in service and depends on it.
 ```
-ANTHROPIC_API_KEY=sk-ant-...
 DEBUGGER_MODEL=claude-sonnet-5
 ```
 
-## 2. Install runtime deps
+## 2. Install runtime deps + authenticate the CLI
 ```bash
 source venv/bin/activate
 pip install -r requirements.txt          # adds celery, redis, mcp
 ```
-The app spawns the `claude` CLI directly as a subprocess (no SDK in between).
-Install it on the box and make sure it's authenticated headlessly:
+The app spawns the `claude` CLI directly as a subprocess (no SDK in between,
+no `anthropic` API client). Install it on the box:
 ```bash
 # Node 18+ required
 npm install -g @anthropic-ai/claude-code   # provides the `claude` binary
 which claude                                # must resolve on the worker's PATH
 claude --version                            # sanity check
 ```
-Headless (`-p`/`--print`) runs authenticate via `ANTHROPIC_API_KEY` in the
-subprocess environment (the same key set in step 1) — there is no interactive
-OAuth login step to run on the server; `core/claude_cli.py` passes the key
-through explicitly. Verify end-to-end once deployed:
+**Auth: the CLI's own login session, NOT `ANTHROPIC_API_KEY`.**
+`core/claude_cli.py` strips `ANTHROPIC_API_KEY` from every subprocess it
+spawns unconditionally (verified empirically: `env -u ANTHROPIC_API_KEY
+claude -p ... --output-format json` still succeeds and reports
+`"apiKeySource":"none"` — it authenticates off stored CLI login credentials,
+not a key in the environment). Run `claude login` once for the service
+account/user the Celery worker runs as, so its stored credentials exist on
+disk before the worker starts. **Not verified in this codebase**: the exact
+device-code/browser flow for a headless SSH-only box, and whether those
+credentials need periodic re-auth — confirm against current `claude`
+CLI docs for the account you deploy under. Verify end-to-end once deployed:
 ```bash
-ANTHROPIC_API_KEY=sk-ant-... claude -p "reply with exactly: PONG" --output-format json
+env -u ANTHROPIC_API_KEY claude -p "reply with exactly: PONG" --output-format json
 ```
+A response with `"apiKeySource":"none"` confirms it's running off the login
+session; if it errors out asking to authenticate, run `claude login` first.
 
 ## 3. Redis (Celery broker + the Claude CLI concurrency semaphore)
 ```bash
