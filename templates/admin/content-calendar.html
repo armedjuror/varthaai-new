@@ -10,7 +10,7 @@
   <div class="page-header">
     <div>
       <h1>Content Calendar</h1>
-      <p>Every planned post across all series, newest plan period first.</p>
+      <p>Review each plan's proposed items, then approve. Newest plan first.</p>
     </div>
     <div class="page-header-actions">
       <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#generatePlanModal">
@@ -19,43 +19,10 @@
     </div>
   </div>
 
-  <div class="data-card" id="plansCard" style="display:none">
-    <div class="data-card-header">
-      <h3>Plan periods</h3>
-    </div>
-    <div class="table-responsive">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Period</th>
-            <th>Status</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="plansBody"></tbody>
-      </table>
-    </div>
-  </div>
+  <div id="plansAccordion" class="accordion"></div>
 
-  <div class="data-card">
-    <div class="data-card-header">
-      <h3>Plan items</h3>
-    </div>
-    <div class="table-responsive">
-      <table class="table" id="calendarTable">
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Series</th>
-            <th>Title</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody id="calendarBody">
-          <tr><td colspan="4" class="text-center py-4">Loading…</td></tr>
-        </tbody>
-      </table>
-    </div>
+  <div id="emptyState" class="empty-state" style="display:none;margin-top:20px">
+    <i class="fas fa-calendar-days"></i>No plans yet — click "Generate Plan" above to have the Planner Agent propose one.
   </div>
 
 </div><!-- /.page-body -->
@@ -98,9 +65,36 @@
 {% endblock %}
 
 {% block extra_js %}
+<style>
+  .plan-panel { background:#fff; border:1px solid var(--gray-200); border-radius:var(--card-radius); margin-bottom:14px; overflow:hidden; }
+  .plan-panel-header { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 20px; cursor:pointer; }
+  .plan-panel-header:hover { background:var(--gray-50); }
+  .plan-panel-left { display:flex; align-items:center; gap:14px; min-width:0; }
+  .plan-panel-title { font-weight:700; font-size:0.95rem; }
+  .plan-panel-counts { font-size:0.76rem; color:var(--gray-400); margin-top:2px; }
+  .plan-panel-body { border-top:1px solid var(--gray-100); display:none; }
+  .plan-panel.open .plan-panel-body { display:block; }
+  .plan-panel.open .chevron { transform:rotate(180deg); }
+  .chevron { transition:transform 0.15s; color:var(--gray-400); }
+  .item-row { display:flex; align-items:flex-start; gap:14px; padding:14px 20px; border-bottom:1px solid var(--gray-100); }
+  .item-row:last-child { border-bottom:none; }
+  .item-row.decided-approved { background:#f0fdf4; }
+  .item-row.decided-skipped { background:#fafafa; opacity:0.6; }
+  .item-main { flex:1; min-width:0; }
+  .item-title { font-weight:600; font-size:0.85rem; }
+  .item-meta { font-size:0.74rem; color:var(--gray-400); margin-top:2px; }
+  .item-context { font-size:0.78rem; color:var(--gray-500); margin-top:6px; line-height:1.4; }
+  .item-actions { display:flex; gap:6px; flex-shrink:0; }
+  .item-decide-btn { border:1px solid var(--gray-200); background:#fff; border-radius:8px; width:34px; height:34px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all .12s; }
+  .item-decide-btn:hover { transform:scale(1.06); }
+  .item-decide-btn.approve.active { background:#16a34a; border-color:#16a34a; color:#fff; }
+  .item-decide-btn.skip.active { background:#dc2626; border-color:#dc2626; color:#fff; }
+</style>
 <script>
-  const STATUS_LABELS = {
-    draft: 'Draft', generating: 'Generating…', needs_review: 'Needs review', approved: 'Approved',
+  const PLAN_STATUS_LABELS = { draft: 'Draft', generating: 'Generating…', needs_review: 'Needs review', approved: 'Approved' };
+  const CONTENT_TYPE_LABELS = {
+    reel_varthaanm: 'Varthaanm', reel_verdict: 'Verdict', reel_inside: 'Inside',
+    poster_learn: 'Learn', poster_occasion: 'Occasion', poster_event: 'Event', blog: 'Blog',
   };
 
   function defaultNextMonthRange() {
@@ -111,64 +105,122 @@
     return { start: iso(start), end: iso(end) };
   }
 
-  function renderPlans(plans) {
-    const card = document.getElementById('plansCard');
-    const tbody = document.getElementById('plansBody');
-    if (!plans.length) {
-      card.style.display = 'none';
-      return;
-    }
-    card.style.display = '';
-    tbody.innerHTML = plans.map(function (p) {
-      const label = STATUS_LABELS[p.status] || p.status;
-      const badgeClass = p.status === 'approved' ? 'status-delivered' :
-        p.status === 'generating' ? 'status-pending' :
-        p.status === 'needs_review' ? 'status-confirmed' : 'status-cancelled';
-      const err = p.generation_error
-        ? '<div class="text-danger" style="font-size:0.75rem;margin-top:2px">' + escHtml(p.generation_error) + '</div>'
-        : '';
-      return '<tr>' +
-        '<td>' + formatDate(p.period_start) + ' – ' + formatDate(p.period_end) + '</td>' +
-        '<td><span class="status ' + badgeClass + '">' + escHtml(label) + '</span>' + err + '</td>' +
-        '<td></td>' +
-      '</tr>';
-    }).join('');
+  function planBadgeClass(status) {
+    return status === 'approved' ? 'status-delivered' :
+      status === 'generating' ? 'status-pending' :
+      status === 'needs_review' ? 'status-confirmed' : 'status-cancelled';
+  }
+
+  async function postAction(payload) {
+    const res = await apiPost('/admin/api/content/calendar/', payload);
+    if (!res.success) showAlertModal(res.message, 'error');
+    return res;
+  }
+
+  function renderItemRow(i) {
+    const decided = i.status === 'approved' ? 'decided-approved' : i.status === 'skipped' ? 'decided-skipped' : '';
+    const typeLabel = CONTENT_TYPE_LABELS[i.content_type] || i.content_type;
+    return '<div class="item-row ' + decided + '" data-item-id="' + i.id + '">' +
+      '<div class="item-main">' +
+        '<div class="item-title">' + escHtml(i.working_title) + '</div>' +
+        '<div class="item-meta">' + formatDate(i.planned_date) + ' &middot; ' + escHtml(i.series || typeLabel) + '</div>' +
+        (i.context_notes ? '<div class="item-context">' + escHtml(i.context_notes) + '</div>' : '') +
+      '</div>' +
+      '<div class="item-actions">' +
+        '<button class="item-decide-btn approve' + (i.status === 'approved' ? ' active' : '') + '" data-action="toggle_item_approve" title="Approve"><i class="fas fa-check"></i></button>' +
+        '<button class="item-decide-btn skip' + (i.status === 'skipped' ? ' active' : '') + '" data-action="toggle_item_skip" title="Skip"><i class="fas fa-ban"></i></button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function renderPlanPanel(plan, items, wasOpen) {
+    const canApprove = plan.status === 'needs_review';
+    const counts = plan.total_count
+      ? plan.approved_count + ' approved &middot; ' + plan.skipped_count + ' skipped &middot; ' + plan.pending_count + ' pending'
+      : 'No items yet';
+    const approveBtn = canApprove
+      ? '<button class="btn btn-sm btn-outline-primary approve-plan-btn" data-plan-id="' + plan.id + '" onclick="event.stopPropagation()">' +
+        '<i class="fas fa-check-double me-1"></i>Approve Plan</button>'
+      : '';
+    const err = plan.generation_error
+      ? '<div class="text-danger" style="font-size:0.76rem;margin-top:4px">' + escHtml(plan.generation_error) + '</div>' : '';
+
+    const body = plan.total_count
+      ? items.map(renderItemRow).join('')
+      : '<div class="empty-state" style="padding:24px"><i class="fas fa-hourglass-half"></i>' +
+        (plan.status === 'generating' ? 'Generating…' : 'No items in this plan yet.') + '</div>';
+
+    return '<div class="plan-panel' + (wasOpen ? ' open' : '') + '" data-plan-id="' + plan.id + '">' +
+      '<div class="plan-panel-header">' +
+        '<div class="plan-panel-left">' +
+          '<i class="fas fa-chevron-down chevron"></i>' +
+          '<div>' +
+            '<div class="plan-panel-title">' + formatDate(plan.period_start) + ' – ' + formatDate(plan.period_end) + '</div>' +
+            '<div class="plan-panel-counts">' + counts + '</div>' + err +
+          '</div>' +
+        '</div>' +
+        '<div style="display:flex;align-items:center;gap:10px">' +
+          '<span class="status ' + planBadgeClass(plan.status) + '">' + (PLAN_STATUS_LABELS[plan.status] || plan.status) + '</span>' +
+          approveBtn +
+        '</div>' +
+      '</div>' +
+      '<div class="plan-panel-body">' + body + '</div>' +
+    '</div>';
   }
 
   let pollTimer = null;
+  let openPlanIds = new Set();
 
   async function loadCalendar() {
     const res = await apiGet('/admin/api/content/calendar/');
-    const tbody = document.getElementById('calendarBody');
+    const accordion = document.getElementById('plansAccordion');
     if (!res.success) {
-      tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">' + escHtml(res.message) + '</td></tr>';
+      accordion.innerHTML = '<div class="alert alert-danger">' + escHtml(res.message) + '</div>';
       return;
     }
-    const items = res.data.items || [];
     const plans = res.data.plans || [];
-    renderPlans(plans);
+    const items = res.data.items || [];
+    document.getElementById('emptyState').style.display = plans.length ? 'none' : '';
 
-    if (!items.length) {
-      tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">' +
-        'No plan items yet — click "Generate Plan" above to have the Planner Agent propose one.</td></tr>';
-    } else {
-      tbody.innerHTML = items.map(function (i) {
-        return '<tr>' +
-          '<td>' + formatDate(i.planned_date) + '</td>' +
-          '<td>' + escHtml(i.series || '—') + '</td>' +
-          '<td>' + escHtml(i.working_title) + '</td>' +
-          '<td><span class="status status-pending">' + escHtml(i.status) + '</span></td>' +
-        '</tr>';
-      }).join('');
-    }
+    // Default the newest (first) plan open on first load only.
+    if (!openPlanIds.size && plans.length) openPlanIds.add(plans[0].id);
 
-    // Keep polling while any plan is mid-generation so the status badge and
-    // the item list update themselves once the Planner finishes.
+    accordion.innerHTML = plans.map(function (p) {
+      const planItems = items.filter(function (i) { return i.plan_id === p.id; });
+      return renderPlanPanel(p, planItems, openPlanIds.has(p.id));
+    }).join('');
+
+    accordion.querySelectorAll('.plan-panel-header').forEach(function (header) {
+      header.addEventListener('click', function () {
+        const panel = header.closest('.plan-panel');
+        const id = parseInt(panel.dataset.planId, 10);
+        if (openPlanIds.has(id)) { openPlanIds.delete(id); panel.classList.remove('open'); }
+        else { openPlanIds.add(id); panel.classList.add('open'); }
+      });
+    });
+
+    accordion.querySelectorAll('.approve-plan-btn').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        btn.disabled = true;
+        const res = await postAction({ action: 'approve_plan', plan_id: btn.dataset.planId });
+        if (res.success) { showAlertModal('Plan approved.', 'success'); loadCalendar(); }
+        else btn.disabled = false;
+      });
+    });
+
+    accordion.querySelectorAll('.item-decide-btn').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        const row = btn.closest('.item-row');
+        btn.disabled = true;
+        const res = await postAction({ action: btn.dataset.action, item_id: row.dataset.itemId });
+        btn.disabled = false;
+        if (res.success) loadCalendar();
+      });
+    });
+
     const stillGenerating = plans.some(function (p) { return p.status === 'generating'; });
     clearTimeout(pollTimer);
-    if (stillGenerating) {
-      pollTimer = setTimeout(loadCalendar, 3000);
-    }
+    if (stillGenerating) pollTimer = setTimeout(loadCalendar, 3000);
   }
 
   document.addEventListener('DOMContentLoaded', function () {
@@ -186,12 +238,9 @@
         period_end: form.period_end.value,
       });
       submitBtn.disabled = false;
-      if (!res.success) {
-        showAlertModal(res.message, 'error');
-        return;
-      }
+      if (!res.success) { showAlertModal(res.message, 'error'); return; }
       bootstrap.Modal.getInstance(document.getElementById('generatePlanModal')).hide();
-      showAlertModal('Generating plan — this runs in the background and the calendar will update automatically.', 'success');
+      showAlertModal('Generating plan — this runs in the background and will appear below automatically.', 'success');
       loadCalendar();
     });
   });

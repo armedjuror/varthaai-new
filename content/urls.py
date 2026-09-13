@@ -7,6 +7,7 @@ app_name = 'content'
 urlpatterns = [
     path('content/', views.content_dashboard_page, name='content_dashboard'),
     path('api/content/dashboard/', views.ContentDashboardAPI.as_view(), name='dashboard_api'),
+    path('api/content/designer/test/', views.DesignerTestAPI.as_view(), name='designer_test_api'),
 
     path('content/calendar/', views.content_calendar_page, name='calendar'),
     path('api/content/calendar/', views.ContentCalendarAPI.as_view(), name='calendar_api'),

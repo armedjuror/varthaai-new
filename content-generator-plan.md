@@ -1156,12 +1156,104 @@ newer higher-level API but isn't what this file uses.
   at. **This needs a real decision + test pass before the next deploy
   installs from a clean venv.**
 
-### Still not done — the actual gate
+### Verified live — the actual gate, closed
 
-No `GEMINI_API_KEY` exists in this environment. Everything above fixes
-the code so a first real call has a real chance of working, and verifies
-the exact objects (`GenerateContentConfig`, `ImageConfig`) construct
-without error against the real installed SDK — but `generate_poster_image()`
-has still never made a live network call. Once a key exists: run it once
-against a real ingested `PosterInspiration` and inspect the result/debug
-dict before trusting this in the admin UI.
+The user added a real `GEMINI_API_KEY`. First live call hit `403
+PERMISSION_DENIED — Gemini API has not been used in project ... or it is
+disabled` — an account-level gap (Generative Language API not enabled on
+the Google Cloud project), not a code bug: the pipeline built the request
+correctly, made a real network call, got a real structured error back, and
+handled it exactly as designed (never raised, returned `None` + the full
+error in `debug['error']`). User enabled the API; re-ran the exact same
+call — **real image returned, 2.6MB, 2048x2048**.
+
+That re-run surfaced one more real, previously-undocumented fact: **Gemini
+3 Pro Image returns `image/jpeg` by default, not PNG** — confirmed by
+inspecting `inline_data.mime_type` directly on a live response. Every
+mention of "png_bytes" in this codebase (`generate_poster_image`'s return-
+value naming, `_image_part`'s hardcoded `mime_type='image/png'` for
+reference-image input) was wrong. Fixed: `_extract_image_bytes` now
+returns `(bytes, mime_type)` instead of just bytes, `debug['mime_type']`
+carries the real value through to any caller, and `_image_part` derives
+the mime type from the actual file extension via `mimetypes.guess_type`
+instead of assuming PNG for stored reference/logo images too.
+
+### DesignerTestAPI — a real admin-dashboard test panel
+
+Added because the user asked "how do I test from the admin dashboard" —
+there was no UI for this at all before, only shell scripts. `POST
+/admin/api/content/designer/test/` (gated on the existing `content_dashboard`
+permission) runs the full pipeline synchronously — select inspiration,
+generate brief, generate image — and returns the brief text, full debug
+dict, and the image as base64, persisting nothing (no PosterAsset, no
+PlanItem needed). A card on `content-dashboard.html` (topic/format/context
+inputs, a Generate button, inline image preview, collapsible debug JSON)
+wraps it. Deliberately NOT the real Phase 3 review UI — no versioning, no
+approval, no persistence — just "does the pipeline work right now",
+reusable for retesting whenever the Gemini/model config changes.
+
+---
+
+## 21. Plan review UI — from "just a listing" to per-item approval
+
+Triggered by two follow-ups in the same session: "How can I review it?"
+(asked right after successfully generating a real plan from the admin UI
+— exposed that no review/approve UI existed at all, only a read-only
+table), then "Each Plan should be togglable and each plan item needs
+approval. Right now, it's just a listing with no proper visibility. Make
+it very intuitive and simple" (a direct correction to the first pass).
+
+### First pass (superseded)
+
+Built a flat "Plan items" table across all plans at once, a separate
+"Plan periods" table with one whole-plan "Approve" button, and a per-item
+skip/unskip icon toggle. Functionally correct but exactly what the user
+then called out: no per-plan grouping, no visibility into how many items
+were decided, and no way to approve an item individually (`PlanItem`
+already has a real `APPROVED` status value in its model — the first pass
+never used it, treating "not skipped" as the only signal).
+
+### Redesign
+
+- **Accordion, one panel per plan** — replaces the two disconnected
+  tables. Each panel header shows the period, a status badge, and an
+  always-visible **count summary** ("N approved · N skipped · N pending")
+  without needing to expand — directly answers "no proper visibility".
+  Newest plan opens by default; others collapsed but one click away.
+  Vanilla JS + CSS, no accordion library — matches "keep it simple", and
+  Bootstrap's own accordion component would have fought the custom
+  per-item content more than it helped here.
+- **Per-item review is a genuine 3-way toggle**, not a single skip
+  checkbox: PLANNED (undecided, default) <-> APPROVED <-> SKIPPED, one
+  click each way, click the active button again to undo. Two icon
+  buttons per item (check = approve, ban = skip), colored solid when
+  active so decided-vs-pending is visible at a glance without reading
+  text; the whole item row also gets a subtle green/grey tint once
+  decided.
+- **"Approve Plan" redefined as the bulk-finish action**, not the only
+  way to approve: it bulk-approves whatever's still PLANNED (items the
+  admin already individually approved or skipped are left exactly as
+  set) and locks the plan as a whole (`ContentPlan.status -> APPROVED`,
+  `approved_by`/`approved_at`, resolves the `PLAN_REVIEW` ActionItem) —
+  so an admin can either decide every item by hand or fast-path everything
+  left with one click at the end.
+- Backend: `ContentCalendarAPI.post` now dispatches `approve_plan` |
+  `toggle_item_approve` | `toggle_item_skip` (renamed from the first
+  pass's `skip_item`/`unskip_item`). `GET` now also annotates each plan
+  with `total_count`/`approved_count`/`skipped_count`/`pending_count` via
+  a single aggregated query (`Count(..., filter=Q(...))`), not a Python
+  loop per plan.
+
+### Verified live
+
+Ran the full toggle sequence against disposable test data (a throwaway
+plan + 3 items, deleted after) — **not** the user's real generated plan,
+after an earlier draft of this same verification was correctly blocked
+by the permission classifier for being about to approve that real plan as
+a side effect of testing. Confirmed: approve → toggle again reverts to
+planned → re-approve; skip is independent and doesn't interfere with
+approve; `GET`'s count aggregation matches DB state exactly
+(1 approved / 1 skipped / 1 pending mid-review); `approve_plan` correctly
+bulk-approves only the still-PLANNED item, leaves the already-skipped one
+alone, and rejects a second approval attempt. `manage.py check` clean;
+full `debugger` + `content` suite still passes.

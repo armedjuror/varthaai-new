@@ -5,9 +5,15 @@ Phase 0 (§15) built three read-only pages. Phase 1 (§13) adds the Planner
 Agent's manual "Generate plan" trigger — PlannerTriggerAPI below — which
 shares its Celery task (content.tasks.run_planner_task) with the monthly
 cron seed (§8), so an admin-triggered run and the automated one behave
-identically.
+identically. §21 adds DesignerTestAPI: a one-off, synchronous "does the
+poster pipeline actually work" check (no PosterAsset persisted, no
+PlanItem required) — not the real Phase 3 review UI, just a way to
+exercise generate_poster_brief/generate_poster_image end to end from the
+browser instead of a shell script.
 """
-from django.db.models import Q
+import base64
+
+from django.db.models import Count, Q
 from django.shortcuts import render
 from django.utils import timezone
 from django.utils.dateparse import parse_date
@@ -16,8 +22,10 @@ from rest_framework.views import APIView
 
 from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
+from core.models import Brand
 
-from content.models import ActionItem, ContentPlan, PlanItem, PosterAsset, Script
+from content.agents import designer
+from content.models import ActionItem, ContentPlan, PlanItem, PosterAsset, PosterFormat, Script
 from content.tasks import run_planner_task
 
 
@@ -140,8 +148,10 @@ class ContentCalendarAPI(APIView):
         items = [
             {
                 'id': p.id,
+                'plan_id': p.plan_id,
                 'planned_date': p.planned_date.isoformat(),
                 'working_title': p.working_title,
+                'context_notes': p.context_notes,
                 'status': p.status,
                 'content_type': p.content_type,
                 'series': p.series.name if p.series else None,
@@ -156,6 +166,11 @@ class ContentCalendarAPI(APIView):
             plans_qs = plans_qs.filter(period_end__gte=start)
         if end:
             plans_qs = plans_qs.filter(period_start__lte=end)
+        plans_qs = plans_qs.annotate(
+            total_count=Count('items'),
+            approved_count=Count('items', filter=Q(items__status=PlanItem.Status.APPROVED)),
+            skipped_count=Count('items', filter=Q(items__status=PlanItem.Status.SKIPPED)),
+        )
         plans = [
             {
                 'id': pl.id,
@@ -163,11 +178,62 @@ class ContentCalendarAPI(APIView):
                 'period_end': pl.period_end.isoformat(),
                 'status': pl.status,
                 'generation_error': pl.generation_error,
+                'total_count': pl.total_count,
+                'approved_count': pl.approved_count,
+                'skipped_count': pl.skipped_count,
+                'pending_count': pl.total_count - pl.approved_count - pl.skipped_count,
             }
             for pl in plans_qs.order_by('-period_start')
         ]
 
         return ok({'items': items, 'plans': plans})
+
+    def post(self, request):
+        """action=approve_plan|toggle_item_approve|toggle_item_skip, same
+        {success,message} action-dispatch style as marketing's ReviewsAPI.post
+        — the admin-approval gate content-generator-plan.md §4 requires
+        before a plan (or any item in it) moves forward.
+
+        Per-item review is a 3-way toggle: PLANNED (undecided, the default)
+        <-> APPROVED <-> SKIPPED, each a single click, clicking the active
+        one again returns to PLANNED. "Approve Plan" is the bulk finish
+        action — it approves whatever's still PLANNED (anything already
+        individually approved or skipped is left as the admin set it) and
+        locks the plan as a whole.
+        """
+        brand_id = current_brand_id(request)
+        action = request.data.get('action')
+
+        if action == 'approve_plan':
+            try:
+                plan = ContentPlan.objects.get(id=int(request.data.get('plan_id') or 0), brand_id=brand_id)
+            except (ContentPlan.DoesNotExist, TypeError, ValueError):
+                return err('Plan not found.', status=404)
+            if plan.status == ContentPlan.Status.APPROVED:
+                return err('This plan is already approved.')
+            if plan.status != ContentPlan.Status.NEEDS_REVIEW:
+                return err(f'Plan is not ready for approval (status: {plan.status}).')
+            plan.items.filter(status=PlanItem.Status.PLANNED).update(status=PlanItem.Status.APPROVED)
+            plan.status = ContentPlan.Status.APPROVED
+            plan.approved_by = request.user
+            plan.approved_at = timezone.now()
+            plan.save(update_fields=['status', 'approved_by', 'approved_at', 'updated_at'])
+            ActionItem.objects.filter(
+                plan=plan, kind=ActionItem.Kind.PLAN_REVIEW, status=ActionItem.Status.OPEN,
+            ).update(status=ActionItem.Status.DONE, resolved_by=request.user, resolved_at=timezone.now())
+            return ok(message='Plan approved.')
+
+        if action in ('toggle_item_approve', 'toggle_item_skip'):
+            try:
+                item = PlanItem.objects.get(id=int(request.data.get('item_id') or 0), plan__brand_id=brand_id)
+            except (PlanItem.DoesNotExist, TypeError, ValueError):
+                return err('Plan item not found.', status=404)
+            target = PlanItem.Status.APPROVED if action == 'toggle_item_approve' else PlanItem.Status.SKIPPED
+            item.status = PlanItem.Status.PLANNED if item.status == target else target
+            item.save(update_fields=['status', 'updated_at'])
+            return ok({'status': item.status})
+
+        return err('Unknown action.')
 
 
 class PlannerTriggerAPI(APIView):
@@ -202,6 +268,53 @@ class PlannerTriggerAPI(APIView):
         plan.save(update_fields=['status', 'generation_error', 'updated_at'])
         run_planner_task.delay(plan.id)
         return ok({'plan_id': plan.id, 'status': plan.status}, message='Generating plan…')
+
+
+class DesignerTestAPI(APIView):
+    """Synchronous end-to-end test of the Designer Agent's poster pipeline
+    (select inspiration -> brief -> image), triggered manually from the
+    admin dashboard. Persists nothing — no PosterAsset, no PlanItem — this
+    is purely "does the pipeline produce an image right now", not the real
+    review/approval flow (that's Phase 3). Runs synchronously (not via
+    Celery) since it's a one-off manual click with an admin waiting on the
+    result, same as generate_poster_brief's existing direct-call pattern;
+    a real image call can take several seconds, which the frontend should
+    show a loading state for, but is well within a normal request timeout.
+    """
+    permission_classes = [HasModulePermission]
+    permission_module = 'content_dashboard'
+
+    def post(self, request):
+        brand_id = current_brand_id(request)
+        brand = Brand.objects.filter(id=brand_id).first()
+        if not brand:
+            return err('No active brand selected.')
+
+        topic = (request.data.get('topic') or '').strip()
+        if not topic:
+            return err('topic is required.')
+        format = request.data.get('format') or PosterFormat.SQUARE
+        if format not in PosterFormat.values:
+            return err(f'format must be one of {list(PosterFormat.values)}.')
+        context_notes = (request.data.get('context_notes') or '').strip()
+
+        inspiration = designer.select_poster_inspiration(brand, topic, format=format)
+
+        try:
+            brief = designer.generate_poster_brief(brand, topic, inspiration, context_notes=context_notes)
+        except Exception as exc:
+            return err(f'Brief generation failed: {exc}')
+
+        image_bytes, debug = designer.generate_poster_image(
+            brief, inspiration, format=format, brand_name=brand.name,
+        )
+
+        return ok({
+            'inspiration_id': inspiration.id if inspiration else None,
+            'brief': brief,
+            'debug': debug,
+            'image_base64': base64.b64encode(image_bytes).decode('ascii') if image_bytes else None,
+        })
 
 
 class PendingTasksAPI(APIView):

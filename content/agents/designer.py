@@ -207,10 +207,12 @@ def generate_poster_image(brief, inspiration, topic_asset=None, brand_logo=None,
                            extra_instruction=None, format=PosterFormat.SQUARE,
                            brand_name='Varthaai'):
     """
-    Returns (png_bytes | None, debug_dict). Never raises — best-effort per
-    poster plan §6 ("no equivalent fallback artifact for a poster tool ...
-    report the failure"). debug_dict always has enough to diagnose why,
-    success or failure — poster plan §11's "debug JSON on every attempt".
+    Returns (image_bytes | None, debug_dict) — debug_dict['mime_type'] on
+    success (verified live: Gemini 3 Pro Image returns image/jpeg by
+    default, not PNG). Never raises — best-effort per poster plan §6 ("no
+    equivalent fallback artifact for a poster tool ... report the
+    failure"). debug_dict always has enough to diagnose why, success or
+    failure — poster plan §11's "debug JSON on every attempt".
 
     `topic_asset`/`brand_logo` are BrandAsset instances or None.
     """
@@ -279,10 +281,16 @@ def generate_poster_image(brief, inspiration, topic_asset=None, brand_logo=None,
                 ),
             ),
         )
-        image_bytes = _extract_image_bytes(response)
+        image_bytes, mime_type = _extract_image_bytes(response)
         if image_bytes is None:
             debug['error'] = 'Gemini returned no image data'
             return None, debug
+        # Verified live: Gemini 3 Pro Image returns image/jpeg by default,
+        # NOT image/png despite the "png_bytes" naming elsewhere in this
+        # module's docstrings — record the real mime type rather than
+        # assuming, so callers (e.g. building a data: URI, or eventually
+        # saving to PosterAsset.image) use the correct one.
+        debug['mime_type'] = mime_type
         return image_bytes, debug
     except Exception as exc:
         logger.exception('generate_poster_image failed')
@@ -291,20 +299,26 @@ def generate_poster_image(brief, inspiration, topic_asset=None, brand_logo=None,
 
 
 def _image_part(image_field):
-    """Reads a Django ImageField's bytes into a genai image Part."""
+    """Reads a Django ImageField's bytes into a genai image Part, with the
+    mime type derived from the file's actual extension rather than assumed —
+    ImageField doesn't enforce a single format, so a hardcoded 'image/png'
+    would mislabel a stored .jpg."""
+    import mimetypes
+    mime_type = mimetypes.guess_type(image_field.name)[0] or 'image/jpeg'
     image_field.open('rb')
     try:
         data = image_field.read()
     finally:
         image_field.close()
-    return genai_types.Part.from_bytes(data=data, mime_type='image/png')
+    return genai_types.Part.from_bytes(data=data, mime_type=mime_type)
 
 
 def _extract_image_bytes(response):
+    """Returns (bytes, mime_type) or (None, None)."""
     for candidate in getattr(response, 'candidates', None) or []:
         content = getattr(candidate, 'content', None)
         for part in getattr(content, 'parts', None) or []:
             inline = getattr(part, 'inline_data', None)
             if inline and getattr(inline, 'data', None):
-                return inline.data
-    return None
+                return inline.data, getattr(inline, 'mime_type', None) or 'image/jpeg'
+    return None, None
