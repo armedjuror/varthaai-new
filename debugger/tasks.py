@@ -24,9 +24,12 @@ def _sys(request, content):
 
 
 def _is_max_turns_error(exc):
-    """The Claude Agent SDK reports a hit `max_turns` cap as a bare Exception
-    with this substring (see claude_agent_sdk._internal.query.receive_messages)
-    — there's no dedicated exception type to catch."""
+    """A hit `DEBUGGER_MAX_TURNS` cap is reported as a bare Exception with this
+    substring — there's no dedicated exception type to catch. debugger/agent.py
+    synthesizes this message itself (the `claude` CLI's own maxTurns setting
+    stops a run silently, without flagging it as an error result — see
+    run_agent's docstring for why this is a best-effort heuristic rather than
+    an unambiguous signal the way the old Agent SDK's exception was)."""
     return 'maximum number of turns' in str(exc).lower()
 
 

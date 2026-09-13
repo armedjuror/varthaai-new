@@ -1,7 +1,6 @@
 anthropic==0.121.0
 asgiref==3.12.1
 celery==5.4.0
-claude-agent-sdk==0.2.128
 redis==5.2.1
 certifi==2026.6.17
 charset-normalizer==3.4.9
@@ -9,6 +8,12 @@ Django==5.2.16
 djangorestframework==3.17.1
 gunicorn==23.0.0
 idna==3.18
+# MCP Python SDK — used to build the Debugger Agent's custom tool server
+# (debugger/mcp_server.py), spoken to over stdio by the `claude` CLI via
+# --mcp-config. Previously a transitive dependency of claude-agent-sdk (now
+# removed — see core/claude_cli.py); now pinned explicitly since we use it
+# directly.
+mcp==1.29.0
 # TODO: verify current litellm version before merge — no PyPI/web access was
 # available to confirm it in this session.
 litellm==1.55.8

@@ -11,12 +11,13 @@ Usage:
   python manage.py compress_learnings --dry-run    # print old -> new only
   python manage.py compress_learnings --only 12    # spot-check a single row
 """
-import asyncio
 import json
+import shutil
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from core.claude_cli import run_claude_cli
 from debugger.models import DebugLearning
 
 _SYSTEM_PROMPT = (
@@ -30,6 +31,12 @@ _SYSTEM_PROMPT = (
     'of the original thread). Respond with ONLY a JSON object of the form '
     '{"title": "...", "content": "..."} and nothing else.'
 )
+
+# This command needs zero tool access (pure text-in/JSON-out), so every
+# built-in tool name the CLI recognizes is explicitly denied — belt and
+# braces alongside not passing any `allowed_tools` at all.
+_NO_TOOLS = ['Read', 'Grep', 'Glob', 'Bash', 'Write', 'Edit', 'NotebookEdit',
+             'WebFetch', 'WebSearch', 'TodoWrite']
 
 
 class Command(BaseCommand):
@@ -46,12 +53,8 @@ class Command(BaseCommand):
                              help='Only process a single DebugLearning id (spot-check).')
 
     def handle(self, *args, **opts):
-        try:
-            from claude_agent_sdk import (
-                AssistantMessage, ClaudeAgentOptions, TextBlock, query,
-            )
-        except Exception as exc:
-            raise CommandError(f'claude-agent-sdk unavailable: {exc}')
+        if not shutil.which(settings.CLAUDE_CLI_BIN):
+            raise CommandError(f'claude CLI not found on PATH ({settings.CLAUDE_CLI_BIN!r})')
 
         qs = DebugLearning.objects.all().order_by('id')
         if opts['only']:
@@ -61,7 +64,7 @@ class Command(BaseCommand):
             return
 
         for learning in qs:
-            raw = asyncio.run(_compress(learning, AssistantMessage, ClaudeAgentOptions, TextBlock, query))
+            raw = _compress(learning)
             new_title, new_content = _parse(raw)
             self.stdout.write(f'[{learning.id}] OLD title: {learning.title}')
             self.stdout.write(f'[{learning.id}] OLD content: {learning.content[:200]}')
@@ -84,24 +87,16 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING('Dry run — no rows were written.'))
 
 
-async def _compress(learning, AssistantMessage, ClaudeAgentOptions, TextBlock, query):
+def _compress(learning):
     user_prompt = f'Old title: {learning.title}\nOld content: {learning.content}'
-    options = ClaudeAgentOptions(
+    result = run_claude_cli(
+        user_prompt,
         system_prompt=_SYSTEM_PROMPT,
-        allowed_tools=[],
-        disallowed_tools=['Read', 'Grep', 'Glob', 'Bash', 'WebFetch', 'WebSearch', 'TodoWrite'],
-        permission_mode='default',
+        disallowed_tools=_NO_TOOLS,
         model=settings.DEBUGGER_MODEL,
         max_turns=1,
-        setting_sources=[],
     )
-    text_parts = []
-    async for message in query(prompt=user_prompt, options=options):
-        if isinstance(message, AssistantMessage):
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    text_parts.append(block.text)
-    return '\n'.join(text_parts).strip()
+    return (result.get('text') or '').strip()
 
 
 def _parse(raw):

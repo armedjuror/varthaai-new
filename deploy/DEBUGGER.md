@@ -1,14 +1,19 @@
 # Debugger Agent — deployment
 
 The Debugger Agent is a super-admin-only page (`/admin/debugger/`) that runs a
-locked-down Claude Agent SDK investigation for each bug / feature / query, using
-three read-only sources: the code, the database (SELECT-only), and server logs.
+locked-down headless `claude` CLI investigation (`claude -p ...`, invoked
+directly via `core/claude_cli.py` — see that module's docstring; NOT the
+Claude Agent SDK, which this app previously used) for each bug / feature /
+query, using three read-only sources: the code, the database (SELECT-only),
+and server logs.
 
 **Hard guarantees**
 - The agent never writes to the application DB (a dedicated Postgres read-only
   role + `default_transaction_read_only=on` + a SELECT-only check in the tool).
-- The agent never writes files or pushes git (tool allowlist + a `PreToolUse`
-  deny-hook; see `debugger/guards.py`, unit-tested in `debugger/tests.py`).
+- The agent never writes files or pushes git (CLI tool allow/deny lists + a
+  `PreToolUse` deny-hook script, `debugger/guard_hook.py`, wired in via
+  `claude`'s `--settings`; the underlying policy is `debugger/guards.py`,
+  unit-tested in `debugger/tests.py`, unchanged by the SDK→CLI migration).
 - Phase 1 is analysis only — no PR is created. (PR automation is Phase 2.)
 
 ## 1. Rotate the Anthropic key
@@ -22,21 +27,37 @@ DEBUGGER_MODEL=claude-sonnet-5
 ## 2. Install runtime deps
 ```bash
 source venv/bin/activate
-pip install -r requirements.txt          # adds celery, redis, claude-agent-sdk
+pip install -r requirements.txt          # adds celery, redis, mcp
 ```
-The Claude Agent SDK spawns the `claude` CLI (Node.js). Install it on the box:
+The app spawns the `claude` CLI directly as a subprocess (no SDK in between).
+Install it on the box and make sure it's authenticated headlessly:
 ```bash
 # Node 18+ required
 npm install -g @anthropic-ai/claude-code   # provides the `claude` binary
 which claude                                # must resolve on the worker's PATH
+claude --version                            # sanity check
+```
+Headless (`-p`/`--print`) runs authenticate via `ANTHROPIC_API_KEY` in the
+subprocess environment (the same key set in step 1) — there is no interactive
+OAuth login step to run on the server; `core/claude_cli.py` passes the key
+through explicitly. Verify end-to-end once deployed:
+```bash
+ANTHROPIC_API_KEY=sk-ant-... claude -p "reply with exactly: PONG" --output-format json
 ```
 
-## 3. Redis (Celery broker)
+## 3. Redis (Celery broker + the Claude CLI concurrency semaphore)
 ```bash
 sudo apt install redis-server
 sudo systemctl enable --now redis-server
 ```
 Defaults to `redis://127.0.0.1:6379/0` (override via `CELERY_BROKER_URL`).
+Redis also backs the global concurrency limiter in `core/claude_cli.py`, which
+caps how many `claude` CLI subprocesses may run at once **system-wide**
+(across worker prefork children, and — later — the `content` app too), not
+just within one task. Default cap is 2; tune via `CLAUDE_CLI_MAX_CONCURRENT`.
+See that module's docstring for the crash-safety design (leases with a TTL,
+heartbeat-renewed — no separate recovery step needed after a worker restart,
+unlike the request-status recovery in `debugger/apps.py`).
 
 ## 4. Dedicated read-only Postgres role
 Run once as a DB superuser (e.g. `sudo -u postgres psql -d varthaai_db`):
@@ -102,8 +123,13 @@ free -h                                # confirm Swap: shows the new space
 ```
 The worker unit is already set to `--concurrency=1` (one investigation at a time)
 and `--max-tasks-per-child=1` (recycle the child after each run to release the
-CLI's memory). If OOMs persist even with swap, the box is undersized — move to an
-instance with ≥2 GB RAM (t3.small or larger).
+CLI's memory). Independently, `core/claude_cli.py`'s Redis semaphore caps total
+concurrent `claude` subprocesses **system-wide** at `CLAUDE_CLI_MAX_CONCURRENT`
+(default 2) — belt-and-braces with the Celery-level cap above, and the layer
+that actually matters once more than one worker process/child or app (e.g. the
+future `content` app) can dispatch these tasks. If OOMs persist even with swap,
+the box is undersized — move to an instance with ≥2 GB RAM (t3.small or larger),
+or lower `CLAUDE_CLI_MAX_CONCURRENT`.
 
 ## Phase 2 — PR automation + review loop
 On admin approval the agent opens a PR, and (via the beat poller) reads back PR

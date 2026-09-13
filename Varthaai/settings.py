@@ -297,6 +297,36 @@ DEBUGGER_DB_ROW_LIMIT = int(env('DEBUGGER_DB_ROW_LIMIT', '200'))
 DEBUGGER_MAX_TURNS = int(env('DEBUGGER_MAX_TURNS', '60'))
 
 # ---------------------------------------------------------------------------
+# Claude CLI runner (core/claude_cli.py) — generic subprocess wrapper around
+# `claude -p ...` shared by the Debugger Agent (and future agentic apps, e.g.
+# `content/`). NOT debugger-specific: any Celery task that needs an agentic
+# Claude session goes through this, all coordinating on the same Redis-backed
+# concurrency limit below.
+# ---------------------------------------------------------------------------
+CLAUDE_CLI_BIN = env('CLAUDE_CLI_BIN', 'claude')
+# Reuses the Celery broker Redis instance — Redis is already a hard dependency
+# (see CELERY_BROKER_URL above); no new infra needed for the semaphore.
+CLAUDE_CLI_REDIS_URL = env('CLAUDE_CLI_REDIS_URL', CELERY_BROKER_URL)
+# Global cap on concurrent `claude` CLI subprocesses across the WHOLE system
+# (all apps, all Celery worker processes/children/hosts) — each one can hold
+# 0.5-1GB+ RSS on a long agentic run (see deploy/DEBUGGER.md). Enforced via a
+# Redis-backed semaphore, not an in-process lock, because the worker can run
+# multiple prefork children (CELERY_WORKER_MAX_TASKS_PER_CHILD is set but
+# --concurrency is not pinned) and a future `content` app's Celery tasks must
+# coordinate against the same limit.
+CLAUDE_CLI_MAX_CONCURRENT = int(env('CLAUDE_CLI_MAX_CONCURRENT', '2'))
+CLAUDE_CLI_SEMAPHORE_KEY = env('CLAUDE_CLI_SEMAPHORE_KEY', 'claude_cli:semaphore')
+# Lease TTL for a held slot; renewed (heartbeated) periodically by a background
+# thread while the subprocess runs, so this bounds "how long a slot stays
+# stuck" after a crash (worker OOM-killed, kill -9, host reboot) — NOT the
+# max runtime of a single call. Self-healing: no worker-restart recovery step
+# is needed (unlike debugger/apps.py's requeue_orphaned_requests, which exists
+# because DB status rows have no TTL of their own).
+CLAUDE_CLI_LEASE_TTL_SECONDS = int(env('CLAUDE_CLI_LEASE_TTL_SECONDS', '90'))
+# How long a caller blocks waiting for a free slot before giving up.
+CLAUDE_CLI_ACQUIRE_TIMEOUT_SECONDS = int(env('CLAUDE_CLI_ACQUIRE_TIMEOUT_SECONDS', '900'))
+
+# ---------------------------------------------------------------------------
 # Blog AI writing assistant (marketing app). Uses litellm — NOT the agentic
 # claude-agent-sdk above — for lightweight per-turn chat completions, so the
 # provider/model can be swapped per request. Reuses ANTHROPIC_API_KEY. See

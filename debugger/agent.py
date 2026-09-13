@@ -1,60 +1,51 @@
 """
-The RCA / feature / query engine — a locked-down Claude Agent SDK run.
+The RCA / feature / query engine — a locked-down headless `claude` CLI run
+(`claude -p ...`, via core.claude_cli.run_claude_cli). Previously this ran the
+Claude Agent SDK in-process; it now shells out to the CLI directly (see
+core/claude_cli.py's docstring for why — a Redis-backed concurrency limit
+shared with other agentic-Claude apps, and one less Python dependency to pin).
 
 Capabilities given to Claude:
   * Read / Grep / Glob on the code checkout (read-only).
-  * Bash, but only the read-only allowlist in guards.py (a PreToolUse hook
-    denies everything else, including any git push).
-  * db_query_ro  — SELECT-only SQL via the `readonly` DB alias (dedicated PG role).
+  * Bash, but only the read-only allowlist in guards.py (a PreToolUse hook —
+    now a standalone script, debugger/guard_hook.py, registered via the CLI's
+    --settings flag — denies everything else, including any git push).
+  * db_query_ro  — SELECT-only SQL via the `readonly` DB alias (dedicated PG
+    role), served by debugger/mcp_server.py over stdio (a separate OS process
+    the CLI spawns via --mcp-config; see _build_mcp_config below).
   * read_logs    — journalctl (app) + nginx logfiles, read-only.
   * consult_advisor — escalates final synthesis (root cause / fix diff / plan)
     to a stronger model (settings.DEBUGGER_ADVISOR_MODEL) via a direct
-    Anthropic API call, NOT the Agent SDK — the advisor gets no tools of its
-    own, only the text summary it's given.
+    Anthropic API call, NOT another agentic `claude` run — the advisor gets no
+    tools of its own, only the text summary it's given (_call_advisor below,
+    called from inside debugger/mcp_server.py's consult_advisor tool).
 
 It can NEVER Write/Edit files or write to the DB. Those guarantees are enforced
-three ways: the allowlist of tools, the PreToolUse deny-hook, and (for the DB)
-the Postgres read-only role itself.
+three ways: the CLI allow/deny tool lists, the PreToolUse deny-hook script,
+and (for the DB) the Postgres read-only role itself.
 
 Phase 1 is analysis only — `propose_fix` records a diff/PR text as a suggestion
-but performs no git or GitHub side effects (Phase 2 wires the PR path).
+but performs no git or GitHub side effects (Phase 2 wires the PR path, see
+debugger/pr.py — the agent itself never runs git/GitHub commands).
 """
-import asyncio
-import json
 import logging
-import subprocess
+import os
+import shutil
+import sys
+from pathlib import Path
 
 from django.conf import settings
 from django.contrib.postgres.search import SearchQuery, SearchRank
-from django.db import connections
 
-from debugger import guards
+from core.claude_cli import run_claude_cli
 
 logger = logging.getLogger(__name__)
 
-# The SDK spawns the `claude` CLI (Node). Import lazily/guarded so the rest of
-# the app (models, migrations, views) loads even where the SDK/CLI is absent.
-try:
-    from claude_agent_sdk import (
-        AssistantMessage,
-        ClaudeAgentOptions,
-        HookMatcher,
-        ResultMessage,
-        TextBlock,
-        ToolUseBlock,
-        create_sdk_mcp_server,
-        query,
-        tool,
-    )
-    SDK_AVAILABLE = True
-    SDK_IMPORT_ERROR = None
-except Exception as exc:  # pragma: no cover - depends on deploy env
-    SDK_AVAILABLE = False
-    SDK_IMPORT_ERROR = exc
-
-# Direct Anthropic API client for the advisor tool — deliberately NOT the
-# Agent SDK, so the advisor model gets no tool/filesystem/DB access of its
-# own (text in, text out). Import lazily for the same reason as the SDK above.
+# Direct Anthropic API client for the advisor tool — deliberately NOT another
+# agentic `claude` run, so the advisor model gets no tool/filesystem/DB access
+# of its own (text in, text out). Import lazily so the rest of the app
+# (models, migrations, views) loads even where the `anthropic` package is
+# absent.
 try:
     import anthropic
     ANTHROPIC_AVAILABLE = True
@@ -72,189 +63,45 @@ ADVISOR_TOOL = f'mcp__{MCP_SERVER_NAME}__consult_advisor'
 ALLOWED_TOOLS = [
     'Read', 'Grep', 'Glob', 'Bash', DB_TOOL, LOGS_TOOL, FIX_TOOL, LEARN_TOOL, ADVISOR_TOOL,
 ]
-DISALLOWED_TOOLS = list(guards.BLOCKED_TOOLS) + ['WebFetch', 'WebSearch', 'TodoWrite']
-
-# Full JSON Schema (not the {name: type} shorthand) so new_files can be an
-# array of {path, content} objects — see propose_fix below for why new files
-# are kept out of the diff entirely.
-FIX_TOOL_SCHEMA = {
-    'type': 'object',
-    'properties': {
-        'diff': {
-            'type': 'string',
-            'description': 'Unified diff for changes to EXISTING files only '
-                           '(modifications/deletions). Do not add hunks that '
-                           'create new files here — use new_files for those. '
-                           'May be empty if the fix is only new files.',
-        },
-        'new_files': {
-            'type': 'array',
-            'description': 'Brand-new files this fix adds, as full file '
-                           'content (not a diff hunk). May be omitted/empty '
-                           'if the fix only modifies existing files.',
-            'items': {
-                'type': 'object',
-                'properties': {
-                    'path': {'type': 'string', 'description': "Repo-relative path, e.g. 'marketing/ai.py'."},
-                    'content': {'type': 'string', 'description': 'The full content of the new file.'},
-                },
-                'required': ['path', 'content'],
-            },
-        },
-        'pr_title': {'type': 'string'},
-        'pr_body': {'type': 'string'},
-    },
-    'required': ['diff', 'pr_title', 'pr_body'],
-}
+# Names as recognized by the current `claude` CLI build (verified empirically —
+# "MultiEdit" / "NotebookWrite" are not registered tool names in this CLI
+# version and produce a harmless-but-noisy "matches no known tool" warning if
+# included). debugger/guards.py's BLOCKED_TOOLS is the authoritative denylist
+# used by the PreToolUse hook and deliberately keeps the wider set (belt and
+# braces — if the CLI ever reintroduces those names, the hook still blocks
+# them even though they're not listed here).
+DISALLOWED_TOOLS = ['Write', 'Edit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'TodoWrite']
 
 
 # --------------------------------------------------------------------------- #
-# Custom read-only tools                                                       #
+# Shared helpers (also used by debugger/mcp_server.py, which runs as a        #
+# separate OS process and imports these directly)                             #
 # --------------------------------------------------------------------------- #
-def _text(s):
-    return {'content': [{'type': 'text', 'text': s}]}
-
-
-def _error(s):
-    return {'content': [{'type': 'text', 'text': s}], 'is_error': True}
-
-
-def _register_tools(proposals, learnings=None):
-    """
-    Build the SDK tool set. `proposals` collects propose_fix calls; `learnings`
-    (optional list) collects record_learning calls.
-    """
-    if learnings is None:
-        learnings = []
-
-    @tool('db_query_ro', 'Run ONE read-only SQL SELECT against the production '
-                         'database (SELECT/WITH only). Returns rows as JSON.',
-          {'sql': str})
-    async def db_query_ro(args):
-        sql = (args or {}).get('sql', '')
-        ok, reason = guards.check_sql_readonly(sql)
-        if not ok:
-            return _error(f'Rejected: {reason}')
-        limit = settings.DEBUGGER_DB_ROW_LIMIT
-        try:
-            # Run in a thread — Django DB access is sync.
-            def _run():
-                with connections['readonly'].cursor() as cur:
-                    cur.execute(sql)
-                    cols = [c[0] for c in cur.description] if cur.description else []
-                    rows = cur.fetchmany(limit + 1)
-                    return cols, rows
-            cols, rows = await asyncio.to_thread(_run)
-        except Exception as exc:
-            return _error(f'Query error: {exc}')
-        truncated = len(rows) > limit
-        rows = rows[:limit]
-        payload = {
-            'columns': cols,
-            'row_count': len(rows),
-            'truncated': truncated,
-            'rows': [
-                {c: _jsonable(v) for c, v in zip(cols, r)} for r in rows
-            ],
-        }
-        return _text(json.dumps(payload, default=str, indent=2))
-
-    @tool('read_logs', 'Read server logs (read-only). source is one of '
-                       '"app" (journalctl -u the app unit), "nginx_access", '
-                       '"nginx_error". Optional grep filters lines; lines caps '
-                       'how many recent lines to return.',
-          {'source': str, 'grep': str, 'lines': int})
-    async def read_logs(args):
-        args = args or {}
-        source = args.get('source', 'app')
-        grep = (args.get('grep') or '').strip()
-        lines = int(args.get('lines') or 300)
-        lines = max(1, min(lines, 2000))
-        try:
-            text = await asyncio.to_thread(_read_log_source, source, lines)
-        except Exception as exc:
-            return _error(f'Log read error: {exc}')
-        if grep:
-            kept = [ln for ln in text.splitlines() if grep.lower() in ln.lower()]
-            text = '\n'.join(kept[-lines:]) or '(no matching lines)'
-        return _text(text or '(empty)')
-
-    @tool('propose_fix', 'Record a suggested fix as a unified diff plus PR title '
-                         'and body. Records the proposal only — it does NOT open '
-                         'a PR or write any files. IMPORTANT: put changes to '
-                         'EXISTING files in `diff` (as normal unified-diff '
-                         'hunks). Put brand-new files in `new_files` as full '
-                         'content instead of a diff hunk — hand-counting lines '
-                         'in a `@@ -0,0 +1,N @@` hunk for a large new file is '
-                         'exactly the kind of arithmetic mistake that corrupts '
-                         'the whole patch and breaks PR creation.',
-          FIX_TOOL_SCHEMA)
-    async def propose_fix(args):
-        args = args or {}
-        new_files = []
-        for item in (args.get('new_files') or []):
-            if not isinstance(item, dict):
-                continue
-            path = (item.get('path') or '').strip()
-            content = item.get('content')
-            if path and content is not None:
-                new_files.append({'path': path, 'content': content})
-        proposals.append({
-            'diff': args.get('diff', ''),
-            'new_files': new_files,
-            'pr_title': args.get('pr_title', ''),
-            'pr_body': args.get('pr_body', ''),
-        })
-        note = f' + {len(new_files)} new file(s) attached as full content' if new_files else ''
-        return _text(f'Fix proposal recorded{note}. It will be shown to the admin '
-                     'with a "Create PR" button; no PR has been opened.')
-
-    @tool('record_learning', 'Record ONE reusable lesson from this thread as a '
-                             'title + content. Used when finalizing a thread on '
-                             'close so future investigations benefit. Records '
-                             'only — the admin reviews it before it is saved.',
-          {'title': str, 'content': str})
-    async def record_learning(args):
-        args = args or {}
-        learnings.append({
-            'title': (args.get('title', '') or '')[:200],
-            'content': args.get('content', '') or '',
-        })
-        return _text('Learning drafted. The admin will review and edit it before '
-                     'it is saved to memory.')
-
-    @tool('consult_advisor', 'Escalate to a stronger model for final synthesis '
-                             '— stating the root cause, drafting a fix diff, or '
-                             'writing a feature plan. Call this ONCE you have '
-                             'gathered enough evidence and are ready to produce '
-                             'the final answer, not while still exploring. The '
-                             'advisor has NO tool access — pass it everything it '
-                             'needs to judge (file:line excerpts, DB query '
-                             'results, log excerpts, your hypothesis) in the '
-                             'summary; it only sees what you write here.',
-          {'summary': str})
-    async def consult_advisor(args):
-        summary = (args or {}).get('summary', '').strip()
-        if not summary:
-            return _error('Empty summary — nothing to advise on.')
-        try:
-            text = await asyncio.to_thread(_call_advisor, summary)
-        except Exception as exc:
-            logger.warning('consult_advisor call failed: %s', exc)
-            return _error(f'Advisor call failed: {exc}')
-        return _text(text or '(advisor returned no text)')
-
-    return create_sdk_mcp_server(
-        name=MCP_SERVER_NAME, version='1.0.0',
-        tools=[db_query_ro, read_logs, propose_fix, record_learning, consult_advisor],
-    )
+def _extract_new_files(raw_list):
+    """Validate/normalize an LLM-supplied `new_files` list into
+    [{'path': str, 'content': str}, ...], dropping malformed entries. Shared
+    by the propose_fix MCP tool (debugger/mcp_server.py, for its
+    acknowledgement message) and by run_agent's proposal recovery below, so
+    both views of "how many new files were proposed" agree."""
+    out = []
+    for item in (raw_list or []):
+        if not isinstance(item, dict):
+            continue
+        path = (item.get('path') or '').strip()
+        content = item.get('content')
+        if path and content is not None:
+            out.append({'path': path, 'content': content})
+    return out
 
 
 def _call_advisor(summary):
     """
-    Synchronous call to the advisor model (a direct Anthropic API call, NOT the
-    Agent SDK — the advisor gets no tool/filesystem/DB access of its own, only
-    the text it's given). Returns the advisor's text, or raises on failure.
+    Synchronous call to the advisor model (a direct Anthropic API call, NOT
+    another agentic `claude` run — the advisor gets no tool/filesystem/DB
+    access of its own, only the text it's given). Returns the advisor's text,
+    or raises on failure. Called from debugger/mcp_server.py's consult_advisor
+    tool (a separate OS process — that's why this is a plain, self-contained
+    function rather than a closure over any in-process state).
     """
     if not ANTHROPIC_AVAILABLE:
         raise RuntimeError('anthropic package not installed')
@@ -273,49 +120,52 @@ def _call_advisor(summary):
         b.text for b in response.content if getattr(b, 'type', None) == 'text')
 
 
-def _jsonable(v):
-    if isinstance(v, (str, int, float, bool)) or v is None:
-        return v
-    return str(v)
-
-
-def _read_log_source(source, lines):
-    if source == 'app':
-        unit = settings.DEBUGGER_LOG_UNIT
-        out = subprocess.run(
-            ['journalctl', '-u', unit, '--no-pager', '-n', str(lines)],
-            capture_output=True, text=True, timeout=30,
-        )
-        return out.stdout or out.stderr
-    path = {
-        'nginx_access': settings.DEBUGGER_NGINX_ACCESS_LOG,
-        'nginx_error': settings.DEBUGGER_NGINX_ERROR_LOG,
-    }.get(source)
-    if not path:
-        return f'Unknown log source: {source}'
-    out = subprocess.run(
-        ['tail', '-n', str(lines), path],
-        capture_output=True, text=True, timeout=30,
-    )
-    return out.stdout or out.stderr
-
-
 # --------------------------------------------------------------------------- #
-# Guardrail hook                                                               #
+# CLI wiring: MCP server + guard hook                                         #
 # --------------------------------------------------------------------------- #
-async def _pretooluse_hook(input_data, tool_use_id, context):
-    tool_name = input_data.get('tool_name', '')
-    tool_input = input_data.get('tool_input', {})
-    decision, reason = guards.evaluate_tool(tool_name, tool_input)
-    if decision == 'deny':
-        return {
-            'hookSpecificOutput': {
-                'hookEventName': 'PreToolUse',
-                'permissionDecision': 'deny',
-                'permissionDecisionReason': reason,
+def _build_mcp_config():
+    """
+    MCP server config for --mcp-config: spawns `manage.py run_debugger_mcp`
+    (debugger/mcp_server.py) as a stdio child of the `claude` CLI process.
+    Uses absolute paths for both the interpreter and manage.py so this works
+    regardless of the CLI subprocess's cwd (which is DEBUGGER_CODE_DIR in the
+    normal case, or a PR-branch worktree checkout in review mode — Python
+    inserts a script's own directory onto sys.path when it's run directly, so
+    manage.py resolves the project's packages either way).
+    """
+    return {
+        'mcpServers': {
+            MCP_SERVER_NAME: {
+                'type': 'stdio',
+                'command': sys.executable,
+                'args': [str(Path(settings.BASE_DIR) / 'manage.py'), 'run_debugger_mcp'],
+                'env': {
+                    'DJANGO_SETTINGS_MODULE': os.environ.get(
+                        'DJANGO_SETTINGS_MODULE', 'Varthaai.settings'),
+                },
             }
         }
-    return {}
+    }
+
+
+def _build_hook_settings():
+    """
+    --settings payload registering debugger/guard_hook.py as a PreToolUse
+    hook for every tool call — the CLI equivalent of the Agent SDK's
+    HookMatcher. Verified empirically that this still fires (and can deny)
+    even under --dangerously-skip-permissions, and that --setting-sources ''
+    does not suppress an explicitly-passed --settings hook.
+    """
+    hook_script = Path(__file__).resolve().parent / 'guard_hook.py'
+    return {
+        'hooks': {
+            'PreToolUse': [
+                {'matcher': '*', 'hooks': [
+                    {'type': 'command', 'command': f'{sys.executable} {hook_script}'}
+                ]}
+            ]
+        }
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -445,7 +295,6 @@ def _relevant_learnings(request, limit=8):
 
 def _read_project_map():
     try:
-        from pathlib import Path
         p = Path(settings.DEBUGGER_CODE_DIR) / 'CLAUDE.md'
         text = p.read_text(encoding='utf-8')
         # Keep the prompt bounded.
@@ -474,79 +323,101 @@ def build_prompt(request):
 def run_agent(request, cwd=None, mode=None):
     """
     Synchronous entry point (called from the Celery task). Returns a dict:
-      {text, proposals: [...], usage: {...}, tools_used: [...]}
+      {text, proposals: [...], learnings: [...], tools_used: [...], usage: {...}}
     `cwd` overrides the code checkout (used for review mode, where the agent
     reads the PR-branch worktree). `mode='review'` switches the prompt.
-    Raises RuntimeError if the SDK/CLI is unavailable.
+    Raises RuntimeError if the `claude` CLI is unavailable or the run reports
+    an error result (including a likely max-turns truncation — see below).
+    core.claude_cli.ClaudeCliBusyError propagates if no concurrency slot frees
+    up in time (subclasses RuntimeError, so existing exception handling in
+    debugger/tasks.py still catches it as a generic failure).
     """
-    if not SDK_AVAILABLE:
-        raise RuntimeError(f'claude-agent-sdk unavailable: {SDK_IMPORT_ERROR}')
-    return asyncio.run(_run_agent_async(request, cwd=cwd, mode=mode))
+    if not shutil.which(settings.CLAUDE_CLI_BIN):
+        raise RuntimeError(f'claude CLI not found on PATH ({settings.CLAUDE_CLI_BIN!r})')
 
-
-async def _run_agent_async(request, cwd=None, mode=None):
-    proposals = []
-    learnings = []
-    server = _register_tools(proposals, learnings)
+    # build_system_prompt / build_prompt touch the ORM — safe here since,
+    # unlike the old SDK path, run_agent is a plain sync function (no asyncio
+    # event loop), so there's no Django sync-DB-access-in-async-context issue.
+    system_prompt = build_system_prompt(request, mode)
+    user_prompt = build_prompt(request)
 
     env = {}
     if settings.ANTHROPIC_API_KEY:
         env['ANTHROPIC_API_KEY'] = settings.ANTHROPIC_API_KEY
 
-    # build_system_prompt / build_prompt touch the ORM; Django forbids sync DB
-    # access from inside a running event loop, so run them in a worker thread.
-    system_prompt = await asyncio.to_thread(build_system_prompt, request, mode)
-    user_prompt = await asyncio.to_thread(build_prompt, request)
-
-    options = ClaudeAgentOptions(
+    result = run_claude_cli(
+        user_prompt,
         system_prompt=system_prompt,
         allowed_tools=ALLOWED_TOOLS,
         disallowed_tools=DISALLOWED_TOOLS,
-        mcp_servers={MCP_SERVER_NAME: server},
-        hooks={'PreToolUse': [HookMatcher(matcher='*', hooks=[_pretooluse_hook])]},
-        permission_mode='default',
-        cwd=cwd or settings.DEBUGGER_CODE_DIR,
+        mcp_config=_build_mcp_config(),
+        extra_settings=_build_hook_settings(),
         model=settings.DEBUGGER_MODEL,
-        max_turns=settings.DEBUGGER_MAX_TURNS,
-        setting_sources=[],   # hermetic: ignore ~/.claude and project settings
+        cwd=cwd or settings.DEBUGGER_CODE_DIR,
         env=env,
+        max_turns=settings.DEBUGGER_MAX_TURNS,
     )
 
-    text_parts = []
+    proposals = []
+    learnings = []
     tools_used = []
-    usage = {}
+    for call in result['tool_calls']:
+        name = call.get('name')
+        tools_used.append(name)
+        payload = call.get('input') or {}
+        if name == FIX_TOOL:
+            proposals.append({
+                'diff': payload.get('diff', ''),
+                'new_files': _extract_new_files(payload.get('new_files')),
+                'pr_title': payload.get('pr_title', ''),
+                'pr_body': payload.get('pr_body', ''),
+            })
+        elif name == LEARN_TOOL:
+            learnings.append({
+                'title': (payload.get('title', '') or '')[:200],
+                'content': payload.get('content', '') or '',
+            })
+        # Logged as it happens (not at the end) so a mid-run kill (e.g.
+        # SoftTimeLimitExceeded) still leaves a trail of how far the
+        # investigation got.
+        logger.info('request %s: tool call #%d: %s', request.id, len(tools_used), name)
 
-    async for message in query(prompt=user_prompt, options=options):
-        if isinstance(message, AssistantMessage):
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    text_parts.append(block.text)
-                elif isinstance(block, ToolUseBlock):
-                    tools_used.append(block.name)
-                    # Logged as it happens (not at the end) so a mid-run kill
-                    # (e.g. SoftTimeLimitExceeded) still leaves a trail of how
-                    # far the investigation got.
-                    logger.info(
-                        'request %s: tool call #%d: %s',
-                        request.id, len(tools_used), block.name)
-        elif isinstance(message, ResultMessage):
-            usage = {
-                'total_cost_usd': getattr(message, 'total_cost_usd', None),
-                'duration_ms': getattr(message, 'duration_ms', None),
-                'num_turns': getattr(message, 'num_turns', None),
-            }
-            # Logged here (not just returned) because on an error result (e.g.
-            # max-turns) the CLI still emits this message before the SDK raises
-            # — so this is the only place duration/turn count survive a failed
-            # run. Distinguishes "40 turns in 30s" (looping) from "40 turns in
-            # 900s" (genuinely heavy work) for the next occurrence.
-            logger.info(
-                'request %s: result usage num_turns=%s duration_ms=%s is_error=%s',
-                request.id, usage['num_turns'], usage['duration_ms'],
-                getattr(message, 'is_error', None))
+    usage = {
+        'total_cost_usd': result.get('total_cost_usd'),
+        'duration_ms': result.get('duration_ms'),
+        'num_turns': result.get('num_turns'),
+    }
+    # Logged here (not just returned) because on an error result the caller
+    # (tasks.py) only surfaces a short message to the admin — duration/turn
+    # count would otherwise only survive in a failed run's traceback.
+    logger.info(
+        'request %s: result usage num_turns=%s duration_ms=%s is_error=%s subtype=%s',
+        request.id, usage['num_turns'], usage['duration_ms'],
+        result.get('is_error'), result.get('subtype'))
+
+    # The CLI's maxTurns setting stops the run WITHOUT flagging it as an error
+    # result (is_error=False, subtype='success') — unlike the old Agent SDK,
+    # which raised a distinct exception on hitting max_turns. We approximate
+    # that same signal by checking whether the run used exactly (or more
+    # than) the configured cap, and raise with the same substring
+    # ('maximum number of turns') that debugger/tasks.py's _is_max_turns_error
+    # already looks for, so the existing admin-facing message ("try breaking
+    # it into smaller... questions") keeps working unchanged. This can, in
+    # principle, false-positive if the agent genuinely finishes exactly on
+    # the turn boundary — a known, documented tradeoff of the CLI not
+    # distinguishing "done" from "cut off" the way the SDK's exception did.
+    if result.get('num_turns') and result['num_turns'] >= settings.DEBUGGER_MAX_TURNS:
+        raise RuntimeError(
+            'Claude Code returned an error result: Reached maximum number of '
+            f'turns ({settings.DEBUGGER_MAX_TURNS})')
+
+    if result.get('is_error'):
+        raise RuntimeError(
+            f'claude CLI reported an error result (subtype={result.get("subtype")}): '
+            f'{result.get("text") or "(no text)"}')
 
     return {
-        'text': '\n\n'.join(t for t in text_parts if t.strip()).strip(),
+        'text': result.get('text') or '',
         'proposals': proposals,
         'learnings': learnings,
         'tools_used': tools_used,
