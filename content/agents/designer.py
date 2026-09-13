@@ -12,11 +12,19 @@ Implements poster-generation-plan.md, adapted for this codebase in two ways:
     this codebase authenticates with ANTHROPIC_API_KEY (see
     core/claude_cli.py's docstring for why).
   - Image generation is the one step Claude can't do at all — that call
-    goes to Gemini (a different provider, GEMINI_API_KEY, unrelated to the
-    "no Anthropic API" rule above) and is UNTESTED in this environment (no
-    GEMINI_API_KEY or the google-genai package available here). Verify the
-    exact google-genai calling convention against current docs before
-    relying on generate_poster_image() in production.
+    goes to Gemini 3 Pro Image ("Nano Banana Pro", GEMINI_API_KEY, a
+    different provider, unrelated to the "no Anthropic API" rule above).
+    The calling convention (client.models.generate_content with a
+    GenerateContentConfig(response_modalities=['TEXT','IMAGE'],
+    image_config=ImageConfig(...)), reading the image back off
+    response.candidates[0].content.parts[].inline_data) has been verified
+    against the current googleapis/python-genai SDK README and Google
+    Cloud's Gemini 3 Pro Image docs (Sept 2026) — cross-checked across
+    multiple sources after an initial doc fetch surfaced a DIFFERENT,
+    inconsistent `client.interactions.create(...)` shape that didn't
+    reconcile with the SDK's own README. Still genuinely UNTESTED end-to-
+    end in this environment (no GEMINI_API_KEY configured here) — the
+    first real run should be watched closely.
 
 Public entry points:
   infer_topic_category(topic) -> str
@@ -182,6 +190,17 @@ _FORMAT_DIMENSIONS = {
     PosterFormat.STORY: (1080, 1920),
     PosterFormat.PORTRAIT: (1080, 1350),
 }
+# Gemini 3 Pro Image ("Nano Banana Pro") takes aspect ratio as a structured
+# GenerateContentConfig.image_config param, not a text instruction — verified
+# against the current google-genai SDK docs/cookbook (googleapis/python-genai
+# README + Google Cloud's Gemini 3 Pro Image docs, Sept 2026). Valid values:
+# 1:1, 3:2, 2:3, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9 — our three formats all
+# map cleanly.
+_FORMAT_ASPECT_RATIOS = {
+    PosterFormat.SQUARE: '1:1',
+    PosterFormat.STORY: '9:16',
+    PosterFormat.PORTRAIT: '4:5',
+}
 
 
 def generate_poster_image(brief, inspiration, topic_asset=None, brand_logo=None,
@@ -222,7 +241,6 @@ def generate_poster_image(brief, inspiration, topic_asset=None, brand_logo=None,
         f"Reference design language: {inspiration.design_language}" if inspiration else '',
         'Brief:',
         brief,
-        f'Output exactly {width}x{height} pixels.',
         'Do not look like a generic stock template or obviously AI-generated '
         'art — this must look like a real brand designed it.',
     ]
@@ -232,6 +250,8 @@ def generate_poster_image(brief, inspiration, topic_asset=None, brand_logo=None,
             f'they conflict: {extra_instruction}')
     prompt = '\n\n'.join(line for line in prompt_lines if line)
     debug['prompt'] = prompt
+    aspect_ratio = _FORMAT_ASPECT_RATIOS.get(format, _FORMAT_ASPECT_RATIOS[PosterFormat.SQUARE])
+    debug['aspect_ratio'] = aspect_ratio
 
     try:
         parts = []
@@ -247,6 +267,17 @@ def generate_poster_image(brief, inspiration, topic_asset=None, brand_logo=None,
         response = client.models.generate_content(
             model=settings.GEMINI_POSTER_MODEL,
             contents=parts,
+            # response_modalities must explicitly include IMAGE or the model
+            # can return text only — this was missing before and is the
+            # most likely reason an earlier untested version of this call
+            # would have silently failed to return an image at all.
+            config=genai_types.GenerateContentConfig(
+                response_modalities=['TEXT', 'IMAGE'],
+                image_config=genai_types.ImageConfig(
+                    aspect_ratio=aspect_ratio,
+                    image_size='2K',
+                ),
+            ),
         )
         image_bytes = _extract_image_bytes(response)
         if image_bytes is None:

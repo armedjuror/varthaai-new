@@ -1083,3 +1083,85 @@ now says explicitly what still depends on it.
   poster description. Test image and DB row deleted after.
 - `manage.py check` clean; full `debugger` + `content` suite (71 tests)
   passes.
+
+---
+
+## 20. Nano Banana Pro (Gemini 3 Pro Image) — wiring corrected, still needs a real key
+
+Triggered by: "we wanna use nano banana pro." §17/§19 had already targeted
+`gemini-3-pro-image-preview` for `generate_poster_image()`, flagged as
+"written from memory, not verified against a live SDK." Used this request
+to actually verify it, rather than just confirming the name.
+
+### What was wrong
+
+The existing `generate_poster_image()` call was missing `config=` entirely
+— no `response_modalities`, no `image_config`. Per the current SDK docs,
+without `response_modalities` explicitly including `"IMAGE"`, the model
+can return text only. This was likely why the very first real run would
+have silently failed to produce an image, independent of any account/key
+issue. Aspect ratio was only ever a text instruction in the prompt
+("Output exactly 1080x1080 pixels") — the SDK has a structured
+`image_config.aspect_ratio` param instead, which is authoritative where a
+prompt-text instruction is advisory at best.
+
+**A genuine source conflict surfaced and was reconciled, not silently
+picked**: two `WebFetch` calls against `ai.google.dev` doc pages both
+independently returned a `client.interactions.create(model=..., input=...,
+response_format={...})` shape — a different top-level API surface. That
+didn't match the `client.models.generate_content(...)` pattern already in
+this file. Cross-checked against the actual `googleapis/python-genai`
+GitHub README, Google Cloud's Gemini 3 Pro Image docs, an official Google
+Cloud cookbook notebook titled "Gemini 3 Pro Image (Nano Banana Pro 🍌)
+Generation", and a community reference site — all four independently
+converged on `models.generate_content(model=..., contents=...,
+config=GenerateContentConfig(response_modalities=[...],
+image_config=ImageConfig(...)))`, with images read back via
+`response.candidates[0].content.parts[].inline_data` — which is exactly
+what `_extract_image_bytes()` already did. Went with the converged,
+higher-confidence source family; the `interactions.create` shape may be a
+newer higher-level API but isn't what this file uses.
+
+### What changed
+
+- **`content/agents/designer.py`**: added `_FORMAT_ASPECT_RATIOS`
+  (SQUARE→1:1, STORY→9:16, PORTRAIT→4:5 — all valid per the SDK's
+  supported list) and wired `config=types.GenerateContentConfig(
+  response_modalities=['TEXT','IMAGE'], image_config=types.ImageConfig(
+  aspect_ratio=..., image_size='2K'))` into the `generate_content` call.
+  Dropped the pixel-dimension text instruction from the prompt — the
+  structured param replaces it.
+- **`Varthaai/settings.py`**: `GEMINI_POSTER_MODEL` default changed from
+  `gemini-3-pro-image-preview` to `gemini-3-pro-image` — confirmed this is
+  now the GA/stable name (the `-preview` alias still works, same pricing,
+  but the stable name is the one to default to going forward).
+- **`requirements.txt`**: `google-genai` bumped `1.3.0` → `2.23.0` —
+  confirmed directly against PyPI (not a guess this time) and matches the
+  `ImageConfig`/`response_modalities` API this code now calls.
+  **Also removed `anthropic==0.121.0`** — grepped the whole codebase and
+  confirmed nothing imports the `anthropic` package any more (§19 moved
+  every direct-API caller onto `claude -p`; the Blog AI assistant uses
+  `litellm`, not this package) — a genuinely dead dependency, not a
+  drive-by removal.
+- **New dependency conflict surfaced and documented, not silently
+  resolved**: `google-genai==2.23.0` requires `httpx>=0.28.1`;
+  `litellm==1.55.8` (Blog AI assistant) declares `httpx<0.28.0`. Verified
+  empirically that `litellm` still imports and `litellm.completion` stays
+  reachable under `httpx==0.28.1` (both now installed together in this
+  venv), but did NOT verify the Blog AI assistant's actual SSE streaming
+  path under this combination — that's a live production feature this
+  session didn't test. Deliberately did NOT bump `litellm` to resolve it
+  properly (current PyPI is `1.100.1`, a 45-release jump from what's
+  pinned) — flagged in a comment on `requirements.txt` instead of guessed
+  at. **This needs a real decision + test pass before the next deploy
+  installs from a clean venv.**
+
+### Still not done — the actual gate
+
+No `GEMINI_API_KEY` exists in this environment. Everything above fixes
+the code so a first real call has a real chance of working, and verifies
+the exact objects (`GenerateContentConfig`, `ImageConfig`) construct
+without error against the real installed SDK — but `generate_poster_image()`
+has still never made a live network call. Once a key exists: run it once
+against a real ingested `PosterInspiration` and inspect the result/debug
+dict before trusting this in the admin UI.

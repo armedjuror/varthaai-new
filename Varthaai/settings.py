@@ -372,9 +372,10 @@ AI_ASSIST_DEFAULT_MODEL = 'anthropic/claude-sonnet-5'
 # Cheap model — plan/caption/brief calls are short, high-volume, not
 # final-synthesis quality (unlike DEBUGGER_ADVISOR_MODEL).
 CONTENT_TEXT_MODEL = env('CONTENT_TEXT_MODEL', 'claude-sonnet-5')
-# TODO: verify against Google's current model list before relying on this in
-# production — no web access was available to confirm it in this session.
-# poster-generation-plan.md §10 names this as the class of model needed
-# (image-editing, multi-image-input capable); pin the specific id once checked.
+# "Nano Banana Pro" — verified (Sept 2026) via Google's docs/SDK README:
+# `gemini-3-pro-image` is the current GA model id (the old `-preview` suffix
+# still works too, same pricing/behavior, but this is the non-deprecated
+# name going forward). See content/agents/designer.py's generate_poster_image
+# for the verified calling convention.
 GEMINI_API_KEY = env('GEMINI_API_KEY', '')
-GEMINI_POSTER_MODEL = env('GEMINI_POSTER_MODEL', 'gemini-3-pro-image-preview')
+GEMINI_POSTER_MODEL = env('GEMINI_POSTER_MODEL', 'gemini-3-pro-image')
