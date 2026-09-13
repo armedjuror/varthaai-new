@@ -103,12 +103,22 @@ Manually flagged trends/topics to consider weaving in (may be empty):
 Task: propose the content plan for the recurring series above across the planning period, honoring each series' weekday/cadence exactly (skip a slot only if it falls outside the period). Also propose occasion posters for any real festivals, national/regional (Kerala/Karnataka) observances, or notable days that fall within the period and suit a food brand — do not invent a holiday that doesn't exist. Do NOT propose anything for the Varthaai Verdict series even though it's an active series — that series is intentionally excluded from planning for now (it will be turned on in a later phase).
 
 Respond with ONLY a JSON array, no other text, of objects with exactly these keys:
-{{"planned_date": "YYYY-MM-DD", "series_slug": "<slug from the list above, or null for occasion/event posters not tied to a series>", "content_type": "<one of: reel_varthaanm, reel_inside, poster_learn, poster_occasion, poster_event, blog>", "working_title": "short internal working title, not the final caption", "context_notes": "concrete context for whoever writes this next — the occasion/angle/detail, not vague filler"}}
+{{"planned_date": "YYYY-MM-DD", "series_slug": "<slug from the list above, or null for occasion/event posters not tied to a series>", "content_type": "<one of: reel_varthaanm, reel_inside, poster_learn, poster_occasion, poster_event, blog>", "working_title": "short internal working title, not the final caption", "context_notes": "a concrete, ready-to-write brief — see rules below"}}
+
+context_notes is what actually gets handed to whoever writes the script/poster/blog next — treat it as a real creative brief, not a description of the series format (the writer already knows the format from content_type/series). It must commit to ONE specific, concrete idea they can start writing from immediately, with no further invention needed on their part. Never write it as a description of what this TYPE of content usually covers — that's a category, not a brief.
+
+Banned in context_notes: hedge words/phrases ("e.g.", "such as", "consider", "maybe", "could", "a general", "an evergreen angle", "something like", "or" listing multiple options instead of picking one), and any sentence whose real content could be deleted and replaced with "[insert topic here]" without losing information.
+
+What "specific" means per content_type:
+- reel_varthaanm (Ajwad's personal story-telling reel): name ONE real story, moment, realization, or customer interaction to tell — not "share something personal." Bad: "Talk about the brand's journey." Good: "Tell the story of the first batch that got rejected by a distributor for not being crunchy enough, and what changed after."
+- reel_inside (interview with Saad, alternate Mondays): write 2-3 SPECIFIC interview questions tied to one real theme (sourcing, quality control, a recent operational decision) — not "behind the scenes." Bad: "Ask about daily operations." Good: "Ask Saad: How do we test a new banana supplier before committing? What's the biggest mistake we made in year one of sourcing?"
+- poster_learn (teaching a word/phrase, currently Kannada): name the EXACT word or phrase being taught, its meaning, and how it's used — not "an educational angle." Bad: "Teach a food-related word." Good: "Teach the Kannada word 'ರುಚಿ' (ruchi) — meaning 'taste', used to compliment food, e.g. 'ತುಂಬಾ ರುಚಿ' (very tasty)."
+- poster_occasion / poster_event: name the specific occasion/event AND the specific angle tying it to the brand — commit even if the exact date is approximate, don't hedge with "if X doesn't fall here, do Y instead."
+- blog: state one specific thesis/claim/story the post argues or tells — not a generic topic category. Bad: "Write about seasonal eating." Good: "Write about why banana chips are a smarter monsoon snack than fried alternatives — shelf life, oil absorption, and how Varthaai's packaging keeps them crisp in humidity."
 
 Rules:
 - Every planned_date must fall within the planning period given above.
-- Never propose content_type "reel_verdict".
-- context_notes must contain a real, specific detail — never "TBD" or empty."""
+- Never propose content_type "reel_verdict"."""
 
 
 def generate_plan(plan):

@@ -1294,3 +1294,55 @@ approving the test plan, both `update_item` and `toggle_item_skip` on its
 item were correctly rejected with the same "already approved" message,
 and the title genuinely stayed unchanged in the DB. `manage.py check`
 clean; full `debugger` + `content` suite still passes.
+
+---
+
+## 22. Series display names + Planner context_notes specificity
+
+Two corrections in the same turn:
+
+**Series names.** The calendar UI's `CONTENT_TYPE_LABELS` fallback map
+(used in the edit-item dropdown, and as the series-column display when a
+`PlanItem` has no linked `ContentSeries`) used shorthand — "Varthaanm",
+"Learn", "Verdict" — instead of the real names ("Varthaai Varthaanm",
+"Learn With Varthaai", "Varthaai Verdict"). Fixed to match
+`content/migrations/0002_seed_series.py`'s actual seeded `name` values
+exactly (also fixed "Inside" → "Varthaai Inside" for the same reason,
+though not explicitly named — same pattern, would've been inconsistent
+to leave it). Also aligned `ContentSeries.ContentType`'s Django choice
+labels in `content/models.py` (dormant — nothing currently calls
+`get_content_type_display()` — but the exact same mistake, worth fixing
+now rather than leaving a second copy to drift). Required a cosmetic
+migration (`0006`) since Django tracks `choices=` as field state even
+though the label text isn't stored in Postgres.
+
+**`context_notes` specificity.** Real problem, not cosmetic: live output
+showed the Planner writing notes that described the SERIES FORMAT
+("cover current news relevant to the brand", "an evergreen educational
+angle", "no major festival falls here, use as a soft weekend") rather
+than committing to one concrete, usable idea — exactly the failure mode
+you'd expect from a generic "be specific" instruction with no worked
+examples. Since `context_notes` is the actual brief the Copywriter Agent
+(Phase 2, not yet built) will hand to a Claude Skill to write the real
+script/poster/blog, vague notes here means every downstream generation
+starts from nothing.
+
+Fix: rewrote `build_planner_prompt` in `content/agents/planner.py` with
+(a) an explicit list of banned hedge phrases ("e.g.", "such as",
+"consider", "or" listing options instead of picking one — a "delete this
+and it could say '[insert topic here]'" test), and (b) a worked bad/good
+example for EACH content_type, since generic instructions weren't enough
+— reel_varthaanm needs one real story beat, reel_inside needs 2-3 actual
+interview questions, poster_learn needs the exact word/phrase + meaning
++ usage, blog needs a real thesis/claim, not a topic category.
+
+**Verified live**: re-ran plan generation for the same period. Every
+item's context_notes now reads as a genuine, usable brief — e.g.
+poster_learn named the exact Kannada word "ಕುರುಕುರು" (kurukuru, meaning
+crunchy) with pronunciation, a usage example, and even a specific visual
+pairing suggestion; reel_inside wrote three real, answerable interview
+questions about Nendran banana sourcing and a specific rejected supplier
+batch; reel_varthaanm proposed one concrete story ("packing the first 50
+bags by hand") with specific narrative beats, not a topic. Zero hedge
+phrases across all 5 generated items. Test plan created and deleted, not
+left in the DB. `manage.py check` clean; migration applied cleanly.

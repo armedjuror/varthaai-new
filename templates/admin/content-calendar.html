@@ -133,9 +133,11 @@
 </style>
 <script>
   const PLAN_STATUS_LABELS = { draft: 'Draft', generating: 'Generating…', needs_review: 'Needs review', approved: 'Approved' };
+  // Matches the real ContentSeries.name values from the seed migration
+  // (content/migrations/0002_seed_series.py) — not shorthand.
   const CONTENT_TYPE_LABELS = {
-    reel_varthaanm: 'Varthaanm', reel_verdict: 'Verdict', reel_inside: 'Inside',
-    poster_learn: 'Learn', poster_occasion: 'Occasion', poster_event: 'Event', blog: 'Blog',
+    reel_varthaanm: 'Varthaai Varthaanm', reel_verdict: 'Varthaai Verdict', reel_inside: 'Varthaai Inside',
+    poster_learn: 'Learn With Varthaai', poster_occasion: 'Occasion', poster_event: 'Event', blog: 'Blog',
   };
 
   function defaultNextMonthRange() {

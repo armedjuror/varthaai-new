@@ -37,9 +37,9 @@ class ContentSeries(models.Model):
         BLOG = 'blog', 'Blog'
 
     class ContentType(models.TextChoices):
-        REEL_VARTHAANM = 'reel_varthaanm', 'Reel — Varthaanm'
-        REEL_VERDICT = 'reel_verdict', 'Reel — Verdict'
-        REEL_INSIDE = 'reel_inside', 'Reel — Inside'
+        REEL_VARTHAANM = 'reel_varthaanm', 'Reel — Varthaai Varthaanm'
+        REEL_VERDICT = 'reel_verdict', 'Reel — Varthaai Verdict'
+        REEL_INSIDE = 'reel_inside', 'Reel — Varthaai Inside'
         POSTER_LEARN = 'poster_learn', 'Poster — Learn With Varthaai'
         POSTER_OCCASION = 'poster_occasion', 'Poster — Occasion'
         POSTER_EVENT = 'poster_event', 'Poster — Event'
