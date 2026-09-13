@@ -1346,3 +1346,53 @@ batch; reel_varthaanm proposed one concrete story ("packing the first 50
 bags by hand") with specific narrative beats, not a topic. Zero hedge
 phrases across all 5 generated items. Test plan created and deleted, not
 left in the DB. `manage.py check` clean; migration applied cleanly.
+
+---
+
+## 23. Regenerate a single plan item
+
+Triggered by: "We need an option to regenerate a specific item also."
+Until now, fixing a bad item meant either manually rewriting it
+(`update_item`, §21) or living with it — no way to ask the Planner for a
+genuinely different take on the same slot.
+
+- **`content/agents/planner.py`**: `regenerate_item(item, instruction='')`
+  — a second `claude -p` call scoped to ONE item. Keeps `plan`/
+  `planned_date`/`content_type`/`series` fixed, asks only for a new
+  `working_title`/`context_notes`. Optional `instruction` steers it (e.g.
+  "make it about our sourcing process"); without one, the prompt asks for
+  something genuinely different from the current version, not a trivial
+  reword — the current title/notes are shown to the model specifically so
+  it doesn't just paraphrase them back. The large context_notes-quality
+  block from §22 was factored out into a shared `_CONTEXT_NOTES_GUIDANCE`
+  constant so both prompts enforce the identical bar rather than risking
+  two copies drifting apart.
+- **Status is deliberately reset to `PLANNED` on regenerate**, regardless
+  of what it was before — a real, considered difference from
+  `update_item`, which leaves status alone. The reasoning: `update_item`
+  is the admin's own typed edit, so an existing approval still reflects
+  their intent; `regenerate_item` produces content the admin hasn't seen
+  yet, so any prior approve/skip decision no longer means anything and
+  must be re-made after reading the new version.
+- **`ContentCalendarAPI.post`** gains `regenerate_item`, added to the
+  same plan-lock guard the other item actions already use (§21) — can't
+  regenerate an item in an approved plan either.
+- UI: a new "Regenerate" icon (rotating arrows) per item row, opening a
+  small modal with an optional "what would you like different?" textarea
+  — reuses the edit modal's visual pattern. Shows a loading state
+  (`showLoader`) since this is a real ~10-30s Claude call, same as the
+  Designer test panel.
+
+### Verified live
+
+Created a disposable test item, pre-set it to `approved` with a
+deliberately generic title/notes ("Generic Blog Topic" / "Write about
+seasonal eating"), then regenerated it with the instruction "make it
+about how our chips are made without palm oil." Result: a genuinely
+specific, on-instruction brief (coconut oil vs. palm oil, framed as a
+sourcing-integrity story, not a marketing checkbox) — confirms the
+instruction is actually followed, not ignored. Status correctly flipped
+from `approved` back to `planned`. Regenerating on a subsequently-locked
+plan was correctly rejected with the same message the other item actions
+use. Test data deleted after. `manage.py check` clean; full `debugger` +
+`content` suite (71 tests) still passes.

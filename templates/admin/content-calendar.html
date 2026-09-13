@@ -101,6 +101,34 @@
   </div>
 </div>
 
+<!-- Regenerate Plan Item Modal -->
+<div class="modal fade" id="regenerateItemModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-arrows-rotate me-2"></i>Regenerate Item</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="regenerateItemForm">
+        <input type="hidden" name="item_id">
+        <div class="modal-body">
+          <p class="text-muted" style="font-size:0.85rem">
+            Asks the Planner Agent for a fresh title and context for this same slot (date and
+            content type stay the same). If it was already approved or skipped, that decision
+            resets so you review the new version.
+          </p>
+          <label class="form-label">What would you like different? (optional)</label>
+          <textarea class="form-control" name="instruction" rows="3" placeholder="e.g. make it about our sourcing process instead"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-arrows-rotate me-1"></i>Regenerate</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
@@ -166,6 +194,7 @@
     const actions = locked
       ? '<span class="item-locked-badge"><i class="fas fa-lock me-1"></i>Locked</span>'
       : '<button class="item-decide-btn edit" data-action="edit_item" title="Edit"><i class="fas fa-pen"></i></button>' +
+        '<button class="item-decide-btn edit" data-action="regenerate_item" title="Regenerate with AI"><i class="fas fa-arrows-rotate"></i></button>' +
         '<button class="item-decide-btn approve' + (i.status === 'approved' ? ' active' : '') + '" data-action="toggle_item_approve" title="Approve"><i class="fas fa-check"></i></button>' +
         '<button class="item-decide-btn skip' + (i.status === 'skipped' ? ' active' : '') + '" data-action="toggle_item_skip" title="Skip"><i class="fas fa-ban"></i></button>';
     return '<div class="item-row ' + decided + '" data-item-id="' + i.id + '" ' +
@@ -260,6 +289,7 @@
       btn.addEventListener('click', async function () {
         const row = btn.closest('.item-row');
         if (btn.dataset.action === 'edit_item') { openEditModal(row); return; }
+        if (btn.dataset.action === 'regenerate_item') { openRegenerateModal(row); return; }
         btn.disabled = true;
         const res = await postAction({ action: btn.dataset.action, item_id: row.dataset.itemId });
         btn.disabled = false;
@@ -280,6 +310,13 @@
     form.content_type.value = row.dataset.contentType;
     form.context_notes.value = row.dataset.contextNotes;
     new bootstrap.Modal(document.getElementById('editItemModal')).show();
+  }
+
+  function openRegenerateModal(row) {
+    const form = document.getElementById('regenerateItemForm');
+    form.item_id.value = row.dataset.itemId;
+    form.instruction.value = '';
+    new bootstrap.Modal(document.getElementById('regenerateItemModal')).show();
   }
 
   document.addEventListener('DOMContentLoaded', function () {
@@ -325,6 +362,25 @@
       submitBtn.disabled = false;
       if (!res.success) return;
       bootstrap.Modal.getInstance(document.getElementById('editItemModal')).hide();
+      loadCalendar();
+    });
+
+    const regenerateForm = document.getElementById('regenerateItemForm');
+    regenerateForm.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const submitBtn = regenerateForm.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+      showLoader('Regenerating — this can take 10-30 seconds…');
+      const res = await postAction({
+        action: 'regenerate_item',
+        item_id: regenerateForm.item_id.value,
+        instruction: regenerateForm.instruction.value,
+      });
+      hideLoader();
+      submitBtn.disabled = false;
+      if (!res.success) return;
+      bootstrap.Modal.getInstance(document.getElementById('regenerateItemModal')).hide();
+      showAlertModal('Item regenerated — review the new content.', 'success');
       loadCalendar();
     });
   });

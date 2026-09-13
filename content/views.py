@@ -189,10 +189,11 @@ class ContentCalendarAPI(APIView):
         return ok({'items': items, 'plans': plans})
 
     def post(self, request):
-        """action=approve_plan|toggle_item_approve|toggle_item_skip|update_item,
-        same {success,message} action-dispatch style as marketing's
-        ReviewsAPI.post — the admin-approval gate content-generator-plan.md
-        §4 requires before a plan (or any item in it) moves forward.
+        """action=approve_plan|toggle_item_approve|toggle_item_skip|update_item|
+        regenerate_item, same {success,message} action-dispatch style as
+        marketing's ReviewsAPI.post — the admin-approval gate
+        content-generator-plan.md §4 requires before a plan (or any item
+        in it) moves forward.
 
         Per-item review is a 3-way toggle: PLANNED (undecided, the default)
         <-> APPROVED <-> SKIPPED, each a single click, clicking the active
@@ -201,8 +202,12 @@ class ContentCalendarAPI(APIView):
         individually approved or skipped is left as the admin set it) and
         locks the plan as a whole. update_item edits an item's own fields
         (title/date/content_type/context_notes) and is independent of its
-        approve/skip status. All three item-level actions reject once the
-        parent plan is APPROVED — a locked plan's items don't change.
+        approve/skip status. regenerate_item asks the Planner for a fresh
+        working_title/context_notes for the same slot (optionally steered
+        by an `instruction` string) and — unlike update_item — resets
+        status back to PLANNED, since the admin hasn't seen the new content
+        yet. All item-level actions reject once the parent plan is
+        APPROVED — a locked plan's items don't change.
         """
         brand_id = current_brand_id(request)
         action = request.data.get('action')
@@ -226,7 +231,7 @@ class ContentCalendarAPI(APIView):
             ).update(status=ActionItem.Status.DONE, resolved_by=request.user, resolved_at=timezone.now())
             return ok(message='Plan approved.')
 
-        if action in ('toggle_item_approve', 'toggle_item_skip', 'update_item'):
+        if action in ('toggle_item_approve', 'toggle_item_skip', 'update_item', 'regenerate_item'):
             try:
                 item = PlanItem.objects.select_related('plan').get(
                     id=int(request.data.get('item_id') or 0), plan__brand_id=brand_id)
@@ -237,6 +242,8 @@ class ContentCalendarAPI(APIView):
 
             if action == 'update_item':
                 return self._update_item(item, request.data)
+            if action == 'regenerate_item':
+                return self._regenerate_item(item, request.data)
 
             target = PlanItem.Status.APPROVED if action == 'toggle_item_approve' else PlanItem.Status.SKIPPED
             item.status = PlanItem.Status.PLANNED if item.status == target else target
@@ -244,6 +251,22 @@ class ContentCalendarAPI(APIView):
             return ok({'status': item.status})
 
         return err('Unknown action.')
+
+    def _regenerate_item(self, item, data):
+        """Re-runs the Planner for ONE existing item (same slot, fresh
+        working_title/context_notes) — content-generator-plan.md §23."""
+        from content.agents import planner
+
+        instruction = (data.get('instruction') or '').strip()
+        try:
+            planner.regenerate_item(item, instruction=instruction)
+        except Exception as exc:
+            return err(f'Regeneration failed: {exc}')
+        return ok({
+            'working_title': item.working_title,
+            'context_notes': item.context_notes,
+            'status': item.status,
+        }, message='Item regenerated — review the new content.')
 
     def _update_item(self, item, data):
         """Edit a PlanItem's content before approval — title, date, content

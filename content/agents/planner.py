@@ -10,8 +10,10 @@ by our own code and handed to it in the prompt; it still goes through
 run_claude_cli rather than a direct Anthropic API call, because no service in
 this codebase authenticates with ANTHROPIC_API_KEY — see core/claude_cli.py.
 
-Public entry point:
-  generate_plan(plan) -> int   # number of PlanItems created
+Public entry points:
+  generate_plan(plan) -> int          # number of PlanItems created
+  regenerate_item(item, instruction='') -> PlanItem  # fresh working_title/
+                                       # context_notes for one existing item
 """
 import json
 import logging
@@ -81,6 +83,22 @@ def _trend_context():
     return '\n'.join(f'- {f.source_text}' for f in flags)
 
 
+# Shared between build_planner_prompt (proposing new items) and
+# build_regenerate_item_prompt (reworking one existing item) — both need
+# the identical bar for what a usable context_notes actually is, so it's
+# one copy, not two that can quietly drift apart.
+_CONTEXT_NOTES_GUIDANCE = """context_notes is what actually gets handed to whoever writes the script/poster/blog next — treat it as a real creative brief, not a description of the series format (the writer already knows the format from content_type/series). It must commit to ONE specific, concrete idea they can start writing from immediately, with no further invention needed on their part. Never write it as a description of what this TYPE of content usually covers — that's a category, not a brief.
+
+Banned in context_notes: hedge words/phrases ("e.g.", "such as", "consider", "maybe", "could", "a general", "an evergreen angle", "something like", "or" listing multiple options instead of picking one), and any sentence whose real content could be deleted and replaced with "[insert topic here]" without losing information.
+
+What "specific" means per content_type:
+- reel_varthaanm (Ajwad's personal story-telling reel): name ONE real story, moment, realization, or customer interaction to tell — not "share something personal." Bad: "Talk about the brand's journey." Good: "Tell the story of the first batch that got rejected by a distributor for not being crunchy enough, and what changed after."
+- reel_inside (interview with Saad, alternate Mondays): write 2-3 SPECIFIC interview questions tied to one real theme (sourcing, quality control, a recent operational decision) — not "behind the scenes." Bad: "Ask about daily operations." Good: "Ask Saad: How do we test a new banana supplier before committing? What's the biggest mistake we made in year one of sourcing?"
+- poster_learn (teaching a word/phrase, currently Kannada): name the EXACT word or phrase being taught, its meaning, and how it's used — not "an educational angle." Bad: "Teach a food-related word." Good: "Teach the Kannada word 'ರುಚಿ' (ruchi) — meaning 'taste', used to compliment food, e.g. 'ತುಂಬಾ ರುಚಿ' (very tasty)."
+- poster_occasion / poster_event: name the specific occasion/event AND the specific angle tying it to the brand — commit even if the exact date is approximate, don't hedge with "if X doesn't fall here, do Y instead."
+- blog: state one specific thesis/claim/story the post argues or tells — not a generic topic category. Bad: "Write about seasonal eating." Good: "Write about why banana chips are a smarter monsoon snack than fried alternatives — shelf life, oil absorption, and how Varthaai's packaging keeps them crisp in humidity."."""
+
+
 def build_planner_prompt(plan):
     brand = plan.brand
     return f"""Brand kit:
@@ -105,20 +123,47 @@ Task: propose the content plan for the recurring series above across the plannin
 Respond with ONLY a JSON array, no other text, of objects with exactly these keys:
 {{"planned_date": "YYYY-MM-DD", "series_slug": "<slug from the list above, or null for occasion/event posters not tied to a series>", "content_type": "<one of: reel_varthaanm, reel_inside, poster_learn, poster_occasion, poster_event, blog>", "working_title": "short internal working title, not the final caption", "context_notes": "a concrete, ready-to-write brief — see rules below"}}
 
-context_notes is what actually gets handed to whoever writes the script/poster/blog next — treat it as a real creative brief, not a description of the series format (the writer already knows the format from content_type/series). It must commit to ONE specific, concrete idea they can start writing from immediately, with no further invention needed on their part. Never write it as a description of what this TYPE of content usually covers — that's a category, not a brief.
-
-Banned in context_notes: hedge words/phrases ("e.g.", "such as", "consider", "maybe", "could", "a general", "an evergreen angle", "something like", "or" listing multiple options instead of picking one), and any sentence whose real content could be deleted and replaced with "[insert topic here]" without losing information.
-
-What "specific" means per content_type:
-- reel_varthaanm (Ajwad's personal story-telling reel): name ONE real story, moment, realization, or customer interaction to tell — not "share something personal." Bad: "Talk about the brand's journey." Good: "Tell the story of the first batch that got rejected by a distributor for not being crunchy enough, and what changed after."
-- reel_inside (interview with Saad, alternate Mondays): write 2-3 SPECIFIC interview questions tied to one real theme (sourcing, quality control, a recent operational decision) — not "behind the scenes." Bad: "Ask about daily operations." Good: "Ask Saad: How do we test a new banana supplier before committing? What's the biggest mistake we made in year one of sourcing?"
-- poster_learn (teaching a word/phrase, currently Kannada): name the EXACT word or phrase being taught, its meaning, and how it's used — not "an educational angle." Bad: "Teach a food-related word." Good: "Teach the Kannada word 'ರುಚಿ' (ruchi) — meaning 'taste', used to compliment food, e.g. 'ತುಂಬಾ ರುಚಿ' (very tasty)."
-- poster_occasion / poster_event: name the specific occasion/event AND the specific angle tying it to the brand — commit even if the exact date is approximate, don't hedge with "if X doesn't fall here, do Y instead."
-- blog: state one specific thesis/claim/story the post argues or tells — not a generic topic category. Bad: "Write about seasonal eating." Good: "Write about why banana chips are a smarter monsoon snack than fried alternatives — shelf life, oil absorption, and how Varthaai's packaging keeps them crisp in humidity."
+{_CONTEXT_NOTES_GUIDANCE}
 
 Rules:
 - Every planned_date must fall within the planning period given above.
 - Never propose content_type "reel_verdict"."""
+
+
+def build_regenerate_item_prompt(item, instruction=''):
+    plan = item.plan
+    brand = plan.brand
+    series = item.series
+    series_line = (
+        f'{series.name} (content_type: {series.content_type}, format: {series.format})'
+        if series else f'content_type: {item.content_type} (no series link)'
+    )
+    steer = (
+        f'Admin\'s specific instruction for this regeneration — follow it: {instruction}'
+        if instruction else
+        'No specific instruction given — produce a genuinely different, better idea than '
+        'the current one, not a trivial reword of it.'
+    )
+    return f"""Brand kit:
+{brand.brand_kit or '(no brand kit written yet — use generic, tasteful defaults)'}
+
+You are regenerating ONE existing plan item, not the whole plan. Its date, series, and content type are fixed — only propose a new working_title and context_notes for this same slot.
+
+Series/content type: {series_line}
+Scheduled date: {item.planned_date}
+
+Current working_title: {item.working_title}
+Current context_notes: {item.context_notes or '(empty)'}
+
+Recent post history (last ~90 days, for continuity/variety — don't repeat the same angle or occasion):
+{_recent_history_context(brand, plan.period_start)}
+
+{steer}
+
+Respond with ONLY a JSON object, no other text, with exactly these keys:
+{{"working_title": "short internal working title, not the final caption", "context_notes": "a concrete, ready-to-write brief — see rules below"}}
+
+{_CONTEXT_NOTES_GUIDANCE}"""
 
 
 def generate_plan(plan):
@@ -194,3 +239,56 @@ def generate_plan(plan):
         created += 1
 
     return created
+
+
+def regenerate_item(item, instruction=''):
+    """
+    Rewrites ONE existing PlanItem's working_title/context_notes in place —
+    same slot (plan/planned_date/content_type/series untouched), a fresh
+    creative take. `instruction` optionally steers it (e.g. "make it about
+    pricing instead"); without one, the prompt just asks for something
+    genuinely different from the current version, not a trivial reword.
+
+    Deliberately resets item.status back to PLANNED regardless of what it
+    was before — unlike a manual edit (content-generator-plan.md §21's
+    update_item, which leaves status alone because the admin typed the new
+    text themselves and implicitly re-approved it), a regeneration produces
+    content the admin hasn't seen yet, so any prior approve/skip decision
+    no longer means anything and must be made again.
+
+    Raises on failure (missing CLI, error result, parse failure) — same
+    contract as generate_plan; the caller is responsible for turning that
+    into an API error response.
+    """
+    if not shutil.which(settings.CLAUDE_CLI_BIN):
+        raise RuntimeError(f'claude CLI not found on PATH ({settings.CLAUDE_CLI_BIN!r})')
+
+    prompt = build_regenerate_item_prompt(item, instruction)
+    result = run_claude_cli(
+        prompt,
+        disallowed_tools=NO_TOOLS,
+        model=settings.CONTENT_TEXT_MODEL,
+        max_turns=1,
+    )
+    if result.get('is_error'):
+        raise RuntimeError(
+            f'item regeneration failed (subtype={result.get("subtype")}): '
+            f'{result.get("text") or "(no text)"}')
+    text = result.get('text') or ''
+
+    try:
+        proposed = json.loads(strip_code_fence(text))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f'item regeneration returned unparseable JSON: {exc}') from exc
+    if not isinstance(proposed, dict):
+        raise RuntimeError('item regeneration returned JSON that is not an object')
+
+    working_title = (proposed.get('working_title') or '').strip()
+    if not working_title:
+        raise RuntimeError('item regeneration returned an empty working_title')
+
+    item.working_title = working_title[:255]
+    item.context_notes = proposed.get('context_notes') or ''
+    item.status = PlanItem.Status.PLANNED
+    item.save(update_fields=['working_title', 'context_notes', 'status', 'updated_at'])
+    return item
