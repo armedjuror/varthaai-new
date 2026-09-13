@@ -1257,3 +1257,40 @@ approve; `GET`'s count aggregation matches DB state exactly
 bulk-approves only the still-PLANNED item, leaves the already-skipped one
 alone, and rejects a second approval attempt. `manage.py check` clean;
 full `debugger` + `content` suite still passes.
+
+### Follow-up: editing an item's content, and locking after approval
+
+Triggered by: "How will I modify a plan item?" — there was no way to edit
+a `PlanItem`'s own fields at all, only approve/skip its review status.
+
+- **`ContentCalendarAPI.post` gains `update_item`** — edits
+  `working_title`/`planned_date`/`content_type`/`context_notes`,
+  independent of approve/skip status (editing doesn't reset a decision,
+  same "each control does one thing" rule as the toggles).
+  `content_type` is validated against `ContentSeries.ContentType.values`
+  with `reel_verdict` excluded — same exclusion the Planner itself
+  enforces, so an admin can't reintroduce Verdict through the edit form.
+- **Real gap closed while building this**: nothing previously stopped an
+  admin from still toggling/editing an item after its plan was already
+  `APPROVED` (the UI didn't show it, but the API had no check). All three
+  item-level actions (`toggle_item_approve`, `toggle_item_skip`,
+  `update_item`) now reject once `plan.status == APPROVED`. UI reflects
+  this too — an approved plan's items render as a read-only list with a
+  "Locked" badge instead of action buttons.
+- UI: a pencil icon added to each item row's action group, opening a
+  shared "Edit Plan Item" modal (title/date/content-type/context-notes),
+  populated from `data-*` attributes already rendered onto each row
+  (avoids a second fetch). `content_type`'s `<select>` is built from the
+  same `CONTENT_TYPE_LABELS` map the row display already used, filtered
+  to exclude Verdict.
+
+### Verified live
+
+Full round-trip against disposable test data (created, tested, deleted —
+not the user's real plans): a valid edit applied all four fields and left
+`status` untouched; empty `working_title` rejected; `content_type:
+reel_verdict` rejected with the exact valid-values list; after manually
+approving the test plan, both `update_item` and `toggle_item_skip` on its
+item were correctly rejected with the same "already approved" message,
+and the title genuinely stayed unchanged in the DB. `manage.py check`
+clean; full `debugger` + `content` suite still passes.

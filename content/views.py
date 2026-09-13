@@ -25,7 +25,7 @@ from core.auth import admin_login_required, require_module
 from core.models import Brand
 
 from content.agents import designer
-from content.models import ActionItem, ContentPlan, PlanItem, PosterAsset, PosterFormat, Script
+from content.models import ActionItem, ContentPlan, ContentSeries, PlanItem, PosterAsset, PosterFormat, Script
 from content.tasks import run_planner_task
 
 
@@ -189,17 +189,20 @@ class ContentCalendarAPI(APIView):
         return ok({'items': items, 'plans': plans})
 
     def post(self, request):
-        """action=approve_plan|toggle_item_approve|toggle_item_skip, same
-        {success,message} action-dispatch style as marketing's ReviewsAPI.post
-        — the admin-approval gate content-generator-plan.md §4 requires
-        before a plan (or any item in it) moves forward.
+        """action=approve_plan|toggle_item_approve|toggle_item_skip|update_item,
+        same {success,message} action-dispatch style as marketing's
+        ReviewsAPI.post — the admin-approval gate content-generator-plan.md
+        §4 requires before a plan (or any item in it) moves forward.
 
         Per-item review is a 3-way toggle: PLANNED (undecided, the default)
         <-> APPROVED <-> SKIPPED, each a single click, clicking the active
         one again returns to PLANNED. "Approve Plan" is the bulk finish
         action — it approves whatever's still PLANNED (anything already
         individually approved or skipped is left as the admin set it) and
-        locks the plan as a whole.
+        locks the plan as a whole. update_item edits an item's own fields
+        (title/date/content_type/context_notes) and is independent of its
+        approve/skip status. All three item-level actions reject once the
+        parent plan is APPROVED — a locked plan's items don't change.
         """
         brand_id = current_brand_id(request)
         action = request.data.get('action')
@@ -223,17 +226,72 @@ class ContentCalendarAPI(APIView):
             ).update(status=ActionItem.Status.DONE, resolved_by=request.user, resolved_at=timezone.now())
             return ok(message='Plan approved.')
 
-        if action in ('toggle_item_approve', 'toggle_item_skip'):
+        if action in ('toggle_item_approve', 'toggle_item_skip', 'update_item'):
             try:
-                item = PlanItem.objects.get(id=int(request.data.get('item_id') or 0), plan__brand_id=brand_id)
+                item = PlanItem.objects.select_related('plan').get(
+                    id=int(request.data.get('item_id') or 0), plan__brand_id=brand_id)
             except (PlanItem.DoesNotExist, TypeError, ValueError):
                 return err('Plan item not found.', status=404)
+            if item.plan.status == ContentPlan.Status.APPROVED:
+                return err('This plan is already approved — items can no longer be changed.')
+
+            if action == 'update_item':
+                return self._update_item(item, request.data)
+
             target = PlanItem.Status.APPROVED if action == 'toggle_item_approve' else PlanItem.Status.SKIPPED
             item.status = PlanItem.Status.PLANNED if item.status == target else target
             item.save(update_fields=['status', 'updated_at'])
             return ok({'status': item.status})
 
         return err('Unknown action.')
+
+    def _update_item(self, item, data):
+        """Edit a PlanItem's content before approval — title, date, content
+        type, and context notes. Deliberately does NOT touch item.status:
+        editing and approve/skip are independent actions, same "each
+        control does one thing" rule as the toggle buttons."""
+        fields = []
+
+        if 'working_title' in data:
+            working_title = (data.get('working_title') or '').strip()
+            if not working_title:
+                return err('working_title cannot be empty.')
+            item.working_title = working_title[:255]
+            fields.append('working_title')
+
+        if 'planned_date' in data:
+            planned_date = parse_date(data.get('planned_date') or '')
+            if not planned_date:
+                return err('planned_date must be a valid date (YYYY-MM-DD).')
+            item.planned_date = planned_date
+            fields.append('planned_date')
+
+        if 'content_type' in data:
+            content_type = data.get('content_type')
+            valid_types = [
+                c for c in ContentSeries.ContentType.values
+                if c != ContentSeries.ContentType.REEL_VERDICT
+            ]
+            if content_type not in valid_types:
+                return err(f'content_type must be one of {valid_types}.')
+            item.content_type = content_type
+            fields.append('content_type')
+
+        if 'context_notes' in data:
+            item.context_notes = data.get('context_notes') or ''
+            fields.append('context_notes')
+
+        if not fields:
+            return err('No fields to update.')
+
+        item.save(update_fields=fields + ['updated_at'])
+        return ok({
+            'id': item.id,
+            'working_title': item.working_title,
+            'planned_date': item.planned_date.isoformat(),
+            'content_type': item.content_type,
+            'context_notes': item.context_notes,
+        }, message='Item updated.')
 
 
 class PlannerTriggerAPI(APIView):
