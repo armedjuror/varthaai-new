@@ -57,17 +57,21 @@ that stops an item from being redrafted every day once its script is approved
 PlanItem has an APPROVED Script AND PlanItem.content_type in the poster
 content types` — the mirror image of due_plan_items' own filter.
 
-**The due_plan_items() gate is `plan.status == APPROVED AND item.status ==
-APPROVED`, not just the item's own status.** An item can be individually
-toggled to APPROVED (content/views.py's `toggle_item_approve`) while its
-parent plan is still NEEDS_REVIEW — that toggle is provisional until "Approve
-Plan" locks the whole plan (§21); content-generator-plan.md §4's "only ever
-read approved rows as input, never draft off an unreviewed plan" reads as the
-WHOLE plan being reviewed, not one item's toggle state. Once a plan actually
-is APPROVED, `approve_plan` bulk-converts every remaining PLANNED item to
-APPROVED, so no PLANNED item survives inside an approved plan — item.status
-is only ever APPROVED or SKIPPED at that point, which is why "status is
-PLANNED or APPROVED" collapses to just APPROVED in practice.
+**The due_plan_items() gate is item.status == APPROVED alone — plan.status
+is NOT checked.** Reversed from this module's original design (which
+required `plan.status == APPROVED` too, treating an individual item's
+toggle as merely "provisional" until "Approve Plan" locked the whole
+plan): explicit product decision, §26 — "we don't need plan-wise approval,
+we need item-wise approval." An admin approving one item via
+`toggle_item_approve` is a real, standalone decision; it does not need the
+rest of the plan to be reviewed first. `ContentCalendarAPI`'s "Approve
+Plan" bulk action still exists (bulk-approves whatever's left PLANNED,
+convenient for "I've decided on everything, finish the rest") but is no
+longer a prerequisite anywhere in the drafting pipeline — the manual
+`ScriptsAPI` `draft`/`PostersAPI` `generate` actions never checked
+`plan.status` to begin with (confirmed empirically before this change);
+this brings the automated daily sweep and the Calendar UI's button
+visibility in line with that same rule instead of the other way around.
 
 Script.status: this module only ever creates Scripts directly as
 NEEDS_REVIEW (Script.Status.DRAFT is unused by this agent). APPROVED /
@@ -95,7 +99,7 @@ from django.utils import timezone
 
 from core.claude_cli import NO_TOOLS, run_claude_cli
 
-from content.models import ActionItem, ContentPlan, ContentSeries, PlanItem, Script, VerdictIntake
+from content.models import ActionItem, ContentSeries, PlanItem, Script, VerdictIntake
 
 logger = logging.getLogger(__name__)
 
@@ -216,13 +220,14 @@ def _strip_frontmatter(text):
 def due_plan_items(brand=None):
     """
     PlanItems whose series' prep_lead_days puts today at-or-past the prep
-    deadline, that have been through the admin-approval gate (plan APPROVED
-    *and* item APPROVED-or-NEEDS_INPUT — see module docstring), and don't
-    already have an APPROVED Script (the thing that stops an approved-script
-    item from being redrafted every subsequent day). Includes reel_verdict
-    (Phase 5) — its own readiness/drafting path (_is_ready's VerdictIntake
-    branch, _run_verdict_and_save) handles it distinctly from the other
-    content types, but the due-date gate itself is identical.
+    deadline, that have been through the admin-approval gate (item
+    APPROVED-or-NEEDS_INPUT — item-wise only, plan.status is NOT checked,
+    see module docstring/§26), and don't already have an APPROVED Script
+    (the thing that stops an approved-script item from being redrafted
+    every subsequent day). Includes reel_verdict (Phase 5) — its own
+    readiness/drafting path (_is_ready's VerdictIntake branch,
+    _run_verdict_and_save) handles it distinctly from the other content
+    types, but the due-date gate itself is identical.
 
     NEEDS_INPUT is included alongside APPROVED so a previously-blocked item
     self-heals once an admin fills in context_notes (via
@@ -237,7 +242,6 @@ def due_plan_items(brand=None):
     today = timezone.localdate()
     qs = (
         PlanItem.objects.filter(
-            plan__status=ContentPlan.Status.APPROVED,
             status__in=(PlanItem.Status.APPROVED, PlanItem.Status.NEEDS_INPUT),
         )
         .exclude(scripts__status=Script.Status.APPROVED)

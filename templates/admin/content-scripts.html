@@ -74,6 +74,8 @@
         <button type="button" class="btn btn-outline-primary btn-sm" id="scriptRegenerateBtn"><i class="fas fa-arrows-rotate me-1"></i>Regenerate</button>
         <button type="button" class="btn btn-outline-danger btn-sm" id="scriptRequestChangesBtn"><i class="fas fa-xmark me-1"></i>Request Changes</button>
         <button type="button" class="btn btn-primary btn-sm" id="scriptApproveBtn"><i class="fas fa-check me-1"></i>Approve</button>
+        <button type="button" class="btn btn-success btn-sm" id="scriptGeneratePosterBtn" style="display:none">
+          <i class="fas fa-image me-1"></i>Generate Poster</button>
       </div>
     </div>
   </div>
@@ -146,6 +148,7 @@
     reel_varthaanm: 'Varthaai Varthaanm', reel_verdict: 'Varthaai Verdict', reel_inside: 'Varthaai Inside',
     poster_learn: 'Learn With Varthaai', poster_occasion: 'Occasion', poster_event: 'Event', blog: 'Blog',
   };
+  var POSTER_CONTENT_TYPES = ['poster_learn', 'poster_occasion', 'poster_event'];
 
   var currentScript = null;
 
@@ -229,6 +232,16 @@
     approveBtn.disabled = currentScript.status === 'approved';
     approveBtn.textContent = currentScript.status === 'approved' ? 'Already approved' : 'Approve';
 
+    // Only offered once the script is APPROVED (the Script->Designer
+    // contract needs approved copy to render verbatim — content-generator-
+    // plan.md §24/§26) and only for poster content types; a poster that
+    // already exists is caught server-side with a clear redirect-to-Posters
+    // message rather than pre-checked here.
+    const posterBtn = document.getElementById('scriptGeneratePosterBtn');
+    posterBtn.style.display =
+      (currentScript.status === 'approved' && POSTER_CONTENT_TYPES.indexOf(currentScript.content_type) !== -1)
+        ? '' : 'none';
+
     new bootstrap.Modal(document.getElementById('scriptDetailModal')).show();
   }
 
@@ -239,9 +252,27 @@
     const res = await apiPost('/admin/api/content/scripts/', { action: 'approve', script_id: currentScript.id });
     btn.disabled = false;
     if (!res.success) { showAlertModal(res.message, 'error'); return; }
-    bootstrap.Modal.getInstance(document.getElementById('scriptDetailModal')).hide();
     showAlertModal('Script approved.', 'success');
     loadScripts();
+    // Refresh in place (rather than closing) so a poster-eligible item's
+    // "Generate Poster" button appears immediately — the whole point of
+    // wiring this trigger onto the approval step itself.
+    openDetail(currentScript.id);
+  });
+
+  document.getElementById('scriptGeneratePosterBtn').addEventListener('click', async function () {
+    if (!currentScript) return;
+    const btn = this;
+    btn.disabled = true;
+    showLoader('Generating poster — this can take 10-30 seconds…');
+    const res = await apiPost('/admin/api/content/posters/', {
+      action: 'generate', plan_item_id: currentScript.plan_item_id,
+    });
+    hideLoader();
+    btn.disabled = false;
+    if (!res.success) { showAlertModal(res.message, 'error'); return; }
+    bootstrap.Modal.getInstance(document.getElementById('scriptDetailModal')).hide();
+    showAlertModal('Poster generated — review it on the Posters page.', 'success');
   });
 
   document.getElementById('scriptRequestChangesBtn').addEventListener('click', function () {

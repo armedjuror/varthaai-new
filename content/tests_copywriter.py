@@ -62,9 +62,10 @@ def _mk_plan(brand, status=ContentPlan.Status.APPROVED, start=None, end=None):
 
 
 class DuePlanItemsGateTests(TestCase):
-    """The core admin-approval gate (module docstring): plan APPROVED *and*
-    item APPROVED, never an item with an already-approved Script. No claude
-    CLI calls in this class."""
+    """The core admin-approval gate (module docstring, §26): item APPROVED
+    alone — plan.status is NOT checked (item-wise approval, not plan-wise) —
+    and never an item with an already-approved Script. No claude CLI calls
+    in this class."""
 
     def setUp(self):
         self.brand = _mk_brand()
@@ -95,16 +96,17 @@ class DuePlanItemsGateTests(TestCase):
         due_ids = list(copywriter.due_plan_items(brand=self.brand).values_list('id', flat=True))
         self.assertNotIn(item.id, due_ids)
 
-    def test_item_excluded_when_plan_not_approved_even_if_item_is(self):
-        """The load-bearing gate decision: an individually-toggled-approved
-        item inside a still-NEEDS_REVIEW plan must NOT be drafted (§4 — "never
-        draft off an unreviewed plan" means the whole plan, not one item's
-        provisional toggle)."""
+    def test_item_due_even_when_plan_not_approved(self):
+        """Reversed decision, §26: "we don't need plan-wise approval, we need
+        item-wise approval" — an individually-toggled-approved item inside a
+        still-NEEDS_REVIEW plan MUST be drafted; the item's own approval is a
+        complete, standalone decision, not provisional on the rest of the
+        plan being reviewed."""
         plan = _mk_plan(self.brand, status=ContentPlan.Status.NEEDS_REVIEW)
         today = timezone.localdate()
         item = self._mk_item(plan, planned_date=today, series=self.series, status=PlanItem.Status.APPROVED)
         due_ids = list(copywriter.due_plan_items(brand=self.brand).values_list('id', flat=True))
-        self.assertNotIn(item.id, due_ids)
+        self.assertIn(item.id, due_ids)
 
     def test_reel_verdict_included_once_approved_and_due(self):
         """Phase 5: reel_verdict is no longer hard-excluded from

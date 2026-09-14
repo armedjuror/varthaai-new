@@ -1833,3 +1833,78 @@ tried to bundle verification and deletion in one command was correctly
 blocked by the environment's safety classifier for touching data broadly;
 redone as a separate, explicitly-scoped deletion of only the two test
 plan IDs. `manage.py check` clean.
+
+---
+
+## 27. "Generate Poster" inline on the Scripts page, and item-wise (not plan-wise) approval
+
+Two follow-ups in the same session, both closing real gaps in §26's work.
+
+### Generate Poster, right at script approval
+
+§26 put "Draft Script"/"Generate Poster" only on the Calendar page. Added
+the same "Generate Poster" trigger directly to the Script Detail modal on
+`content-scripts.html` — appears once `script.status === 'approved'` AND
+`content_type` is a poster type. The Approve button no longer closes the
+modal on success; it refreshes the same detail view in place
+(`openDetail(currentScript.id)` again) so the button appears immediately
+without a second click or a trip to the Calendar. No new backend action —
+reuses `PostersAPI action=generate` (§26), keyed off
+`currentScript.plan_item_id`. Verified live: drafted a real script,
+approved it, and generated a real poster in one continuous flow via this
+exact new path.
+
+### Item-wise approval, not plan-wise
+
+Triggered by: "How can I generate script for an approved item in a
+non-approved plan. We actually don't need a plan-wise approval. We need
+item-wise approval." — a direct reversal of a design decision this same
+module's docstring had explicitly argued for (§21/§24): that an item's
+individual `toggle_item_approve` was "provisional" until the whole plan
+was bulk-approved via "Approve Plan."
+
+Investigation found the reversal only needed two changes, not a rework —
+`copywriter.due_plan_items()` and the Calendar UI's button visibility
+were the only two places actually enforcing the plan-level gate.
+**The manual triggers already didn't check `plan.status` at all**
+(`ScriptsAPI action=draft`, `PostersAPI action=generate` — confirmed by
+re-reading the code before changing anything) — so the "bug" the user hit
+was purely the Calendar UI hiding the button prematurely, not a backend
+restriction.
+
+- **`copywriter.due_plan_items()`**: dropped the `plan__status=APPROVED`
+  filter — item.status APPROVED-or-NEEDS_INPUT is now the sole gate,
+  for the automated daily sweep too (previously only the manual trigger
+  ignored plan status; now both paths agree). Rewrote the module's
+  "STATUS-TRANSITION SCHEME" docstring block, which had explicitly argued
+  for the OLD behavior at length — left it fixed, not just the code,
+  since a stale design-rationale comment is worse than none.
+- **`content-calendar.html`**: `renderItemRow` no longer takes a `locked`
+  (plan-approved) parameter — an item's own `status` alone decides
+  whether it shows the planning controls (edit/regenerate/approve/skip,
+  while still `planned`) or the pipeline actions (Draft Script → … →
+  Generate Poster, once `approved`). "Approve Plan" still exists as a
+  bulk-approve convenience action, explicitly no longer a prerequisite
+  for anything downstream.
+- Deliberately NOT changed: `ContentCalendarAPI.post`'s existing "plan
+  already approved — items can no longer be changed" guard on
+  toggle/edit/regenerate actions. That's a different question (should an
+  item still be freely re-editable after a bulk plan-approve) than the
+  one asked (can an approved item in an UNapproved plan be drafted) —
+  left alone to avoid scope creep into a decision that wasn't requested.
+
+### Verified live
+
+`due_plan_items()` against a real item individually approved inside a
+plan deliberately left at `NEEDS_REVIEW` (never bulk-approved) — item
+correctly included. Full `ContentCalendarAPI` GET round-trip for the same
+setup confirmed `has_script: false` + `status: approved` on the item
+while `plan.status` stayed `needs_review` — exactly the combination the
+Calendar JS now reads to show "Draft Script" regardless of plan state.
+Found and fixed one existing test (`tests_copywriter.py`) that asserted
+the OLD behavior by name
+(`test_item_excluded_when_plan_not_approved_even_if_item_is`) — rewritten
+to assert the reversed expectation, not deleted, since the underlying
+question (does plan status gate drafting?) still deserves a test, just
+with the opposite answer now. Full `debugger` + `content` suite (188
+tests) run clean before and after this specific change.
