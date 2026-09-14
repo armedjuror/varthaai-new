@@ -12,6 +12,7 @@ urlpatterns = [
     path('content/calendar/', views.content_calendar_page, name='calendar'),
     path('api/content/calendar/', views.ContentCalendarAPI.as_view(), name='calendar_api'),
     path('api/content/planner/trigger/', views.PlannerTriggerAPI.as_view(), name='planner_trigger_api'),
+    path('api/content/planner/regenerate/', views.RegeneratePlanAPI.as_view(), name='planner_regenerate_api'),
 
     path('content/tasks/', views.pending_tasks_page, name='tasks'),
     path('api/content/tasks/', views.PendingTasksAPI.as_view(), name='tasks_api'),

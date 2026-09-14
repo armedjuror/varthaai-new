@@ -148,6 +148,33 @@ class PlanItem(models.Model):
     # atomically onto the real fields (and cleared) only on admin accept,
     # discarded (cleared, untouched fields) on reject.
     proposed_changes = models.JSONField(default=dict, blank=True)
+
+    # Derived 5-stage lifecycle (Planned -> Scripted -> Generated -> Approved
+    # -> Published — see content/lifecycle.py) reuses existing signals
+    # (Script/PosterAsset rows + their approval) wherever one already
+    # exists, rather than a new status enum. Two gaps needed real fields:
+    # reels have no in-system artifact "Approved" can key off (a reel's
+    # Script approval already means something else — the written caption is
+    # reviewed independently of whether the reel has actually been
+    # filmed/edited), so both Generated and Approved are manual admin
+    # milestones for reels only. Published reuses the pre-existing (until
+    # now unused) PlanItem.Status.POSTED value instead of a new field.
+    manually_generated_at = models.DateTimeField(null=True, blank=True)
+    manually_generated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    manually_approved_at = models.DateTimeField(null=True, blank=True)
+    manually_approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    published_at = models.DateTimeField(null=True, blank=True)
+    published_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

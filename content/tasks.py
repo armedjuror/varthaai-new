@@ -58,6 +58,45 @@ def run_planner_task(self, plan_id):
     return {'plan_id': plan_id, 'created': created}
 
 
+@shared_task(bind=True, max_retries=0)
+def run_planner_regenerate_task(self, plan_id, instruction=''):
+    """Plan-level "Regenerate" trigger — content/views.py's
+    RegeneratePlanAPI. Same status-transition contract as run_planner_task
+    (DRAFT + generation_error on failure, NEEDS_REVIEW on success), just
+    calling planner.regenerate_plan instead of generate_plan."""
+    from content.agents import planner
+    from content.models import ContentPlan
+
+    plan = ContentPlan.objects.filter(id=plan_id).first()
+    if not plan:
+        logger.warning('run_planner_regenerate_task: plan %s not found', plan_id)
+        return
+
+    try:
+        result = planner.regenerate_plan(plan, instruction=instruction)
+    except SoftTimeLimitExceeded:
+        logger.warning('run_planner_regenerate_task timed out for plan %s', plan_id)
+        plan.status = ContentPlan.Status.DRAFT
+        plan.generation_error = 'Timed out regenerating the plan. Try again, or narrow the period.'
+        plan.save(update_fields=['status', 'generation_error', 'updated_at'])
+        return
+    except Exception as exc:
+        logger.exception('run_planner_regenerate_task failed for plan %s', plan_id)
+        plan.status = ContentPlan.Status.DRAFT
+        plan.generation_error = str(exc)[:2000]
+        plan.save(update_fields=['status', 'generation_error', 'updated_at'])
+        return
+
+    plan.status = ContentPlan.Status.NEEDS_REVIEW
+    plan.generation_error = ''
+    plan.save(update_fields=['status', 'generation_error', 'updated_at'])
+
+    logger.info(
+        'run_planner_regenerate_task: plan %s deleted %s, created %s item(s)',
+        plan_id, result['deleted'], result['created'])
+    return {'plan_id': plan_id, **result}
+
+
 def _next_month_bounds(today):
     from datetime import timedelta
     if today.month == 12:

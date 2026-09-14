@@ -11,7 +11,15 @@ run_claude_cli rather than a direct Anthropic API call, because no service in
 this codebase authenticates with ANTHROPIC_API_KEY — see core/claude_cli.py.
 
 Public entry points:
-  generate_plan(plan) -> int          # number of PlanItems created
+  generate_plan(plan, extra_instruction='') -> int  # number of PlanItems
+                                       # created; extra_instruction optionally
+                                       # steers the proposals (regenerate_plan's
+                                       # admin instruction passes through here)
+  regenerate_plan(plan, instruction='') -> dict  # deletes untouched items
+                                       # (PLANNED, no Script/PosterAsset) and
+                                       # re-runs generate_plan for the same
+                                       # period — approved/skipped/drafted/
+                                       # generated items are never touched
   regenerate_item(item, instruction='') -> PlanItem  # fresh working_title/
                                        # context_notes for one existing item
   propose_change_for_item(item, trend_texts) -> dict | None  # one item's
@@ -26,13 +34,14 @@ import logging
 import shutil
 
 from django.conf import settings
+from django.db.models import Count
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from core.claude_cli import NO_TOOLS, run_claude_cli
 
 from content.agents._util import strip_code_fence
-from content.models import ActionItem, ContentPlan, ContentSeries, PlanItem, TrendFlag
+from content.models import ActionItem, ContentSeries, PlanItem, TrendFlag
 
 logger = logging.getLogger(__name__)
 
@@ -107,8 +116,15 @@ What "specific" means per content_type:
 - reel_verdict (blind competitor snack review — Ajwad buys/tastes/photographs a real competitor product): you do NOT know which product this will be — that's Ajwad's own real-world purchase decision, supplied later through a dedicated intake form (product photo, ingredient/nutrition labels, Design/Pricing/Taste scores), never through context_notes. Reserve the slot with a placeholder: working_title exactly "Varthaai Verdict — <date>" and context_notes exactly "Awaiting product selection and intake from Ajwad (photos, scores) — do not draft until submitted." NEVER invent a competitor product, brand name, or score for this content_type."""
 
 
-def build_planner_prompt(plan):
+def build_planner_prompt(plan, extra_instruction=''):
     brand = plan.brand
+    instruction_block = (
+        f"\nAdditional instruction from the admin for this planning pass — follow it (it can ask "
+        f"for a specific addition, or to skip/leave out a specific slot; it CANNOT alter or remove "
+        f"anything listed above under \"Items already in THIS plan\" — those are fixed): "
+        f"{extra_instruction}\n"
+        if extra_instruction else ''
+    )
     return f"""Brand kit:
 {brand.brand_kit or '(no brand kit written yet — use generic, tasteful defaults)'}
 
@@ -125,7 +141,7 @@ Recent post history (last ~90 days, for continuity/variety — don't repeat the 
 
 Manually flagged trends/topics to consider weaving in (may be empty):
 {_trend_context()}
-
+{instruction_block}
 Task: propose the content plan for the recurring series above across the planning period, honoring each series' weekday/cadence exactly (skip a slot only if it falls outside the period) — this INCLUDES reel_verdict (Varthaai Verdict), reserved as a placeholder slot per the reel_verdict rule below, never left off the calendar. Also propose occasion posters for any real festivals, national/regional (Kerala/Karnataka) observances, or notable days that fall within the period and suit a food brand — do not invent a holiday that doesn't exist.
 
 Respond with ONLY a JSON array, no other text, of objects with exactly these keys:
@@ -174,7 +190,7 @@ Respond with ONLY a JSON object, no other text, with exactly these keys:
 {_CONTEXT_NOTES_GUIDANCE}"""
 
 
-def generate_plan(plan):
+def generate_plan(plan, extra_instruction=''):
     """
     Calls Claude once, parses the JSON array, and creates PlanItems for any
     (planned_date, content_type) combination not already present in this
@@ -183,6 +199,11 @@ def generate_plan(plan):
     destructive (an admin-reviewed plan is only ever improvised on, never
     silently overwritten — content-generator-plan.md §1).
 
+    `extra_instruction` optionally steers the proposals for open slots
+    (regenerate_plan passes the admin's free-text instruction through here)
+    — it has no effect on which existing rows get skipped, that dedup is
+    still purely key-based below.
+
     Returns the number of PlanItems created. Raises on failure (missing CLI,
     error result, parse failure) — the caller (content/tasks.py) is
     responsible for catching it and recording plan.generation_error.
@@ -190,7 +211,7 @@ def generate_plan(plan):
     if not shutil.which(settings.CLAUDE_CLI_BIN):
         raise RuntimeError(f'claude CLI not found on PATH ({settings.CLAUDE_CLI_BIN!r})')
 
-    prompt = build_planner_prompt(plan)
+    prompt = build_planner_prompt(plan, extra_instruction=extra_instruction)
     result = run_claude_cli(
         prompt,
         disallowed_tools=NO_TOOLS,
@@ -311,6 +332,44 @@ def regenerate_item(item, instruction=''):
     return item
 
 
+def regenerate_plan(plan, instruction=''):
+    """
+    Plan-level "Regenerate" — reworks a whole ContentPlan in place instead
+    of one item at a time. Deletes every item that hasn't been touched yet
+    (still PLANNED — the admin never approved or skipped it — with no
+    Script and no PosterAsset, i.e. genuinely just an idea, nothing
+    produced or decided), then re-runs generate_plan for the same period so
+    the freed slots get fresh proposals and any date/content_type combo
+    still missing from the period gets filled in — exactly like the
+    original generation pass.
+
+    NEVER touches an item that's been approved, skipped, drafted, or
+    generated in any way (explicit product requirement: "NO approved item
+    should be touched when a plan is regenerated") — those are excluded
+    from the delete and therefore also from build_planner_prompt's
+    proposal (they still show up in _existing_items_context, so the
+    Planner won't duplicate their slot). Note this means an item that's
+    been manually EDITED but never approved is NOT protected — editing and
+    approving are different actions (content/views.py's _update_item), and
+    only approving marks an item as decided.
+
+    `instruction` is optional free-text steering for the fresh proposals on
+    the freed/open slots only — see build_planner_prompt.
+
+    Returns {'deleted': int, 'created': int}. Raises the same way
+    generate_plan does — same caller contract.
+    """
+    eligible = (
+        plan.items
+        .annotate(script_count=Count('scripts', distinct=True), poster_count=Count('posters', distinct=True))
+        .filter(status=PlanItem.Status.PLANNED, script_count=0, poster_count=0)
+    )
+    deleted = eligible.count()
+    eligible.delete()
+    created = generate_plan(plan, extra_instruction=instruction)
+    return {'deleted': deleted, 'created': created}
+
+
 # --------------------------------------------------------------------------- #
 # Phase 4 — proposing changes to an ALREADY-APPROVED plan (content-generator-
 # plan.md §4: "an already-approved plan can still be improvised on later
@@ -401,10 +460,10 @@ def propose_change_for_item(item, trend_texts):
 def run_daily_nudge(brand=None):
     """
     Daily sweep (content-generator-plan.md §13 Phase 1 step 3): for every
-    APPROVED ContentPlan's still-future PlanItems, ask whether newly
-    flagged trends warrant a different angle — but ONLY if there are
-    genuinely new (considered=False) TrendFlags to react to; most days,
-    for most brands, this makes zero LLM calls.
+    gate-approved, still-future PlanItem, ask whether newly flagged trends
+    warrant a different angle — but ONLY if there are genuinely new
+    (considered=False) TrendFlags to react to; most days, for most brands,
+    this makes zero LLM calls.
 
     A proposal is written to PlanItem.proposed_changes (never applied
     directly — see this section's module docstring) and surfaced via an
@@ -415,9 +474,14 @@ def run_daily_nudge(brand=None):
     has already passed (nothing left to "improvise" on), items that already
     have any Script (the Copywriter has moved past the planning stage —
     changing the brief under a script in progress would be confusing, not
-    helpful), items that already carry a pending proposal (don't stack a
-    second one on top before the admin resolves the first), or items whose
-    plan isn't APPROVED (there's no "already-approved plan" to nudge yet).
+    helpful), or items that already carry a pending proposal (don't stack a
+    second one on top before the admin resolves the first).
+
+    Gates on item.status == APPROVED alone, not plan.status — same
+    item-wise-only reasoning as copywriter.due_plan_items() (§26/§27:
+    nothing sets ContentPlan.status to APPROVED any more since plan-level
+    approval was removed, so a plan__status=APPROVED filter here would
+    never match anything in production).
 
     Trend flags are only marked considered=True once actually fed to at
     least one eligible item this run — a brand with open trends but zero
@@ -436,7 +500,6 @@ def run_daily_nudge(brand=None):
     today = timezone.localdate()
     qs = (
         PlanItem.objects.filter(
-            plan__status=ContentPlan.Status.APPROVED,
             status=PlanItem.Status.APPROVED,
             planned_date__gt=today,
             proposed_changes={},

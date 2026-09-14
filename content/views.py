@@ -24,11 +24,12 @@ from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
 from core.models import Brand
 
+from content import lifecycle
 from content.agents import designer
 from content.models import (
     ActionItem, BrandAsset, ContentPlan, ContentSeries, PlanItem, PosterAsset, PosterFormat, Script,
 )
-from content.tasks import run_planner_task
+from content.tasks import run_planner_regenerate_task, run_planner_task
 
 
 def _action_items_for_brand(brand_id):
@@ -152,8 +153,13 @@ class ContentCalendarAPI(APIView):
             qs = qs.filter(planned_date__gte=start)
         if end:
             qs = qs.filter(planned_date__lte=end)
-        items = [
-            {
+        items = []
+        for p in qs:
+            has_script = bool(p.scripts.all())
+            has_approved_script = any(s.status == Script.Status.APPROVED for s in p.scripts.all())
+            has_poster = bool(p.posters.all())
+            has_approved_poster = any(ps.status == PosterAsset.Status.APPROVED for ps in p.posters.all())
+            items.append({
                 'id': p.id,
                 'plan_id': p.plan_id,
                 'planned_date': p.planned_date.isoformat(),
@@ -167,12 +173,22 @@ class ContentCalendarAPI(APIView):
                 'proposed_changes': p.proposed_changes or {},
                 # Drives the Calendar page's "Draft Script"/"Generate Poster"
                 # manual triggers (§24) — only offered when nothing exists yet.
-                'has_script': bool(p.scripts.all()),
-                'has_approved_script': any(s.status == Script.Status.APPROVED for s in p.scripts.all()),
-                'has_poster': bool(p.posters.all()),
-            }
-            for p in qs
-        ]
+                'has_script': has_script,
+                'has_approved_script': has_approved_script,
+                'has_poster': has_poster,
+                'has_approved_poster': has_approved_poster,
+                # Derived 5-stage lifecycle (content/lifecycle.py) — None
+                # until the item passes the approve/skip gate.
+                'lifecycle_stage': lifecycle.lifecycle_stage(
+                    p, has_script, has_approved_script, has_poster, has_approved_poster),
+                'is_reel': p.content_type in lifecycle.REEL_CONTENT_TYPES,
+                'manually_generated_at': p.manually_generated_at.isoformat() if p.manually_generated_at else None,
+                'manually_approved_at': p.manually_approved_at.isoformat() if p.manually_approved_at else None,
+                'published_at': p.published_at.isoformat() if p.published_at else None,
+                # Informational only — see lifecycle.prep_due_date's docstring
+                # for why this is NOT an "overdue" deadline for reaching Approved.
+                'prep_due_date': lifecycle.prep_due_date(p).isoformat(),
+            })
 
         plans_qs = ContentPlan.objects.filter(brand_id=brand_id)
         if start:
@@ -183,6 +199,7 @@ class ContentCalendarAPI(APIView):
             total_count=Count('items'),
             approved_count=Count('items', filter=Q(items__status=PlanItem.Status.APPROVED)),
             skipped_count=Count('items', filter=Q(items__status=PlanItem.Status.SKIPPED)),
+            posted_count=Count('items', filter=Q(items__status=PlanItem.Status.POSTED)),
         )
         plans = [
             {
@@ -194,7 +211,8 @@ class ContentCalendarAPI(APIView):
                 'total_count': pl.total_count,
                 'approved_count': pl.approved_count,
                 'skipped_count': pl.skipped_count,
-                'pending_count': pl.total_count - pl.approved_count - pl.skipped_count,
+                'posted_count': pl.posted_count,
+                'pending_count': pl.total_count - pl.approved_count - pl.skipped_count - pl.posted_count,
             }
             for pl in plans_qs.order_by('-period_start')
         ]
@@ -224,12 +242,20 @@ class ContentCalendarAPI(APIView):
         applies the proposed fields onto the item and clears
         proposed_changes; reject just clears it, leaving the item exactly
         as it was.
+
+        mark_generated/mark_approved/mark_published drive the derived
+        5-stage lifecycle (content/lifecycle.py). mark_generated/
+        mark_approved are reel-only manual milestones (toggle on/off);
+        mark_published is the terminal stage for any content type, gated on
+        the item having actually reached 'approved' first, and toggles
+        PlanItem.status to/from POSTED.
         """
         brand_id = current_brand_id(request)
         action = request.data.get('action')
 
         if action in ('toggle_item_approve', 'toggle_item_skip', 'update_item', 'regenerate_item',
-                      'accept_proposal', 'reject_proposal'):
+                      'accept_proposal', 'reject_proposal', 'mark_generated', 'mark_approved',
+                      'mark_published'):
             try:
                 item = PlanItem.objects.select_related('plan').get(
                     id=int(request.data.get('item_id') or 0), plan__brand_id=brand_id)
@@ -244,13 +270,71 @@ class ContentCalendarAPI(APIView):
                 return self._update_item(item, request.data)
             if action == 'regenerate_item':
                 return self._regenerate_item(item, request.data)
+            if action == 'mark_generated':
+                return self._toggle_manual_generated(item, request.user)
+            if action == 'mark_approved':
+                return self._toggle_manual_approved(item, request.user)
+            if action == 'mark_published':
+                return self._toggle_published(item, request.user)
 
+            if item.status == PlanItem.Status.POSTED:
+                return err('This item has already been published — mark_published again to undo that first.')
             target = PlanItem.Status.APPROVED if action == 'toggle_item_approve' else PlanItem.Status.SKIPPED
             item.status = PlanItem.Status.PLANNED if item.status == target else target
             item.save(update_fields=['status', 'updated_at'])
             return ok({'status': item.status})
 
         return err('Unknown action.')
+
+    def _toggle_manual_generated(self, item, user):
+        if item.content_type not in lifecycle.REEL_CONTENT_TYPES:
+            return err('Only reels use a manual "Generated" milestone — posters and blog reach it automatically.')
+        if item.manually_generated_at:
+            item.manually_generated_at = None
+            item.manually_generated_by = None
+            item.save(update_fields=['manually_generated_at', 'manually_generated_by', 'updated_at'])
+            return ok({'manually_generated_at': None}, message='Generated milestone cleared.')
+        item.manually_generated_at = timezone.now()
+        item.manually_generated_by = user
+        item.save(update_fields=['manually_generated_at', 'manually_generated_by', 'updated_at'])
+        return ok({'manually_generated_at': item.manually_generated_at.isoformat()}, message='Marked as generated.')
+
+    def _toggle_manual_approved(self, item, user):
+        if item.content_type not in lifecycle.REEL_CONTENT_TYPES:
+            return err('Only reels use a manual "Approved" milestone — posters and blog reach it via script/poster approval.')
+        if item.manually_approved_at:
+            item.manually_approved_at = None
+            item.manually_approved_by = None
+            item.save(update_fields=['manually_approved_at', 'manually_approved_by', 'updated_at'])
+            return ok({'manually_approved_at': None}, message='Approved milestone cleared.')
+        if not item.manually_generated_at:
+            return err('Mark this reel as generated before approving it.')
+        item.manually_approved_at = timezone.now()
+        item.manually_approved_by = user
+        item.save(update_fields=['manually_approved_at', 'manually_approved_by', 'updated_at'])
+        return ok({'manually_approved_at': item.manually_approved_at.isoformat()}, message='Marked as approved.')
+
+    def _toggle_published(self, item, user):
+        if item.status == PlanItem.Status.POSTED:
+            item.status = PlanItem.Status.APPROVED
+            item.published_at = None
+            item.published_by = None
+            item.save(update_fields=['status', 'published_at', 'published_by', 'updated_at'])
+            return ok({'status': item.status}, message='Published mark undone.')
+
+        has_script = bool(item.scripts.all())
+        has_approved_script = any(s.status == Script.Status.APPROVED for s in item.scripts.all())
+        has_poster = bool(item.posters.all())
+        has_approved_poster = any(ps.status == PosterAsset.Status.APPROVED for ps in item.posters.all())
+        stage = lifecycle.lifecycle_stage(item, has_script, has_approved_script, has_poster, has_approved_poster)
+        if stage != 'approved':
+            return err('This item must reach the Approved stage before it can be published.')
+
+        item.status = PlanItem.Status.POSTED
+        item.published_at = timezone.now()
+        item.published_by = user
+        item.save(update_fields=['status', 'published_at', 'published_by', 'updated_at'])
+        return ok({'status': item.status}, message='Marked as published.')
 
     def _accept_proposal(self, item, user):
         if not item.proposed_changes:
@@ -379,6 +463,44 @@ class PlannerTriggerAPI(APIView):
         plan.save(update_fields=['status', 'generation_error', 'updated_at'])
         run_planner_task.delay(plan.id)
         return ok({'plan_id': plan.id, 'status': plan.status}, message='Generating plan…')
+
+
+class RegeneratePlanAPI(APIView):
+    """Plan-level "Regenerate" (content-generator-plan.md's lifecycle
+    follow-up): re-runs the Planner for a plan that already exists.
+
+    Deletes every item that hasn't been touched yet — still PLANNED (the
+    admin never approved or skipped it), with no Script and no PosterAsset
+    — then re-runs generate_plan for the same period, so the freed slots
+    get fresh proposals and any date/content_type combo still missing from
+    the period gets filled in. NEVER touches an item that's been approved,
+    skipped, drafted, or generated in any way — an edited-but-unapproved
+    item (update_item leaves status PLANNED) is NOT protected and will be
+    discarded and replaced; approving is what protects an item.
+
+    An optional free-text `instruction` steers the fresh proposals for the
+    freed/open slots (e.g. "add a poster about X on the 20th") — it can't
+    affect anything already fixed in the plan, since those items are never
+    deleted and generate_plan's own existing_keys dedup won't duplicate them."""
+    permission_classes = [HasModulePermission]
+    permission_module = 'content_calendar'
+
+    def post(self, request):
+        brand_id = current_brand_id(request)
+        try:
+            plan = ContentPlan.objects.get(id=int(request.data.get('plan_id') or 0), brand_id=brand_id)
+        except (ContentPlan.DoesNotExist, TypeError, ValueError):
+            return err('Plan not found.', status=404)
+        if plan.status == ContentPlan.Status.GENERATING:
+            return err('A plan is already being generated for this period.',
+                       data={'plan_id': plan.id})
+
+        instruction = (request.data.get('instruction') or '').strip()
+        plan.status = ContentPlan.Status.GENERATING
+        plan.generation_error = ''
+        plan.save(update_fields=['status', 'generation_error', 'updated_at'])
+        run_planner_regenerate_task.delay(plan.id, instruction=instruction)
+        return ok({'plan_id': plan.id, 'status': plan.status}, message='Regenerating plan…')
 
 
 class DesignerTestAPI(APIView):

@@ -129,9 +129,10 @@ class RunDailyNudgeTests(TestCase):
 
     def test_open_trend_flags_but_no_eligible_items_leaves_flags_unconsidered(self):
         flag = self._flag()
-        # Plan not approved -> no eligible items at all.
-        plan = _mk_plan(self.brand, status=ContentPlan.Status.NEEDS_REVIEW)
-        _mk_item(plan)
+        # Item not gate-approved (still PLANNED) -> no eligible items at all
+        # (item-wise-only gate, §26/§27 — plan.status is never checked).
+        plan = _mk_plan(self.brand)
+        _mk_item(plan, status=PlanItem.Status.PLANNED)
         with mock.patch.object(planner, 'propose_change_for_item') as mock_propose:
             summary = planner.run_daily_nudge(brand=self.brand)
         mock_propose.assert_not_called()
