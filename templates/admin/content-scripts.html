@@ -7,6 +7,8 @@
 
 <div class="page-body">
 
+  {% include 'admin/_content_studio_tabs.html' %}
+
   <div class="page-header">
     <div>
       <h1>Scripts</h1>
@@ -63,7 +65,10 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <div id="scriptDetailMeta" style="font-size:0.8rem;color:var(--gray-500);margin-bottom:12px"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px">
+          <div id="scriptDetailMeta" style="font-size:0.8rem;color:var(--gray-500)"></div>
+          <select class="form-select form-select-sm" id="scriptVersionSelect" style="width:auto;flex-shrink:0"></select>
+        </div>
         <div id="scriptDetailContext" class="alert alert-secondary" style="font-size:0.82rem;display:none"></div>
         <pre id="scriptDetailRaw" style="white-space:pre-wrap;font-family:inherit;font-size:0.85rem;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:10px;padding:16px;max-height:420px;overflow-y:auto"></pre>
         <div id="scriptDetailRecap" style="font-size:0.78rem;color:var(--gray-500);margin-top:8px;display:none"></div>
@@ -151,6 +156,7 @@
   var POSTER_CONTENT_TYPES = ['poster_learn', 'poster_occasion', 'poster_event'];
 
   var currentScript = null;
+  var currentVersions = [];
 
   async function loadScripts() {
     const status = document.getElementById('statusFilter').value;
@@ -165,12 +171,17 @@
       tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No scripts yet.</td></tr>';
       return;
     }
+    // ONE ROW PER PLAN ITEM (§27), not per version — `s` is whichever
+    // version is relevant (approved, else latest); `s.versions` carries
+    // the rest for the detail modal's version switcher.
     tbody.innerHTML = items.map(function (s) {
-      return '<tr data-script-id="' + s.id + '" data-plan-item-id="' + s.plan_item_id + '">' +
+      const versionLabel = 'v' + s.version + (s.versions.length > 1 ? ' (' + s.versions.length + ' versions)' : '');
+      return '<tr data-script-id="' + s.id + '" data-plan-item-id="' + s.plan_item_id + '" data-versions=\'' +
+          JSON.stringify(s.versions).replace(/'/g, '&#39;') + '\'>' +
         '<td>' + escHtml(s.working_title) + '</td>' +
         '<td>' + (CONTENT_TYPE_LABELS[s.content_type] || s.content_type) + '</td>' +
         '<td>' + escHtml(s.skill_used) + '</td>' +
-        '<td>v' + s.version + '</td>' +
+        '<td>' + versionLabel + '</td>' +
         '<td><span class="status ' + (STATUS_BADGE[s.status] || '') + '">' + (STATUS_LABELS[s.status] || s.status) + '</span></td>' +
         '<td>' + formatDate(s.created_at) + '</td>' +
         '<td style="max-width:280px;font-size:0.78rem;color:var(--gray-500)">' + escHtml(s.preview) + '</td>' +
@@ -178,29 +189,52 @@
     }).join('');
 
     tbody.querySelectorAll('tr[data-script-id]').forEach(function (row) {
-      row.addEventListener('click', function () { openDetail(row.dataset.scriptId); });
+      row.addEventListener('click', function () {
+        openDetail(row.dataset.scriptId, JSON.parse(row.dataset.versions));
+      });
     });
 
-    // Deep-link from Pending Tasks (?plan_item_id=<id>) — open that item's
-    // latest script automatically (list is already ordered -created_at, so
-    // the first DOM match for this plan_item is its latest version).
+    // Deep-link from Pending Tasks/Dashboard (?plan_item_id=<id>).
     const linkedPlanItemId = new URLSearchParams(window.location.search).get('plan_item_id');
     if (linkedPlanItemId) {
       const row = tbody.querySelector('tr[data-plan-item-id="' + linkedPlanItemId + '"]');
-      if (row) openDetail(row.dataset.scriptId);
+      if (row) openDetail(row.dataset.scriptId, JSON.parse(row.dataset.versions));
     }
   }
 
-  async function openDetail(scriptId) {
+  // Re-loads the list (so the table row reflects the latest state/version
+  // count) then reopens the detail modal for `scriptId` within that same
+  // plan item's updated version set — used after every review action so
+  // the modal stays open and current instead of closing on every click.
+  async function refreshAndReopen(planItemId, scriptId) {
+    await loadScripts();
+    const row = document.querySelector('#scriptsBody tr[data-plan-item-id="' + planItemId + '"]');
+    const versions = row ? JSON.parse(row.dataset.versions) : [];
+    openDetail(scriptId || (row && row.dataset.scriptId), versions);
+  }
+
+  async function openDetail(scriptId, versions) {
+    showLoader('Loading…');
     const res = await apiGet('/admin/api/content/scripts/', { id: scriptId });
+    hideLoader();
     if (!res.success) { showAlertModal(res.message, 'error'); return; }
     currentScript = res.data;
+    currentVersions = versions || currentVersions;
+    if (!currentVersions.some(function (v) { return v.id === currentScript.id; })) {
+      currentVersions = [{ id: currentScript.id, version: currentScript.version, status: currentScript.status }];
+    }
 
     document.getElementById('scriptDetailTitle').textContent = currentScript.working_title;
     document.getElementById('scriptDetailMeta').textContent =
       (CONTENT_TYPE_LABELS[currentScript.content_type] || currentScript.content_type) + ' · ' +
-      formatDate(currentScript.planned_date) + ' · ' + currentScript.skill_used + ' · v' + currentScript.version +
-      ' · ' + (STATUS_LABELS[currentScript.status] || currentScript.status);
+      formatDate(currentScript.planned_date) + ' · ' + currentScript.skill_used;
+
+    const versionSelect = document.getElementById('scriptVersionSelect');
+    versionSelect.innerHTML = currentVersions.slice().sort(function (a, b) { return b.version - a.version; })
+      .map(function (v) {
+        return '<option value="' + v.id + '"' + (v.id === currentScript.id ? ' selected' : '') + '>' +
+          'v' + v.version + ' — ' + (STATUS_LABELS[v.status] || v.status) + '</option>';
+      }).join('');
 
     const contextEl = document.getElementById('scriptDetailContext');
     if (currentScript.context_notes) {
@@ -245,19 +279,24 @@
     new bootstrap.Modal(document.getElementById('scriptDetailModal')).show();
   }
 
+  document.getElementById('scriptVersionSelect').addEventListener('change', function () {
+    openDetail(this.value, currentVersions);
+  });
+
   document.getElementById('scriptApproveBtn').addEventListener('click', async function () {
     if (!currentScript) return;
     const btn = this;
     btn.disabled = true;
+    showLoader('Approving…');
     const res = await apiPost('/admin/api/content/scripts/', { action: 'approve', script_id: currentScript.id });
+    hideLoader();
     btn.disabled = false;
     if (!res.success) { showAlertModal(res.message, 'error'); return; }
     showAlertModal('Script approved.', 'success');
-    loadScripts();
     // Refresh in place (rather than closing) so a poster-eligible item's
     // "Generate Poster" button appears immediately — the whole point of
     // wiring this trigger onto the approval step itself.
-    openDetail(currentScript.id);
+    refreshAndReopen(currentScript.plan_item_id, currentScript.id);
   });
 
   document.getElementById('scriptGeneratePosterBtn').addEventListener('click', async function () {
@@ -296,15 +335,16 @@
     const form = e.target;
     const submitBtn = form.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
+    const planItemId = currentScript.plan_item_id;
+    const scriptId = form.script_id.value;
     const res = await apiPost('/admin/api/content/scripts/', {
-      action: 'request_changes', script_id: form.script_id.value, review_notes: form.review_notes.value,
+      action: 'request_changes', script_id: scriptId, review_notes: form.review_notes.value,
     });
     submitBtn.disabled = false;
     if (!res.success) { showAlertModal(res.message, 'error'); return; }
     bootstrap.Modal.getInstance(document.getElementById('requestChangesModal')).hide();
-    bootstrap.Modal.getInstance(document.getElementById('scriptDetailModal'))?.hide();
     showAlertModal('Changes requested.', 'success');
-    loadScripts();
+    refreshAndReopen(planItemId, scriptId);
   });
 
   document.getElementById('regenerateScriptForm').addEventListener('submit', async function (e) {
@@ -313,6 +353,7 @@
     const submitBtn = form.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
     showLoader('Regenerating — this can take 10-60 seconds…');
+    const planItemId = currentScript.plan_item_id;
     const res = await apiPost('/admin/api/content/scripts/', {
       action: 'regenerate', script_id: form.script_id.value, instruction: form.instruction.value,
     });
@@ -320,9 +361,10 @@
     submitBtn.disabled = false;
     if (!res.success) { showAlertModal(res.message, 'error'); return; }
     bootstrap.Modal.getInstance(document.getElementById('regenerateScriptModal')).hide();
-    bootstrap.Modal.getInstance(document.getElementById('scriptDetailModal'))?.hide();
     showAlertModal('Script regenerated — review the new draft.', 'success');
-    loadScripts();
+    // Opens the NEW version by default (res.data.id) — this is the "generate
+    // again = new version, reviewable immediately" behavior from §27.
+    refreshAndReopen(planItemId, res.data.id);
   });
 
   document.getElementById('statusFilter').addEventListener('change', loadScripts);

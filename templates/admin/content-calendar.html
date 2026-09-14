@@ -7,10 +7,12 @@
 
 <div class="page-body">
 
+  {% include 'admin/_content_studio_tabs.html' %}
+
   <div class="page-header">
     <div>
       <h1>Content Calendar</h1>
-      <p>Review each plan's proposed items, then approve. Newest plan first.</p>
+      <p>Approve or reject each proposed item, then generate its script and poster. Newest plan first.</p>
     </div>
     <div class="page-header-actions" style="display:flex;gap:8px;align-items:center">
       <div class="btn-group btn-group-sm" role="group">
@@ -198,7 +200,6 @@
   const contentPostersUrl = '{% url "content:content_posters" %}';
   const contentScriptsApiUrl = '{% url "content:content_scripts_api" %}';
   const contentPostersApiUrl = '{% url "content:content_posters_api" %}';
-  const PLAN_STATUS_LABELS = { draft: 'Draft', generating: 'Generating…', needs_review: 'Needs review', approved: 'Approved' };
   // Matches the real ContentSeries.name values from the seed migration
   // (content/migrations/0002_seed_series.py) — not shorthand.
   const CONTENT_TYPE_LABELS = {
@@ -212,12 +213,6 @@
     const end = new Date(now.getFullYear(), now.getMonth() + 2, 0);
     const iso = (d) => d.toISOString().slice(0, 10);
     return { start: iso(start), end: iso(end) };
-  }
-
-  function planBadgeClass(status) {
-    return status === 'approved' ? 'status-delivered' :
-      status === 'generating' ? 'status-pending' :
-      status === 'needs_review' ? 'status-confirmed' : 'status-cancelled';
   }
 
   async function postAction(payload) {
@@ -251,47 +246,47 @@
 
   const POSTER_CONTENT_TYPES = ['poster_learn', 'poster_occasion', 'poster_event'];
 
-  // Item-wise approval, not plan-wise (content-generator-plan.md §26): an
-  // item's own status is the only thing that decides what it shows — an
-  // individually-approved item offers the next pipeline step (Draft Script
-  // → Awaiting review → Generate Poster → Poster generated) immediately,
-  // with no need for the rest of the plan to be reviewed first. The
-  // "Approve Plan" button above is a bulk convenience action only, never a
-  // prerequisite.
+  // Item-wise approval (§26/§27) — an item's own status is the only thing
+  // that decides eligibility, and NOTHING hides the base edit/regenerate/
+  // approve/reject controls any more: approving an item just ADDS the next
+  // pipeline step (Generate Script) alongside them, it doesn't replace
+  // them, so an admin can still dismiss the approval, edit, or ask for a
+  // different idea even after a script exists. "Generate Script"/"Generate
+  // Poster" turn into "...Again" once one already exists — same action
+  // either way (the backend always creates a new version), just relabeled.
   function renderPipelineActions(i) {
-    if (!i.has_script) {
-      return '<button class="btn btn-sm btn-outline-primary draft-script-btn" data-item-id="' + i.id + '">' +
-        '<i class="fas fa-wand-magic-sparkles me-1"></i>Draft Script</button>';
+    if (i.status !== 'approved') return '';
+    const parts = [];
+    parts.push(
+      '<button class="btn btn-sm btn-outline-primary draft-script-btn" data-item-id="' + i.id + '">' +
+      '<i class="fas fa-wand-magic-sparkles me-1"></i>' + (i.has_script ? 'Generate Script Again' : 'Generate Script') + '</button>');
+    if (i.has_script && !i.has_approved_script) {
+      parts.push('<a href="' + contentScriptsUrl + '?plan_item_id=' + i.id + '" class="item-locked-badge">' +
+        '<i class="fas fa-file-pen me-1"></i>Awaiting script review →</a>');
     }
-    if (!i.has_approved_script) {
-      return '<a href="' + contentScriptsUrl + '" class="item-locked-badge">' +
-        '<i class="fas fa-file-pen me-1"></i>Awaiting script review →</a>';
+    if (i.has_approved_script && POSTER_CONTENT_TYPES.indexOf(i.content_type) !== -1) {
+      parts.push(
+        '<button class="btn btn-sm btn-outline-success generate-poster-btn" data-item-id="' + i.id + '">' +
+        '<i class="fas fa-image me-1"></i>' + (i.has_poster ? 'Generate Poster Again' : 'Generate Poster') + '</button>');
+      if (i.has_poster) {
+        parts.push('<a href="' + contentPostersUrl + '?plan_item_id=' + i.id + '" class="item-locked-badge">' +
+          '<i class="fas fa-image me-1"></i>Review poster →</a>');
+      }
     }
-    if (POSTER_CONTENT_TYPES.indexOf(i.content_type) === -1) {
-      return '<span class="item-locked-badge"><i class="fas fa-check me-1"></i>Script approved</span>';
-    }
-    if (!i.has_poster) {
-      return '<button class="btn btn-sm btn-outline-primary generate-poster-btn" data-item-id="' + i.id + '">' +
-        '<i class="fas fa-image me-1"></i>Generate Poster</button>';
-    }
-    return '<a href="' + contentPostersUrl + '" class="item-locked-badge">' +
-      '<i class="fas fa-image me-1"></i>Poster generated →</a>';
+    return parts.join('');
   }
 
   function renderItemRow(i) {
     const decided = i.status === 'approved' ? 'decided-approved' : i.status === 'skipped' ? 'decided-skipped' : '';
     const typeLabel = CONTENT_TYPE_LABELS[i.content_type] || i.content_type;
-    let actions;
-    if (i.status === 'skipped') {
-      actions = '<span class="item-locked-badge"><i class="fas fa-ban me-1"></i>Skipped</span>';
-    } else if (i.status === 'approved') {
-      actions = renderPipelineActions(i);
-    } else {
-      actions = '<button class="item-decide-btn edit" data-action="edit_item" title="Edit"><i class="fas fa-pen"></i></button>' +
-        '<button class="item-decide-btn edit" data-action="regenerate_item" title="Regenerate with AI"><i class="fas fa-arrows-rotate"></i></button>' +
-        '<button class="item-decide-btn approve" data-action="toggle_item_approve" title="Approve"><i class="fas fa-check"></i></button>' +
-        '<button class="item-decide-btn skip" data-action="toggle_item_skip" title="Skip"><i class="fas fa-ban"></i></button>';
-    }
+    const baseActions =
+      '<button class="item-decide-btn edit" data-action="edit_item" title="Edit"><i class="fas fa-pen"></i></button>' +
+      '<button class="item-decide-btn edit" data-action="regenerate_item" title="Regenerate idea with AI"><i class="fas fa-arrows-rotate"></i></button>' +
+      '<button class="item-decide-btn approve' + (i.status === 'approved' ? ' active' : '') + '" data-action="toggle_item_approve" title="' +
+        (i.status === 'approved' ? 'Dismiss approval' : 'Approve') + '"><i class="fas fa-check"></i></button>' +
+      '<button class="item-decide-btn skip' + (i.status === 'skipped' ? ' active' : '') + '" data-action="toggle_item_skip" title="' +
+        (i.status === 'skipped' ? 'Dismiss rejection' : 'Reject') + '"><i class="fas fa-ban"></i></button>';
+    const actions = baseActions + renderPipelineActions(i);
     return '<div class="item-row ' + decided + '" data-item-id="' + i.id + '" ' +
         'data-working-title="' + escHtml(i.working_title) + '" data-planned-date="' + i.planned_date + '" ' +
         'data-content-type="' + i.content_type + '" data-context-notes="' + escHtml(i.context_notes || '') + '">' +
@@ -306,16 +301,16 @@
   }
 
   function renderPlanPanel(plan, items, wasOpen) {
-    const canApprove = plan.status === 'needs_review';
     const counts = plan.total_count
       ? plan.approved_count + ' approved &middot; ' + plan.skipped_count + ' skipped &middot; ' + plan.pending_count + ' pending'
       : 'No items yet';
-    const approveBtn = canApprove
-      ? '<button class="btn btn-sm btn-outline-primary approve-plan-btn" data-plan-id="' + plan.id + '" onclick="event.stopPropagation()">' +
-        '<i class="fas fa-check-double me-1"></i>Approve Plan</button>'
-      : '';
     const err = plan.generation_error
       ? '<div class="text-danger" style="font-size:0.76rem;margin-top:4px">' + escHtml(plan.generation_error) + '</div>' : '';
+    // No plan-level "approved" flag any more (§27, item-wise approval only)
+    // — the only plan status still worth a badge is the transient
+    // "generating" state; a finished plan just shows its item counts.
+    const statusBadge = plan.status === 'generating'
+      ? '<span class="status status-pending">Generating…</span>' : '';
 
     const body = plan.total_count
       ? items.map(renderItemRow).join('')
@@ -331,10 +326,7 @@
             '<div class="plan-panel-counts">' + counts + '</div>' + err +
           '</div>' +
         '</div>' +
-        '<div style="display:flex;align-items:center;gap:10px">' +
-          '<span class="status ' + planBadgeClass(plan.status) + '">' + (PLAN_STATUS_LABELS[plan.status] || plan.status) + '</span>' +
-          approveBtn +
-        '</div>' +
+        statusBadge +
       '</div>' +
       '<div class="plan-panel-body">' + body + '</div>' +
     '</div>';
@@ -382,22 +374,15 @@
       });
     });
 
-    accordion.querySelectorAll('.approve-plan-btn').forEach(function (btn) {
-      btn.addEventListener('click', async function () {
-        btn.disabled = true;
-        const res = await postAction({ action: 'approve_plan', plan_id: btn.dataset.planId });
-        if (res.success) { showAlertModal('Plan approved.', 'success'); loadCalendar(); }
-        else btn.disabled = false;
-      });
-    });
-
     accordion.querySelectorAll('.item-decide-btn').forEach(function (btn) {
       btn.addEventListener('click', async function () {
         const row = btn.closest('.item-row');
         if (btn.dataset.action === 'edit_item') { openEditModal(row); return; }
         if (btn.dataset.action === 'regenerate_item') { openRegenerateModal(row); return; }
         btn.disabled = true;
+        showLoader('Updating…');
         const res = await postAction({ action: btn.dataset.action, item_id: row.dataset.itemId });
+        hideLoader();
         btn.disabled = false;
         if (res.success) loadCalendar();
       });

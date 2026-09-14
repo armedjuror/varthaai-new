@@ -50,15 +50,9 @@ def run_planner_task(self, plan_id):
     plan.generation_error = ''
     plan.save(update_fields=['status', 'generation_error', 'updated_at'])
 
-    if created:
-        from content.models import ActionItem
-        ActionItem.objects.get_or_create(
-            plan=plan, kind=ActionItem.Kind.PLAN_REVIEW, status=ActionItem.Status.OPEN,
-            defaults={
-                'title': f'Review content plan: {plan.period_start} – {plan.period_end}',
-                'description': f'The Planner Agent proposed {created} item(s) for this period.',
-            },
-        )
+    # No PLAN_REVIEW ActionItem any more (§27) — approval is item-wise, not
+    # plan-wise; each new item sits as PLANNED on the Calendar page, which
+    # already surfaces "N pending" per plan without a separate task needed.
 
     logger.info('run_planner_task: plan %s generated %s item(s)', plan_id, created)
     return {'plan_id': plan_id, 'created': created}

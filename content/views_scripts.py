@@ -68,9 +68,16 @@ def _script_detail_dict(s):
 
 class ScriptsAPI(APIView):
     """
-    GET             -> list Scripts (brand-scoped), filterable by `status`.
-    GET ?id=<id>    -> full detail for one Script.
-    POST action=approve|request_changes|regenerate.
+    GET             -> list, ONE ROW PER PLAN ITEM (§27) — a plan item's own
+                       older/superseded versions aren't separate "pending"
+                       rows; the list shows whichever version is the
+                       relevant one (the APPROVED version if one exists,
+                       else the latest), with the full `versions` list
+                       alongside it for the review modal's version switcher.
+                       Filterable by `status` (matched against that
+                       relevant/default version's status, not every version).
+    GET ?id=<id>    -> full detail for one specific Script version.
+    POST action=draft|approve|request_changes|regenerate.
     """
     permission_classes = [HasModulePermission]
     permission_module = 'content_scripts'
@@ -86,20 +93,38 @@ class ScriptsAPI(APIView):
                 return err('Script not found.', status=404)
             return ok(_script_detail_dict(script))
 
-        qs = Script.objects.filter(
-            plan_item__plan__brand_id=brand_id,
-        ).select_related('plan_item').order_by('-created_at')
         status = request.query_params.get('status')
-        if status:
-            qs = qs.filter(status=status)
-        return ok({'items': [_script_list_dict(s) for s in qs]})
+        scripts = (
+            Script.objects.filter(plan_item__plan__brand_id=brand_id)
+            .select_related('plan_item').order_by('plan_item_id', '-version')
+        )
+        grouped = {}
+        for s in scripts:
+            grouped.setdefault(s.plan_item_id, []).append(s)
+
+        items = []
+        for versions in grouped.values():
+            # versions is already ordered -version (latest first) within
+            # the group, so versions[0] is the latest whenever no version
+            # is APPROVED.
+            default = next((v for v in versions if v.status == Script.Status.APPROVED), versions[0])
+            if status and default.status != status:
+                continue
+            d = _script_list_dict(default)
+            d['versions'] = [{'id': v.id, 'version': v.version, 'status': v.status} for v in versions]
+            items.append(d)
+
+        items.sort(key=lambda d: d['created_at'], reverse=True)
+        return ok({'items': items})
 
     def post(self, request):
         """action=draft|approve|request_changes|regenerate. `draft` is the
-        one action that takes `plan_item_id` instead of `script_id` — it
-        creates the FIRST Script for an item that has none yet (content-
-        generator-plan.md §24's manual trigger); every other action reviews
-        an EXISTING Script."""
+        one action that takes `plan_item_id` instead of `script_id` —
+        content-generator-plan.md §24's manual trigger. Always creates a NEW
+        version (§27: "generate script again" on an item that already has
+        one is the same action, not a separate one — draft_now() already
+        computes version = max+1 regardless of whether any prior version
+        exists)."""
         brand_id = current_brand_id(request)
         action = request.data.get('action')
 
@@ -126,8 +151,6 @@ class ScriptsAPI(APIView):
                 id=int(request.data.get('plan_item_id') or 0), plan__brand_id=brand_id)
         except (PlanItem.DoesNotExist, TypeError, ValueError):
             return err('Plan item not found.', status=404)
-        if item.scripts.exists():
-            return err('This item already has a script — use Regenerate on it instead.')
         try:
             script = copywriter.draft_now(item)
         except Exception as exc:

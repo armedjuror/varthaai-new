@@ -7,6 +7,8 @@
 
 <div class="page-body">
 
+  {% include 'admin/_content_studio_tabs.html' %}
+
   <div class="page-header">
     <div>
       <h1>Content Studio</h1>
@@ -49,7 +51,14 @@
           <div>
             <h3>Pending Tasks</h3>
           </div>
-          <a class="btn-view-all" href="{% url 'content:tasks' %}">View all →</a>
+        </div>
+        <div class="filter-bar" style="padding:12px 20px 0">
+          <select class="form-select form-select-sm" id="kindFilter" style="width:auto">
+            <option value="">All kinds</option>
+            <option value="input_needed">Input needed</option>
+            <option value="script_review">Script review</option>
+            <option value="poster_review">Poster review</option>
+          </select>
         </div>
         <div id="pendingTasksList">
           <div class="empty-state"><i class="fas fa-list-check"></i>Loading…</div>
@@ -68,46 +77,7 @@
   </div>
 
   <div id="noPlanNote" class="caption-note" style="display:none;margin-top:20px;padding:14px 18px;border:1px dashed var(--gray-300);border-radius:var(--card-radius);font-size:0.82rem;color:var(--gray-500)">
-    No approved content plan for the current period yet. The Planner Agent
-    (Phase 1 of <code>content-generator-plan.md</code>) generates and lets
-    you review one — not wired up yet.
-  </div>
-
-  <div class="data-card" style="margin-top:20px">
-    <div class="data-card-header">
-      <div>
-        <h3>Designer test</h3>
-        <div style="font-size:0.72rem;color:var(--gray-400);margin-top:2px">
-          One-off check that the poster pipeline (brief + Gemini image) actually works. Nothing here is saved.
-        </div>
-      </div>
-    </div>
-    <form id="designerTestForm" style="padding:20px">
-      <div class="row g-3">
-        <div class="col-md-6">
-          <label class="form-label">Topic <span class="text-danger">*</span></label>
-          <input type="text" class="form-control" name="topic" required placeholder="e.g. Onam greeting poster">
-        </div>
-        <div class="col-md-3">
-          <label class="form-label">Format</label>
-          <select class="form-select" name="format">
-            <option value="1:1" selected>Square (1:1)</option>
-            <option value="9:16">Story/Reel (9:16)</option>
-            <option value="4:5">Portrait (4:5)</option>
-          </select>
-        </div>
-        <div class="col-md-3 d-flex align-items-end">
-          <button type="submit" class="btn btn-primary btn-sm w-100">
-            <i class="fas fa-wand-magic-sparkles me-1"></i>Generate
-          </button>
-        </div>
-        <div class="col-12">
-          <label class="form-label">Context notes (optional)</label>
-          <textarea class="form-control" name="context_notes" rows="2" placeholder="Event details, angle, anything specific to include"></textarea>
-        </div>
-      </div>
-    </form>
-    <div id="designerTestResult" style="padding:0 20px 20px"></div>
+    No content plan for the current period yet — generate one on the Calendar page.
   </div>
 
 </div><!-- /.page-body -->
@@ -135,21 +105,6 @@
 
     if (!d.has_active_plan) document.getElementById('noPlanNote').style.display = '';
 
-    const tasksEl = document.getElementById('pendingTasksList');
-    if (!d.pending_tasks.length) {
-      tasksEl.innerHTML = '<div class="empty-state"><i class="fas fa-check-circle"></i>Nothing pending.</div>';
-    } else {
-      tasksEl.innerHTML = d.pending_tasks.map(function (t) {
-        return '<div class="task-row" style="display:flex;align-items:flex-start;gap:12px;padding:13px 20px;border-bottom:1px solid var(--gray-100)">' +
-          '<span class="status status-pending" style="flex-shrink:0">' + (KIND_LABELS[t.kind] || t.kind) + '</span>' +
-          '<div style="flex:1;min-width:0">' +
-            '<div style="font-weight:600;font-size:0.85rem">' + escHtml(t.title) + '</div>' +
-            (t.due_date ? '<div style="font-size:0.74rem;color:var(--gray-400)">Due ' + formatDate(t.due_date) + '</div>' : '') +
-          '</div>' +
-        '</div>';
-      }).join('');
-    }
-
     const recentEl = document.getElementById('recentList');
     const recent = (d.recent_scripts || []).map(function (s) {
       return { title: s.plan_item__working_title, sub: s.skill_used, status: s.status };
@@ -169,55 +124,48 @@
     }
   }
 
-  loadDashboard();
+  // Same routing rule content-tasks.html used to use — each kind opens the
+  // page that actually resolves it (§12: "each kind opens a matching form").
+  function taskUrl(t) {
+    if (t.kind === 'script_review') return '/admin/content/scripts/?plan_item_id=' + t.plan_item_id;
+    if (t.kind === 'poster_review') return '/admin/content/posters/?plan_item_id=' + t.plan_item_id;
+    if (t.kind === 'input_needed' && t.content_type === 'reel_verdict') {
+      return '/admin/content/verdict/intake/' + t.plan_item_id + '/';
+    }
+    if (t.plan_id) return '/admin/content/calendar/?plan_id=' + t.plan_id;
+    return '/admin/content/calendar/';
+  }
 
-  document.getElementById('designerTestForm').addEventListener('submit', async function (e) {
-    e.preventDefault();
-    const form = e.target;
-    const resultEl = document.getElementById('designerTestResult');
-    const submitBtn = form.querySelector('button[type="submit"]');
-    submitBtn.disabled = true;
-    resultEl.innerHTML = '<div class="empty-state"><i class="fas fa-spinner fa-spin"></i>Generating — this can take 10-20 seconds…</div>';
-    showLoader('Generating poster…');
-
-    const res = await apiPost('/admin/api/content/designer/test/', {
-      topic: form.topic.value,
-      format: form.format.value,
-      context_notes: form.context_notes.value,
-    });
-
-    hideLoader();
-    submitBtn.disabled = false;
-
+  async function loadPendingTasks() {
+    const kind = document.getElementById('kindFilter').value;
+    const res = await apiGet('/admin/api/content/tasks/', kind ? { kind: kind } : {});
+    const tasksEl = document.getElementById('pendingTasksList');
     if (!res.success) {
-      resultEl.innerHTML = '<div class="alert alert-danger" style="font-size:0.85rem">' + escHtml(res.message) + '</div>';
+      tasksEl.innerHTML = '<div class="empty-state"><i class="fas fa-triangle-exclamation"></i>' + escHtml(res.message) + '</div>';
       return;
     }
-
-    const d = res.data;
-    const debugJson = escHtml(JSON.stringify(d.debug, null, 2));
-    let html = '<div class="row g-3">';
-
-    html += '<div class="col-md-' + (d.image_base64 ? '6' : '12') + '">';
-    html += '<label class="form-label">Brief</label>';
-    html += '<pre style="white-space:pre-wrap;background:var(--gray-50);padding:12px;border-radius:8px;font-size:0.78rem;max-height:320px;overflow:auto">' + escHtml(d.brief) + '</pre>';
-    html += '</div>';
-
-    if (d.image_base64) {
-      html += '<div class="col-md-6">';
-      html += '<label class="form-label">Generated image</label>';
-      html += '<img src="data:image/png;base64,' + d.image_base64 + '" style="max-width:100%;border-radius:8px;border:1px solid var(--gray-200)">';
-      html += '</div>';
-    } else {
-      html += '<div class="col-12"><div class="alert alert-warning" style="font-size:0.85rem">' +
-        'No image was returned. See debug details below for why (' + escHtml((d.debug && d.debug.error) || 'unknown') + ').</div></div>';
+    const items = res.data.items || [];
+    if (!items.length) {
+      tasksEl.innerHTML = '<div class="empty-state"><i class="fas fa-check-circle"></i>Nothing pending.</div>';
+      return;
     }
+    tasksEl.innerHTML = items.map(function (t) {
+      return '<div class="task-row" data-href="' + taskUrl(t) + '" style="cursor:pointer;display:flex;align-items:flex-start;gap:12px;padding:13px 20px;border-bottom:1px solid var(--gray-100)">' +
+        '<span class="status status-pending" style="flex-shrink:0">' + (KIND_LABELS[t.kind] || t.kind) + '</span>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-weight:600;font-size:0.85rem">' + escHtml(t.title) + '</div>' +
+          (t.description ? '<div style="font-size:0.78rem;color:var(--gray-500)">' + escHtml(t.description) + '</div>' : '') +
+          (t.due_date ? '<div style="font-size:0.74rem;color:var(--gray-400)">Due ' + formatDate(t.due_date) + '</div>' : '') +
+        '</div>' +
+      '</div>';
+    }).join('');
+    tasksEl.querySelectorAll('.task-row').forEach(function (row) {
+      row.addEventListener('click', function () { window.location.href = row.dataset.href; });
+    });
+  }
 
-    html += '<div class="col-12"><details><summary style="cursor:pointer;font-size:0.8rem;color:var(--gray-500)">Debug details</summary>' +
-      '<pre style="white-space:pre-wrap;background:var(--gray-50);padding:12px;border-radius:8px;font-size:0.72rem;margin-top:8px">' + debugJson + '</pre></details></div>';
-
-    html += '</div>';
-    resultEl.innerHTML = html;
-  });
+  loadDashboard();
+  loadPendingTasks();
+  document.getElementById('kindFilter').addEventListener('change', loadPendingTasks);
 </script>
 {% endblock %}

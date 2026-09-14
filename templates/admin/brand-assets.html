@@ -1,0 +1,140 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Brand Assets — {{ brand.name }} — Varthaai Admin{% endblock %}
+
+{% block content %}
+
+<div class="page-body">
+
+  {% include 'admin/_content_studio_tabs.html' %}
+
+  <div class="page-header">
+    <div>
+      <h1>Brand Assets — {{ brand.name }}</h1>
+      <p>Logo and product/lifestyle/team photos the Designer Agent composites into
+        generated posters — the closest thing to giving it real materials instead of
+        asking it to invent a design from scratch.</p>
+    </div>
+    <div class="page-header-actions">
+      <a href="{% url 'core:brands' %}" class="btn btn-sm btn-outline-primary">
+        <i class="fas fa-arrow-left me-1"></i>Back to Brands
+      </a>
+    </div>
+  </div>
+
+  <div class="data-card" style="padding:20px">
+    <form id="addAssetForm" class="row g-3 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label">Image <span class="text-danger">*</span></label>
+        <input type="file" class="form-control" name="image" accept="image/*" required>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Tag</label>
+        <select class="form-select" name="tag">
+          <option value="logo">Logo</option>
+          <option value="product" selected>Product</option>
+          <option value="lifestyle">Lifestyle</option>
+          <option value="team">Team</option>
+          <option value="event">Event</option>
+          <option value="icon">Icon</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Label (optional)</label>
+        <input type="text" class="form-control" name="label" placeholder="e.g. Primary logo, transparent">
+      </div>
+      <div class="col-md-2">
+        <button type="submit" class="btn btn-primary w-100"><i class="fas fa-upload me-1"></i>Upload</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="data-card" style="margin-top:20px">
+    <div class="data-card-header">
+      <h3>Assets</h3>
+    </div>
+    <div id="assetsGrid" class="assets-grid" style="padding:20px">Loading…</div>
+    <div id="assetsEmptyState" class="empty-state" style="display:none;padding:24px">
+      <i class="fas fa-images"></i>No assets yet — upload a logo or product photo above.
+    </div>
+  </div>
+
+</div><!-- /.page-body -->
+
+{% endblock %}
+
+{% block extra_js %}
+<style>
+  .assets-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:14px; }
+  .asset-card { border:1px solid var(--gray-200); border-radius:10px; overflow:hidden; background:#fff; }
+  .asset-card.inactive { opacity:0.45; }
+  .asset-card img { width:100%; height:110px; object-fit:cover; display:block; background:var(--gray-50); }
+  .asset-card-body { padding:8px 10px; }
+  .asset-card-tag { font-size:0.68rem; text-transform:uppercase; letter-spacing:0.02em; color:var(--gray-400); font-weight:700; }
+  .asset-card-label { font-size:0.78rem; margin:2px 0 8px; word-break:break-word; }
+  .asset-card-actions { display:flex; gap:6px; }
+</style>
+<script>
+  var BRAND_ID = {{ brand.id }};
+  var API_URL = '/admin/api/content/brand-assets/' + BRAND_ID + '/';
+
+  async function loadAssets() {
+    const res = await apiGet(API_URL);
+    const grid = document.getElementById('assetsGrid');
+    if (!res.success) { grid.innerHTML = ''; showAlertModal(res.message, 'error'); return; }
+    const items = res.data.items || [];
+    document.getElementById('assetsEmptyState').style.display = items.length ? 'none' : '';
+    grid.innerHTML = items.map(function (a) {
+      return '<div class="asset-card' + (a.is_active ? '' : ' inactive') + '">' +
+        (a.image_url ? '<img src="' + a.image_url + '">' : '') +
+        '<div class="asset-card-body">' +
+          '<div class="asset-card-tag">' + a.tag + '</div>' +
+          '<div class="asset-card-label">' + escHtml(a.label || '(no label)') + '</div>' +
+          '<div class="asset-card-actions">' +
+            '<button class="btn btn-sm btn-outline-secondary" data-action="toggle" data-id="' + a.id + '" title="' + (a.is_active ? 'Deactivate' : 'Activate') + '">' +
+              '<i class="fas ' + (a.is_active ? 'fa-eye-slash' : 'fa-eye') + '"></i></button>' +
+            '<button class="btn btn-sm btn-outline-danger" data-action="delete" data-id="' + a.id + '" title="Delete">' +
+              '<i class="fas fa-trash"></i></button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+    grid.querySelectorAll('[data-action="toggle"]').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        const res = await apiPost(API_URL, { action: 'toggle', id: btn.dataset.id });
+        if (!res.success) { showAlertModal(res.message, 'error'); return; }
+        loadAssets();
+      });
+    });
+    grid.querySelectorAll('[data-action="delete"]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        confirmThen('Delete this asset? This cannot be undone.', async function () {
+          const res = await apiPost(API_URL, { action: 'delete', id: btn.dataset.id });
+          if (!res.success) { showAlertModal(res.message, 'error'); return; }
+          loadAssets();
+        });
+      });
+    });
+  }
+
+  document.getElementById('addAssetForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const form = e.target;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    const formData = new FormData(form);
+    formData.append('action', 'add');
+    const res = await apiPostForm(API_URL, formData);
+    submitBtn.disabled = false;
+    if (!res.success) { showAlertModal(res.message, 'error'); return; }
+    form.reset();
+    showAlertModal('Asset added.', 'success');
+    loadAssets();
+  });
+
+  loadAssets();
+</script>
+{% endblock %}

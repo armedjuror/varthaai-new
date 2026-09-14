@@ -239,6 +239,7 @@ class BrandAsset(models.Model):
     here; ImageField is consistent with how `Brand.logo` already works."""
 
     class Tag(models.TextChoices):
+        LOGO = 'logo', 'Logo'
         PRODUCT = 'product', 'Product'
         LIFESTYLE = 'lifestyle', 'Lifestyle'
         TEAM = 'team', 'Team'

@@ -25,6 +25,7 @@ class Review(models.Model):
 
 
 class Blog(models.Model):
+    brand = models.ForeignKey('core.Brand', on_delete=models.CASCADE, related_name='blogs')
     title = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255, unique=True)
     content = models.TextField(blank=True)
@@ -55,10 +56,9 @@ class BlogDraftSession(models.Model):
     that produced (or are producing) a Blog. Persisted so an admin can leave
     and resume a half-finished session, and so token usage/cost is auditable.
 
-    Deliberately has NO brand FK: unlike most of this app's models, Blog (and
-    Flavor, referenced via flavor_refs below) are global — not brand-scoped —
-    so a brand column here would be null on every row. See the module
-    docstring in marketing/views.py ("blogs are global").
+    Deliberately has NO brand FK of its own: it takes its brand from the
+    linked Blog (set once the draft is applied), and Flavor (referenced via
+    flavor_refs below) is still global — not brand-scoped.
     """
 
     class Status(models.TextChoices):

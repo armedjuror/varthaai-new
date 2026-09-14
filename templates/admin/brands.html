@@ -175,6 +175,7 @@ function renderBrands() {
       <td>
         <div class="d-flex gap-1">
           <a class="btn btn-outline-secondary btn-xs" href="/admin/brands/${b.id}/kit/" title="Brand Kit"><i class="fas fa-book"></i></a>
+          <a class="btn btn-outline-secondary btn-xs" href="/admin/content/brand-assets/${b.id}/" title="Brand Assets"><i class="fas fa-images"></i></a>
           <button class="btn btn-outline-primary btn-xs" onclick="openEdit(${b.id})" title="Edit"><i class="fas fa-pen"></i></button>
           <button class="btn btn-outline-secondary btn-xs" onclick="toggleBrand(${b.id})">${b.is_active ? '<i class="fas fa-ban"></i>' : '<i class="fas fa-check"></i>'}</button>
           ${b.id > 1 ? `<button class="btn btn-outline-danger btn-xs" onclick="deleteBrand(${b.id})"><i class="fas fa-trash"></i></button>` : ''}

@@ -106,11 +106,15 @@ class PostersAPI(APIView):
     POST action=retry           -> same as regenerate but for a specifically
                                     FAILED attempt (image is None), no
                                     instruction needed from the admin.
-    POST action=generate        -> `plan_item_id` instead of `id` — creates
-                                    the FIRST PosterAsset for an item that
-                                    has none yet (content-generator-plan.md
-                                    §24's manual trigger; requires an
-                                    APPROVED Script, same as `regenerate`).
+    POST action=generate        -> `plan_item_id` instead of `id` (content-
+                                    generator-plan.md §24's manual trigger;
+                                    requires an APPROVED Script, same as
+                                    `regenerate`). Always creates a NEW
+                                    version, whether this is the first
+                                    attempt or "generate poster again" on an
+                                    item that already has one (§27) — same
+                                    "no separate action for a repeat" rule
+                                    as ScriptsAPI's `draft`.
     """
     permission_classes = [HasModulePermission]
     permission_module = 'content_posters'
@@ -172,8 +176,6 @@ class PostersAPI(APIView):
                 id=int(request.data.get('plan_item_id') or 0), plan__brand_id=brand_id)
         except (PlanItem.DoesNotExist, TypeError, ValueError):
             return err('Plan item not found.', status=404)
-        if item.posters.exists():
-            return err('This item already has a poster — use Regenerate on it instead.')
         try:
             poster = designer.regenerate_poster(item)
         except Exception as exc:

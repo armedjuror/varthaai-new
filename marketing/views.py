@@ -3,8 +3,8 @@ Marketing slice: reviews moderation and blog management.
 
 Both mirror the PHP endpoints (`admin/api/reviews.php`, `api/blogs.php`) using
 the GET-list + POST-with-`action` convention and the {success, message, data}
-envelope. Reviews are brand-scoped; blogs are global (no brand column in the
-schema). Approving/rejecting a review cascades to its loyalty points
+envelope. Reviews and blogs are both brand-scoped to the admin's active
+brand. Approving/rejecting a review cascades to its loyalty points
 transaction, matching the PHP (`points_transactions.reference` stores the
 review id as a string).
 """
@@ -52,13 +52,14 @@ def blogs_page(request):
 @require_module('blogs')
 @ensure_csrf_cookie
 def blog_editor_page(request, pk=None):
+    brand_id = current_brand_id(request)
     blog = None
     if pk:
-        blog = Blog.objects.filter(id=pk).first()
+        blog = Blog.objects.filter(id=pk, brand_id=brand_id).first()
         if blog is None:
             return redirect('marketing:blogs')
     existing_tags = sorted({
-        t for row in Blog.objects.exclude(tags=[]).values_list('tags', flat=True)
+        t for row in Blog.objects.filter(brand_id=brand_id).exclude(tags=[]).values_list('tags', flat=True)
         for t in (row or [])
     })
     flavors = list(Flavor.objects.filter(is_active=True).order_by('name').values('id', 'name'))
@@ -259,10 +260,11 @@ class BlogsAPI(APIView):
     permission_module = 'blogs'
 
     def get(self, request):
+        brand_id = current_brand_id(request)
         blog_id = request.query_params.get('id')
         if blog_id:
             try:
-                blog = Blog.objects.select_related('created_by').get(id=int(blog_id))
+                blog = Blog.objects.select_related('created_by').get(id=int(blog_id), brand_id=brand_id)
             except (Blog.DoesNotExist, TypeError, ValueError):
                 return err('Blog not found.', status=404)
             return ok(_serialize_blog(blog))
@@ -271,7 +273,7 @@ class BlogsAPI(APIView):
         search = (request.query_params.get('search') or '').strip()
         tag_filter = (request.query_params.get('tag') or '').strip()
 
-        qs = Blog.objects.select_related('created_by')
+        qs = Blog.objects.filter(brand_id=brand_id).select_related('created_by')
         if status_filter == 'published':
             qs = qs.filter(is_published=True)
         elif status_filter == 'draft':
@@ -286,7 +288,7 @@ class BlogsAPI(APIView):
             qs = qs.filter(tags__contains=[tag_filter])
 
         rows = [_serialize_blog(b) for b in qs.order_by('-created_at')]
-        agg = Blog.objects.aggregate(
+        agg = Blog.objects.filter(brand_id=brand_id).aggregate(
             total=Count('id'),
             published=Count('id', filter=Q(is_published=True)),
             draft=Count('id', filter=Q(is_published=False)),
@@ -326,7 +328,7 @@ class BlogsAPI(APIView):
     @staticmethod
     def _get_blog(request):
         try:
-            return Blog.objects.get(id=int(request.data.get('id') or 0))
+            return Blog.objects.get(id=int(request.data.get('id') or 0), brand_id=current_brand_id(request))
         except (Blog.DoesNotExist, TypeError, ValueError):
             return None
 
@@ -346,7 +348,7 @@ class BlogsAPI(APIView):
         elif is_published:
             published_at = timezone.now()
         if action == 'create':
-            blog = Blog(created_by=request.user)
+            blog = Blog(created_by=request.user, brand_id=current_brand_id(request))
         else:
             blog = self._get_blog(request)
             if blog is None:

@@ -25,7 +25,9 @@ from core.auth import admin_login_required, require_module
 from core.models import Brand
 
 from content.agents import designer
-from content.models import ActionItem, ContentPlan, ContentSeries, PlanItem, PosterAsset, PosterFormat, Script
+from content.models import (
+    ActionItem, BrandAsset, ContentPlan, ContentSeries, PlanItem, PosterAsset, PosterFormat, Script,
+)
 from content.tasks import run_planner_task
 
 
@@ -106,10 +108,6 @@ class ContentDashboardAPI(APIView):
         awaiting_input = open_items.filter(kind=ActionItem.Kind.INPUT_NEEDED).count()
         awaiting_review = open_items.exclude(kind=ActionItem.Kind.INPUT_NEEDED).count()
 
-        pending_tasks = [
-            _action_item_dict(a) for a in open_items.select_related('plan_item')[:6]
-        ]
-
         recent_scripts = list(
             Script.objects.filter(plan_item__plan__brand_id=brand_id)
             .select_related('plan_item').order_by('-created_at')[:5]
@@ -128,11 +126,13 @@ class ContentDashboardAPI(APIView):
                 'awaiting_review': awaiting_review,
                 'posted_this_month': posted_this_month,
             },
-            'pending_tasks': pending_tasks,
             'recent_scripts': recent_scripts,
             'recent_posters': recent_posters,
+            # No more plan-level APPROVED status to check (§27, item-wise
+            # approval only) — "active" now just means a plan covering the
+            # current period exists at all, regardless of status.
             'has_active_plan': ContentPlan.objects.filter(
-                brand_id=brand_id, period_end__gte=today, status=ContentPlan.Status.APPROVED,
+                brand_id=brand_id, period_end__gte=today,
             ).exists(),
         })
 
@@ -202,56 +202,31 @@ class ContentCalendarAPI(APIView):
         return ok({'items': items, 'plans': plans})
 
     def post(self, request):
-        """action=approve_plan|toggle_item_approve|toggle_item_skip|update_item|
+        """action=toggle_item_approve|toggle_item_skip|update_item|
         regenerate_item|accept_proposal|reject_proposal, same {success,message}
-        action-dispatch style as marketing's ReviewsAPI.post — the
-        admin-approval gate content-generator-plan.md §4 requires before a
-        plan (or any item in it) moves forward.
+        action-dispatch style as marketing's ReviewsAPI.post.
 
-        Per-item review is a 3-way toggle: PLANNED (undecided, the default)
-        <-> APPROVED <-> SKIPPED, each a single click, clicking the active
-        one again returns to PLANNED. "Approve Plan" is the bulk finish
-        action — it approves whatever's still PLANNED (anything already
-        individually approved or skipped is left as the admin set it) and
-        locks the plan as a whole. update_item edits an item's own fields
-        (title/date/content_type/context_notes) and is independent of its
-        approve/skip status. regenerate_item asks the Planner for a fresh
-        working_title/context_notes for the same slot (optionally steered
-        by an `instruction` string) and — unlike update_item — resets
-        status back to PLANNED, since the admin hasn't seen the new content
-        yet. All item-level actions reject once the parent plan is
-        APPROVED — a locked plan's items don't change.
+        Item-wise approval only (§26/§27 — no plan-level gate; "approve_plan"
+        was removed). Per-item review is a 3-way toggle: PLANNED (undecided,
+        the default) <-> APPROVED <-> SKIPPED, each a single click, clicking
+        the active one again returns to PLANNED. update_item edits an item's
+        own fields (title/date/content_type/context_notes) and is
+        independent of its approve/skip status. regenerate_item asks the
+        Planner for a fresh working_title/context_notes for the same slot
+        (optionally steered by an `instruction` string) and — unlike
+        update_item — resets status back to PLANNED, since the admin hasn't
+        seen the new content yet.
 
-        accept_proposal/reject_proposal are the ONE pair of item-level
-        actions that DO apply to an APPROVED plan's items — they're how an
-        admin resolves a diff the Planner's daily nudge wrote into
-        `proposed_changes` (content/agents/planner.py's run_daily_nudge,
-        content-generator-plan.md §4's "sits as a diff awaiting separate
-        approval, never silently overwrites"). accept applies the proposed
-        fields onto the item and clears proposed_changes; reject just clears
-        it, leaving the item exactly as it was.
+        accept_proposal/reject_proposal resolve a diff the Planner's daily
+        nudge wrote into `proposed_changes` (content/agents/planner.py's
+        run_daily_nudge, content-generator-plan.md §4's "sits as a diff
+        awaiting separate approval, never silently overwrites"). accept
+        applies the proposed fields onto the item and clears
+        proposed_changes; reject just clears it, leaving the item exactly
+        as it was.
         """
         brand_id = current_brand_id(request)
         action = request.data.get('action')
-
-        if action == 'approve_plan':
-            try:
-                plan = ContentPlan.objects.get(id=int(request.data.get('plan_id') or 0), brand_id=brand_id)
-            except (ContentPlan.DoesNotExist, TypeError, ValueError):
-                return err('Plan not found.', status=404)
-            if plan.status == ContentPlan.Status.APPROVED:
-                return err('This plan is already approved.')
-            if plan.status != ContentPlan.Status.NEEDS_REVIEW:
-                return err(f'Plan is not ready for approval (status: {plan.status}).')
-            plan.items.filter(status=PlanItem.Status.PLANNED).update(status=PlanItem.Status.APPROVED)
-            plan.status = ContentPlan.Status.APPROVED
-            plan.approved_by = request.user
-            plan.approved_at = timezone.now()
-            plan.save(update_fields=['status', 'approved_by', 'approved_at', 'updated_at'])
-            ActionItem.objects.filter(
-                plan=plan, kind=ActionItem.Kind.PLAN_REVIEW, status=ActionItem.Status.OPEN,
-            ).update(status=ActionItem.Status.DONE, resolved_by=request.user, resolved_at=timezone.now())
-            return ok(message='Plan approved.')
 
         if action in ('toggle_item_approve', 'toggle_item_skip', 'update_item', 'regenerate_item',
                       'accept_proposal', 'reject_proposal'):
@@ -261,17 +236,10 @@ class ContentCalendarAPI(APIView):
             except (PlanItem.DoesNotExist, TypeError, ValueError):
                 return err('Plan item not found.', status=404)
 
-            # accept_proposal/reject_proposal are the one pair that operate
-            # on an APPROVED plan's items on purpose — see this method's
-            # docstring. Everything else stays locked once the plan is approved.
             if action == 'accept_proposal':
                 return self._accept_proposal(item, request.user)
             if action == 'reject_proposal':
                 return self._reject_proposal(item, request.user)
-
-            if item.plan.status == ContentPlan.Status.APPROVED:
-                return err('This plan is already approved — items can no longer be changed.')
-
             if action == 'update_item':
                 return self._update_item(item, request.data)
             if action == 'regenerate_item':
@@ -442,14 +410,19 @@ class DesignerTestAPI(APIView):
         context_notes = (request.data.get('context_notes') or '').strip()
 
         inspiration = designer.select_poster_inspiration(brand, topic, format=format)
+        topic_asset = designer.select_brand_asset(brand, tag=BrandAsset.Tag.PRODUCT)
+        brand_logo = designer.select_brand_asset(brand, tag=BrandAsset.Tag.LOGO)
 
         try:
-            brief = designer.generate_poster_brief(brand, topic, inspiration, context_notes=context_notes)
+            brief = designer.generate_poster_brief(
+                brand, topic, inspiration, context_notes=context_notes, has_brand_logo=bool(brand_logo),
+            )
         except Exception as exc:
             return err(f'Brief generation failed: {exc}')
 
         image_bytes, debug = designer.generate_poster_image(
-            brief, inspiration, format=format, brand_name=brand.name,
+            brief, inspiration, topic_asset=topic_asset, brand_logo=brand_logo,
+            format=format, brand_name=brand.name,
         )
 
         return ok({

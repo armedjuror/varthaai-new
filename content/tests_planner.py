@@ -232,8 +232,9 @@ class RunDailyNudgeTests(TestCase):
 
 class AcceptRejectProposalAPITests(TestCase):
     """content/views.py's ContentCalendarAPI accept_proposal/reject_proposal
-    — the one pair of item actions that deliberately work even when the
-    parent plan is APPROVED."""
+    — proposals only ever arise on an APPROVED plan's item (run_daily_nudge
+    only considers those), so these actions are exercised against that
+    plan status here."""
 
     def setUp(self):
         self.brand = _mk_brand()
@@ -299,18 +300,13 @@ class AcceptRejectProposalAPITests(TestCase):
             {'action': 'accept_proposal', 'item_id': item.id}, content_type='application/json')
         self.assertFalse(res.json()['success'])
 
-    def test_accept_proposal_works_even_though_plan_is_approved(self):
-        """The one deliberate exception to "items can no longer be changed
-        once the plan is approved" — a proposal can ONLY ever exist on an
-        approved plan's item (run_daily_nudge only considers those), so this
-        action must not be blocked by the same guard the other item actions use."""
+    def test_accept_proposal_works_regardless_of_plan_status(self):
+        """Approval is item-wise only now — there's no plan-level gate left
+        to be an exception to, so accept_proposal just needs to keep working
+        on an item whose parent plan happens to be APPROVED."""
         item = self._mk_proposed_item()
         self.assertEqual(item.plan.status, ContentPlan.Status.APPROVED)
         res = self.client.post(
             '/admin/api/content/calendar/',
-            {'action': 'toggle_item_approve', 'item_id': item.id}, content_type='application/json')
-        self.assertFalse(res.json()['success'])  # sanity: the normal guard IS still active for other actions
-        res2 = self.client.post(
-            '/admin/api/content/calendar/',
             {'action': 'accept_proposal', 'item_id': item.id}, content_type='application/json')
-        self.assertTrue(res2.json()['success'])
+        self.assertTrue(res.json()['success'])

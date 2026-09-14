@@ -30,7 +30,8 @@ Public entry points:
   infer_topic_category(topic) -> str
   select_poster_inspiration(brand, topic, format) -> PosterInspiration | None
   list_eligible_inspirations(brand, topic=None, format=None) -> QuerySet
-  generate_poster_brief(brand, topic, inspiration, context_notes='', approved_copy=None) -> str
+  select_brand_asset(brand, tag=None) -> BrandAsset | None
+  generate_poster_brief(brand, topic, inspiration, context_notes='', approved_copy=None, has_brand_logo=False) -> str
   generate_poster_image(brief, inspiration, ...) -> tuple[bytes | None, dict]
   run_daily(brand=None) -> dict                       # Phase 3 daily sweep
   regenerate_poster(plan_item, instruction='', inspiration_id=None) -> PosterAsset
@@ -47,7 +48,7 @@ from django.utils import timezone
 from core.claude_cli import NO_TOOLS, run_claude_cli
 
 from content.models import (
-    ActionItem, ContentSeries, PlanItem, PosterAsset, PosterFormat, PosterInspiration, Script,
+    ActionItem, BrandAsset, ContentSeries, PlanItem, PosterAsset, PosterFormat, PosterInspiration, Script,
 )
 
 logger = logging.getLogger(__name__)
@@ -120,10 +121,26 @@ def select_poster_inspiration(brand, topic, format=PosterFormat.SQUARE):
     return PosterInspiration.objects.filter(brand=brand, is_active=True).order_by('?').first()
 
 
+def select_brand_asset(brand, tag=None):
+    """Random active BrandAsset for compositing (poster plan §3 — logo/
+    product/lifestyle/team/event photos). Returns None if the brand has none
+    uploaded yet (or none matching `tag`) — every caller already treats a
+    missing topic_asset/brand_logo as optional, so this is never a hard
+    failure, just "nothing to composite this time." No inspiration-style
+    3-layer fallback here: unlike PosterInspiration (which needs a specific
+    topic_category+format match to make sense), a brand asset's `tag` is a
+    much coarser bucket — falling back past it to "any asset of any tag"
+    would risk compositing a team photo in as if it were a product shot."""
+    qs = BrandAsset.objects.filter(brand=brand, is_active=True)
+    if tag:
+        qs = qs.filter(tag=tag)
+    return qs.order_by('?').first()
+
+
 # --------------------------------------------------------------------------- #
 # Brief generation — headless `claude -p`, no tools (poster plan §5).
 # --------------------------------------------------------------------------- #
-def generate_poster_brief(brand, topic, inspiration, context_notes='', approved_copy=None):
+def generate_poster_brief(brand, topic, inspiration, context_notes='', approved_copy=None, has_brand_logo=False):
     """
     Returns the brief as plain text, fed verbatim into the image prompt
     later (generate_poster_image). Raises on failure rather than
@@ -139,6 +156,14 @@ def generate_poster_brief(brand, topic, inspiration, context_notes='', approved_
     reference layout can't fit it) — never paraphrased or invented fresh.
     Backward compatible: omitted (the default), this behaves exactly as
     before — DesignerTestAPI's existing calls never pass it.
+
+    `has_brand_logo` — whether a real BrandAsset(tag=logo) is actually
+    available to composite in (select_brand_asset's result, truthy or not).
+    Gates `logo_position` alongside `inspiration.has_logo` below: asking the
+    brief-writer to commit to a logo position when there's no logo image to
+    place there would produce a brief the image call can't fulfill. Default
+    False keeps this backward compatible with every existing caller that
+    predates brand-asset selection.
     """
     if not shutil.which(settings.CLAUDE_CLI_BIN):
         raise RuntimeError(f'claude CLI not found on PATH ({settings.CLAUDE_CLI_BIN!r})')
@@ -150,7 +175,7 @@ def generate_poster_brief(brand, topic, inspiration, context_notes='', approved_
               'image_treatment', 'headline', 'subheadline']
     if context_notes:
         fields.append('cta_text')
-    if inspiration and inspiration.has_logo:
+    if inspiration and inspiration.has_logo and has_brand_logo:
         fields.append('logo_position')
 
     ref_block = (
@@ -252,7 +277,9 @@ def generate_poster_image(brief, inspiration, topic_asset=None, brand_logo=None,
         'dimensions': f'{width}x{height}',
         'inspiration_id': inspiration.id if inspiration else None,
         'has_topic_asset': bool(topic_asset and topic_asset.image),
+        'topic_asset_id': topic_asset.id if topic_asset else None,
         'has_logo': bool(brand_logo and brand_logo.image),
+        'brand_logo_id': brand_logo.id if brand_logo else None,
         'extra_instruction': extra_instruction or '',
     }
 
@@ -493,11 +520,14 @@ def run_daily(brand=None):
         brand_obj = plan_item.plan.brand
         format = _resolve_poster_format(plan_item)
         inspiration = select_poster_inspiration(brand_obj, plan_item.working_title, format=format)
+        topic_asset = select_brand_asset(brand_obj, tag=BrandAsset.Tag.PRODUCT)
+        brand_logo = select_brand_asset(brand_obj, tag=BrandAsset.Tag.LOGO)
 
         try:
             brief = generate_poster_brief(
                 brand_obj, plan_item.working_title, inspiration,
                 context_notes=plan_item.context_notes, approved_copy=script.raw_output,
+                has_brand_logo=bool(brand_logo),
             )
         except Exception as exc:
             logger.exception('run_daily: brief generation failed for PlanItem %s', plan_item.id)
@@ -511,7 +541,8 @@ def run_daily(brand=None):
             continue
 
         image_bytes, debug = generate_poster_image(
-            brief, inspiration, format=format, brand_name=brand_obj.name,
+            brief, inspiration, topic_asset=topic_asset, brand_logo=brand_logo,
+            format=format, brand_name=brand_obj.name,
         )
 
         poster = PosterAsset(
@@ -567,12 +598,17 @@ def regenerate_poster(plan_item, instruction='', inspiration_id=None):
     else:
         inspiration = select_poster_inspiration(brand, plan_item.working_title, format=format)
 
+    topic_asset = select_brand_asset(brand, tag=BrandAsset.Tag.PRODUCT)
+    brand_logo = select_brand_asset(brand, tag=BrandAsset.Tag.LOGO)
+
     brief = generate_poster_brief(
         brand, plan_item.working_title, inspiration,
         context_notes=plan_item.context_notes, approved_copy=script.raw_output,
+        has_brand_logo=bool(brand_logo),
     )
     image_bytes, debug = generate_poster_image(
-        brief, inspiration, extra_instruction=(instruction or None),
+        brief, inspiration, topic_asset=topic_asset, brand_logo=brand_logo,
+        extra_instruction=(instruction or None),
         format=format, brand_name=brand.name,
     )
 

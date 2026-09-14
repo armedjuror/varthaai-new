@@ -1,6 +1,6 @@
 from django.urls import path
 
-from content import views, urls_posters, urls_scripts, urls_verdict
+from content import views, urls_brand_assets, urls_posters, urls_scripts, urls_verdict
 
 app_name = 'content'
 
@@ -26,3 +26,4 @@ urlpatterns = [
 urlpatterns += urls_scripts.urlpatterns
 urlpatterns += urls_posters.urlpatterns
 urlpatterns += urls_verdict.urlpatterns
+urlpatterns += urls_brand_assets.urlpatterns

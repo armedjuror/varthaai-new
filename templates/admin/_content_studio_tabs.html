@@ -1,0 +1,56 @@
+{% comment %}
+Top tab bar shared by the Content Studio pages (Overview, Calendar, Scripts,
+Posters). Each tab is a real link to that page's own URL — not a JS-toggled
+pane — so the browser URL/history/permalinks stay exactly as before; this
+only changes how the pages are navigated between.
+
+No separate "Pending Tasks" tab (§27) — the Overview page shows the full
+open-task list directly instead of a top-6 summary linking out to its own
+page; content:tasks/PendingTasksAPI still exist and are still what that
+list reads from, just not surfaced as a standalone tab any more.
+{% endcomment %}
+<div class="data-card content-studio-tabs" style="padding:0;margin-bottom:20px">
+  <ul class="nav nav-tabs flex-nowrap">
+    {% if 'content_dashboard' in nav_perms %}
+    <li class="nav-item">
+      <a href="{% url 'content:content_dashboard' %}" class="nav-link{% if url_name == 'content_dashboard' %} active{% endif %}">
+        <i class="fas fa-wand-magic-sparkles me-1"></i>Overview
+      </a>
+    </li>
+    {% endif %}
+    {% if 'content_calendar' in nav_perms %}
+    <li class="nav-item">
+      <a href="{% url 'content:calendar' %}" class="nav-link{% if url_name == 'calendar' %} active{% endif %}">
+        <i class="fas fa-calendar-days me-1"></i>Calendar
+      </a>
+    </li>
+    {% endif %}
+    {% if 'content_scripts' in nav_perms %}
+    <li class="nav-item">
+      <a href="{% url 'content:content_scripts' %}" class="nav-link{% if url_name == 'content_scripts' %} active{% endif %}">
+        <i class="fas fa-file-pen me-1"></i>Scripts
+      </a>
+    </li>
+    {% endif %}
+    {% if 'content_posters' in nav_perms %}
+    <li class="nav-item">
+      <a href="{% url 'content:content_posters' %}" class="nav-link{% if url_name == 'content_posters' %} active{% endif %}">
+        <i class="fas fa-image me-1"></i>Posters
+      </a>
+    </li>
+    {% endif %}
+    {% if is_super_admin and current_brand %}
+    <li class="nav-item">
+      <a href="{% url 'content:brand_assets' current_brand.id %}" class="nav-link{% if url_name == 'brand_assets' %} active{% endif %}">
+        <i class="fas fa-images me-1"></i>Brand Assets
+      </a>
+    </li>
+    {% endif %}
+  </ul>
+</div>
+
+<style>
+  .content-studio-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .content-studio-tabs .nav-tabs { margin-bottom: -1px; min-width: max-content; }
+  .content-studio-tabs .nav-link { font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
+</style>
