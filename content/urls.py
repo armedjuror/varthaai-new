@@ -1,6 +1,6 @@
 from django.urls import path
 
-from content import views, urls_posters, urls_scripts
+from content import views, urls_posters, urls_scripts, urls_verdict
 
 app_name = 'content'
 
@@ -17,11 +17,12 @@ urlpatterns = [
     path('api/content/tasks/', views.PendingTasksAPI.as_view(), name='tasks_api'),
 ]
 
-# Phase 2 (Script review) and Phase 3 (Poster review) each ship as a
-# separate urls_*.py module (content-generator-plan.md §13) so two parallel
-# agents never edited this shared file directly — folded into this single
-# app_name='content' urlpatterns list here so `{% url 'content:...' %}`
-# reverses correctly (a second include() under the same namespace doesn't
-# reverse — Django's namespace_dict keeps only the first-registered one).
+# Phase 2 (Script review), Phase 3 (Poster review), and Phase 5 (Verdict
+# intake/history) each ship as a separate urls_*.py module (content-
+# generator-plan.md §13) — folded into this single app_name='content'
+# urlpatterns list here so `{% url 'content:...' %}` reverses correctly (a
+# second include() under the same namespace doesn't reverse — Django's
+# namespace_dict keeps only the first-registered one).
 urlpatterns += urls_scripts.urlpatterns
 urlpatterns += urls_posters.urlpatterns
+urlpatterns += urls_verdict.urlpatterns

@@ -77,10 +77,13 @@ never written here.
 Public entry points:
   due_plan_items(brand=None) -> QuerySet[PlanItem]
   draft_script_for_item(item) -> Script          # raises on failure
+  draft_now(item) -> Script                      # manual trigger, §24 — raises
   regenerate_script(script_or_plan_item, instruction='') -> Script  # raises
   run_daily(brand=None) -> dict                  # never raises; per-item catch
 """
+import json
 import logging
+import re
 import shutil
 from datetime import timedelta
 from pathlib import Path
@@ -92,7 +95,7 @@ from django.utils import timezone
 
 from core.claude_cli import NO_TOOLS, run_claude_cli
 
-from content.models import ActionItem, ContentPlan, ContentSeries, PlanItem, Script
+from content.models import ActionItem, ContentPlan, ContentSeries, PlanItem, Script, VerdictIntake
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +108,9 @@ COPYWRITER_DISALLOWED_TOOLS = [t for t in NO_TOOLS if t not in ('WebSearch', 'We
 _SKILLS_DIR = Path(__file__).resolve().parent.parent / 'skills'
 
 # content_type -> (path under content/skills/, skill_used label stored on Script).
-# reel_verdict is deliberately absent — never dispatched here (Phase 5).
+# reel_verdict is deliberately absent from this map — its dispatch needs TWO
+# skills' text concatenated plus Read access for label photos, handled by
+# _run_verdict_and_save below rather than the single-skill path this map drives.
 _SKILL_MAP = {
     ContentSeries.ContentType.REEL_VARTHAANM: (
         'varthaai-varthaanm-script/SKILL.md', 'varthaai-varthaanm-script'),
@@ -159,6 +164,25 @@ _HEADLESS_NOTE = (
 
 _RECAP_PREFIX = 'RECAP_FOR_NEXT_EPISODE:'
 
+# --------------------------------------------------------------------------- #
+# Varthaai Verdict (Phase 5) — the one content_type that needs TWO skills in
+# the same session (varthaai-verdict-script's own Step 1 is "invoke the
+# food-quality-analyst skill") plus Read access for the uploaded label
+# photos. Everything below is specific to this dispatch path; the rest of
+# this module's single-skill machinery (_SKILL_MAP, build_copywriter_prompt)
+# is untouched by it.
+# --------------------------------------------------------------------------- #
+_VERDICT_CONTENT_TYPE = ContentSeries.ContentType.REEL_VERDICT
+_VERDICT_SKILL_USED = 'varthaai-verdict-script+food-quality-analyst'
+_FOOD_QUALITY_REFERENCES_DIR = _SKILLS_DIR / 'food-quality-analyst' / 'references'
+
+# Read is added (for the label photos) alongside the standard WebSearch/
+# WebFetch this agent already runs with — same "grant only the Read tool,
+# prompt for the absolute path" pattern already proven in
+# content/management/commands/ingest_poster_inspirations.py's _caption().
+_VERDICT_ALLOWED_TOOLS = ['Read', 'WebSearch', 'WebFetch']
+_VERDICT_DISALLOWED_TOOLS = [t for t in NO_TOOLS if t not in _VERDICT_ALLOWED_TOOLS]
+
 
 # --------------------------------------------------------------------------- #
 # Skill loading                                                               #
@@ -193,10 +217,12 @@ def due_plan_items(brand=None):
     """
     PlanItems whose series' prep_lead_days puts today at-or-past the prep
     deadline, that have been through the admin-approval gate (plan APPROVED
-    *and* item APPROVED-or-NEEDS_INPUT — see module docstring), are not
-    reel_verdict (Phase 5, hard-excluded same as the Planner), and don't
+    *and* item APPROVED-or-NEEDS_INPUT — see module docstring), and don't
     already have an APPROVED Script (the thing that stops an approved-script
-    item from being redrafted every subsequent day).
+    item from being redrafted every subsequent day). Includes reel_verdict
+    (Phase 5) — its own readiness/drafting path (_is_ready's VerdictIntake
+    branch, _run_verdict_and_save) handles it distinctly from the other
+    content types, but the due-date gate itself is identical.
 
     NEEDS_INPUT is included alongside APPROVED so a previously-blocked item
     self-heals once an admin fills in context_notes (via
@@ -214,7 +240,6 @@ def due_plan_items(brand=None):
             plan__status=ContentPlan.Status.APPROVED,
             status__in=(PlanItem.Status.APPROVED, PlanItem.Status.NEEDS_INPUT),
         )
-        .exclude(content_type=ContentSeries.ContentType.REEL_VERDICT)
         .exclude(scripts__status=Script.Status.APPROVED)
         .select_related('series', 'plan', 'plan__brand')
         .distinct()
@@ -242,6 +267,25 @@ def due_plan_items(brand=None):
 # --------------------------------------------------------------------------- #
 # Input readiness (§3 step 2 / §13's per-content_type check)                  #
 # --------------------------------------------------------------------------- #
+def _verdict_intake_missing_fields(intake):
+    """Each ingredients/nutrition pair accepts EITHER the photo OR the typed
+    text, never requires both — see VerdictIntake's own field comments."""
+    missing = []
+    if not (intake.product_name or '').strip():
+        missing.append('product name')
+    if not ((intake.design_notes or '').strip() and intake.design_score is not None):
+        missing.append('Design score + notes')
+    if not ((intake.pricing_notes or '').strip() and intake.pricing_score is not None):
+        missing.append('Pricing score + notes')
+    if not ((intake.taste_notes or '').strip() and intake.taste_score is not None):
+        missing.append('Taste score + notes')
+    if not (intake.ingredients_label_photo or (intake.ingredients_text or '').strip()):
+        missing.append('ingredients list (photo or typed text)')
+    if not (intake.nutrition_label_photo or (intake.nutrition_text or '').strip()):
+        missing.append('nutrition facts panel (photo or typed text)')
+    return missing
+
+
 def _is_ready(item):
     """Returns (ready: bool, reason: str). poster_occasion/blog never block
     per varthaai-generic-content.md's own §1 table ("nothing else needed" /
@@ -250,6 +294,22 @@ def _is_ready(item):
     (which must carry concrete date/time/venue/CTA specifics, "never
     inferred") actually gate on context_notes."""
     content_type = item.content_type
+
+    if content_type == _VERDICT_CONTENT_TYPE:
+        try:
+            intake = item.verdict_intake
+        except VerdictIntake.DoesNotExist:
+            return False, (
+                'No product intake submitted yet — Ajwad needs to buy, taste, and '
+                'photograph a real competitor product, then submit the Verdict intake '
+                'form (product identity, ingredient/nutrition labels, Design/Pricing/'
+                'Taste scores and notes).'
+            )
+        missing = _verdict_intake_missing_fields(intake)
+        if missing:
+            return False, 'Verdict intake is incomplete — still missing: ' + ', '.join(missing) + '.'
+        return True, ''
+
     if content_type in (ContentSeries.ContentType.POSTER_OCCASION, ContentSeries.ContentType.BLOG):
         return True, ''
 
@@ -397,6 +457,161 @@ def _parse_generic_structured(text):
     return data
 
 
+_JSON_FENCE_RE = re.compile(r'```json\s*(\{.*?\})\s*```', re.DOTALL)
+
+
+def _extract_last_json_block(text):
+    """varthaai-verdict-script's output has THREE sections (talking-point
+    sheet, sheet-row line, JSON block) — content/agents/_util.strip_code_fence
+    assumes the WHOLE response is one fenced block, which doesn't hold here.
+    Takes the LAST ```json fenced block in the text (the skill's own Step 5
+    always produces the JSON last) so an earlier echoed food-quality-analyst
+    JSON snippet — if the model shows its Step 1 work inline — doesn't win by
+    accident. Returns {} (never raises) if nothing parses, so a malformed
+    response still leaves a reviewable Script (raw_output has everything)
+    with an empty structured_json rather than losing the whole draft — the
+    Verdict History page (content/views_verdict.py) must handle that case
+    explicitly, since it reads structured_json as its source of truth."""
+    for candidate in reversed(_JSON_FENCE_RE.findall(text or '')):
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+    return {}
+
+
+def _load_verdict_system_prompt():
+    """Concatenates both skills' instructions plus food-quality-analyst's
+    two reference docs, inlined as plain text — this agent has no Read
+    access to its own skills/ directory at runtime (only to VerdictIntake's
+    uploaded label photos, granted narrowly in _run_verdict_and_save), and
+    food-quality-analyst's Step 1 explicitly says to check
+    references/regulatory-sources.md before proceeding. Loaded fresh every
+    call, same "no caching" principle as _load_skill_text."""
+    verdict_text = _strip_frontmatter(_load_skill_text('varthaai-verdict-script/SKILL.md'))
+    analyst_text = _strip_frontmatter(_load_skill_text('food-quality-analyst/SKILL.md'))
+    regulatory_sources = (_FOOD_QUALITY_REFERENCES_DIR / 'regulatory-sources.md').read_text(encoding='utf-8')
+    scoring_rubric = (_FOOD_QUALITY_REFERENCES_DIR / 'scoring-rubric.md').read_text(encoding='utf-8')
+    return '\n\n---\n\n'.join([
+        verdict_text,
+        analyst_text,
+        '# food-quality-analyst/references/regulatory-sources.md\n\n' + regulatory_sources,
+        '# food-quality-analyst/references/scoring-rubric.md\n\n' + scoring_rubric,
+    ])
+
+
+def build_verdict_prompt(item, intake):
+    """The user-turn prompt for reel_verdict — structured VerdictIntake data
+    rather than the context_notes-based brief every other content_type uses
+    (build_copywriter_prompt), since Verdict's real input is Ajwad's own
+    scores/notes plus label photos, not a Planner-written brief."""
+    brand = item.plan.brand
+    lines = [
+        _HEADLESS_NOTE,
+        '',
+        'Brand kit:',
+        brand.brand_kit or '(no brand kit written yet — use generic, tasteful defaults)',
+        '',
+        f'Product identity (INTERNAL ONLY — never say this on camera or in the spoken '
+        f'verdict text): {intake.product_name}',
+        f'Product category: {intake.product_category or "(not given — infer a sensible category from the ingredients/labels)"}',
+        f'Market: {intake.market or "India"}',
+        f'Price point: {intake.price_point or "(not given)"}',
+        '',
+        f"Ajwad's Design notes: {intake.design_notes}",
+        f'Design score (Ajwad, out of 10): {intake.design_score}',
+        '',
+        f"Ajwad's Pricing notes: {intake.pricing_notes}",
+        f'Pricing score (Ajwad, out of 10): {intake.pricing_score}',
+        '',
+        f"Ajwad's Taste notes: {intake.taste_notes}",
+        f'Taste score (Ajwad, out of 10): {intake.taste_score}',
+        '',
+    ]
+    if intake.ingredients_label_photo:
+        lines.append(
+            'Ingredients list: use the Read tool to read the image file at '
+            f'{Path(intake.ingredients_label_photo.path).resolve()} — transcribe the '
+            'printed ingredient list exactly as shown, in the order printed.')
+    else:
+        lines.append(f'Ingredients list (as typed): {intake.ingredients_text}')
+    if intake.nutrition_label_photo:
+        lines.append(
+            'Nutrition facts panel: use the Read tool to read the image file at '
+            f'{Path(intake.nutrition_label_photo.path).resolve()} — transcribe the '
+            'printed nutrition data exactly as shown, noting per-serving vs per-100g.')
+    else:
+        lines.append(f'Nutrition facts panel (as typed): {intake.nutrition_text}')
+    lines += [
+        '',
+        'Follow the workflow in your instructions exactly: run the food-quality-analyst '
+        "analysis on the ingredients/nutrition data above, condense it into the single "
+        "Ingredients & Nutrition verdict, combine with Ajwad's Design/Pricing/Taste "
+        'verdicts above into the full on-camera talking-point sheet, the sheet-row line, '
+        'and the JSON block — produce all three, exactly as your instructions specify.',
+    ]
+    return '\n'.join(lines)
+
+
+# --------------------------------------------------------------------------- #
+# Shared persistence — new Script version + PlanItem transition + ActionItem #
+# bookkeeping, identical regardless of which branch below produced the text. #
+# --------------------------------------------------------------------------- #
+def _persist_script(item, skill_used, raw_output, structured_json=None, recap_summary=''):
+    # A `claude -p` call can run for several minutes (food-quality-analyst's
+    # web research in particular, verified live — a multi-minute reel_verdict
+    # draft left the DB connection stale, and the very next query after it
+    # raised `OperationalError: consuming input failed: SSL error: unexpected
+    # eof while reading` against this project's remote Neon Postgres). This is
+    # the first DB access after that long external call, in every dispatch
+    # branch (single-skill and verdict alike).
+    #
+    # Deliberately `is_usable()` + conditional `close()`, NOT the more common
+    # `close_old_connections()` — this project's CONN_MAX_AGE is 0 (Django's
+    # default), which makes close_old_connections() treat EVERY connection as
+    # "obsolete" and close it unconditionally, healthy or not. That's fine in
+    # a real request/task, but it actively breaks a Django TestCase-wrapped
+    # test (verified live: it closes the TestCase's shared savepoint
+    # connection with no way for the wrapper to reopen it, turning "the
+    # connection went stale" into a guaranteed "the connection is closed"
+    # failure on the very next query, worse than doing nothing). Only
+    # reconnect when the connection is ACTUALLY dead, never just because it's
+    # non-zero-seconds old.
+    from django.db import connection
+    if not connection.is_usable():
+        connection.close()
+
+    with transaction.atomic():
+        next_version = (item.scripts.aggregate(Max('version'))['version__max'] or 0) + 1
+        script = Script.objects.create(
+            plan_item=item,
+            skill_used=skill_used,
+            raw_output=raw_output,
+            structured_json=structured_json or {},
+            recap_summary=recap_summary,
+            version=next_version,
+            status=Script.Status.NEEDS_REVIEW,
+        )
+        item.status = PlanItem.Status.NEEDS_APPROVAL
+        item.save(update_fields=['status', 'updated_at'])
+        ActionItem.objects.get_or_create(
+            plan_item=item, kind=ActionItem.Kind.SCRIPT_REVIEW, status=ActionItem.Status.OPEN,
+            defaults={
+                'title': f'Review script: {item.working_title}',
+                'description': f'The Copywriter Agent drafted v{next_version} via {skill_used}.',
+                'due_date': item.planned_date,
+            },
+        )
+        # Self-heal (see due_plan_items' docstring): a successful draft means
+        # whatever previously blocked this item (if it ever was NEEDS_INPUT)
+        # no longer applies — close out the now-moot INPUT_NEEDED item rather
+        # than leaving it open forever alongside a fresh SCRIPT_REVIEW one.
+        ActionItem.objects.filter(
+            plan_item=item, kind=ActionItem.Kind.INPUT_NEEDED, status=ActionItem.Status.OPEN,
+        ).update(status=ActionItem.Status.DONE, resolved_at=timezone.now())
+    return script
+
+
 # --------------------------------------------------------------------------- #
 # Core drafting call — shared by draft_script_for_item and regenerate_script. #
 # --------------------------------------------------------------------------- #
@@ -413,7 +628,14 @@ def _run_skill_and_save(item, prompt_suffix=''):
     The `claude -p` call happens BEFORE the DB transaction opens, so a CLI
     failure leaves nothing half-written — the item simply stays eligible for
     the next run/retry.
+
+    reel_verdict is dispatched to _run_verdict_and_save instead — a genuinely
+    different shape (two skills, structured VerdictIntake input instead of
+    context_notes, Read-tool access) rather than a variant of this function.
     """
+    if item.content_type == _VERDICT_CONTENT_TYPE:
+        return _run_verdict_and_save(item, prompt_suffix=prompt_suffix)
+
     if item.content_type not in _SKILL_MAP:
         raise RuntimeError(f'No skill mapped for content_type={item.content_type!r}')
     if not shutil.which(settings.CLAUDE_CLI_BIN):
@@ -450,41 +672,86 @@ def _run_skill_and_save(item, prompt_suffix=''):
     )
     structured = _parse_generic_structured(text) if item.content_type in _GENERIC_CONTENT_TYPES else {}
 
-    with transaction.atomic():
-        next_version = (item.scripts.aggregate(Max('version'))['version__max'] or 0) + 1
-        script = Script.objects.create(
-            plan_item=item,
-            skill_used=skill_used,
-            raw_output=text,
-            structured_json=structured,
-            recap_summary=recap_summary,
-            version=next_version,
-            status=Script.Status.NEEDS_REVIEW,
-        )
-        item.status = PlanItem.Status.NEEDS_APPROVAL
-        item.save(update_fields=['status', 'updated_at'])
-        ActionItem.objects.get_or_create(
-            plan_item=item, kind=ActionItem.Kind.SCRIPT_REVIEW, status=ActionItem.Status.OPEN,
-            defaults={
-                'title': f'Review script: {item.working_title}',
-                'description': f'The Copywriter Agent drafted v{next_version} via {skill_used}.',
-                'due_date': item.planned_date,
-            },
-        )
-        # Self-heal (see due_plan_items' docstring): a successful draft means
-        # whatever previously blocked this item (if it ever was NEEDS_INPUT)
-        # no longer applies — close out the now-moot INPUT_NEEDED item rather
-        # than leaving it open forever alongside a fresh SCRIPT_REVIEW one.
-        ActionItem.objects.filter(
-            plan_item=item, kind=ActionItem.Kind.INPUT_NEEDED, status=ActionItem.Status.OPEN,
-        ).update(status=ActionItem.Status.DONE, resolved_at=timezone.now())
-    return script
+    return _persist_script(item, skill_used, text, structured_json=structured, recap_summary=recap_summary)
+
+
+def _run_verdict_and_save(item, prompt_suffix=''):
+    """reel_verdict's dispatch — food-quality-analyst-in-varthaai-verdict-
+    script (see module-level comment above _VERDICT_CONTENT_TYPE): both
+    skills' text as system_prompt, Read+WebSearch+WebFetch tools, structured
+    VerdictIntake data as the user prompt instead of context_notes. Same
+    raise-on-failure contract as _run_skill_and_save — including when the
+    intake itself is missing/incomplete, so run_daily's per-item try/except
+    counts it as a failure if somehow reached without going through
+    _is_ready first (defensive; _is_ready is the actual gate in practice)."""
+    if not shutil.which(settings.CLAUDE_CLI_BIN):
+        raise RuntimeError(f'claude CLI not found on PATH ({settings.CLAUDE_CLI_BIN!r})')
+
+    try:
+        intake = item.verdict_intake
+    except VerdictIntake.DoesNotExist:
+        raise RuntimeError('No VerdictIntake submitted for this item yet.')
+    missing = _verdict_intake_missing_fields(intake)
+    if missing:
+        raise RuntimeError(f'VerdictIntake is incomplete — missing: {", ".join(missing)}.')
+
+    system_prompt = _load_verdict_system_prompt()
+    prompt = build_verdict_prompt(item, intake)
+    if prompt_suffix:
+        prompt = f'{prompt}\n\n{prompt_suffix}'
+
+    result = run_claude_cli(
+        prompt,
+        system_prompt=system_prompt,
+        allowed_tools=_VERDICT_ALLOWED_TOOLS,
+        disallowed_tools=_VERDICT_DISALLOWED_TOOLS,
+        model=settings.CONTENT_TEXT_MODEL,
+        # food-quality-analyst's own research workflow is many web_search/
+        # web_fetch/Read calls before it ever writes a word — no max_turns
+        # cap (same as every other dispatch in this module, which also
+        # leaves it unset); do not add one without re-reading that skill.
+    )
+    if result.get('is_error'):
+        raise RuntimeError(
+            f'verdict generation failed (subtype={result.get("subtype")}): '
+            f'{result.get("text") or "(no text)"}')
+    text = (result.get('text') or '').strip()
+    if not text:
+        raise RuntimeError('verdict generation returned no text')
+
+    structured = _extract_last_json_block(text)
+    return _persist_script(item, _VERDICT_SKILL_USED, text, structured_json=structured)
 
 
 def draft_script_for_item(item):
     """Draft a first (or next) Script version for a PlanItem already past the
     input-readiness check. See _run_skill_and_save for the failure contract."""
     return _run_skill_and_save(item)
+
+
+def draft_now(item):
+    """
+    Manual "Draft Script" trigger (content-generator-plan.md §24) — an admin
+    explicitly asking to draft THIS item right now, regardless of its
+    series' prep_lead_days window (that gate only exists to keep the
+    automated daily sweep from drafting weeks early; it has no reason to
+    block a deliberate manual request the same way POSTER_LEAD_DAYS
+    doesn't block designer.regenerate_poster).
+
+    Still runs the input-readiness check (_is_ready) — bypassing the DATE
+    gate is a reasonable override; bypassing the "is there actually enough
+    input to draft from" gate is not, that would just produce a bad script.
+    On a readiness failure, files the same INPUT_NEEDED ActionItem the
+    automated path would (_file_input_needed) and raises with the same
+    reason, so the caller surfaces one consistent message either way.
+
+    Raises on failure — same contract as draft_script_for_item.
+    """
+    ready, reason = _is_ready(item)
+    if not ready:
+        _file_input_needed(item, reason)
+        raise RuntimeError(reason)
+    return draft_script_for_item(item)
 
 
 def regenerate_script(script_or_plan_item, instruction=''):
@@ -533,7 +800,7 @@ def run_daily(brand=None):
     drafted = needs_input = failed = skipped = 0
 
     for item in due_plan_items(brand=brand):
-        if item.content_type not in _SKILL_MAP:
+        if item.content_type not in _SKILL_MAP and item.content_type != _VERDICT_CONTENT_TYPE:
             logger.warning(
                 'copywriter: no skill mapped for content_type=%r (plan_item=%s) — skipping',
                 item.content_type, item.id)

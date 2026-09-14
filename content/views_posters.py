@@ -30,7 +30,7 @@ from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
 
 from content.agents import designer
-from content.models import ActionItem, PosterAsset, PosterInspiration
+from content.models import ActionItem, PlanItem, PosterAsset, PosterInspiration
 
 
 @admin_login_required
@@ -106,6 +106,11 @@ class PostersAPI(APIView):
     POST action=retry           -> same as regenerate but for a specifically
                                     FAILED attempt (image is None), no
                                     instruction needed from the admin.
+    POST action=generate        -> `plan_item_id` instead of `id` — creates
+                                    the FIRST PosterAsset for an item that
+                                    has none yet (content-generator-plan.md
+                                    §24's manual trigger; requires an
+                                    APPROVED Script, same as `regenerate`).
     """
     permission_classes = [HasModulePermission]
     permission_module = 'content_posters'
@@ -138,6 +143,9 @@ class PostersAPI(APIView):
         brand_id = current_brand_id(request)
         action = request.data.get('action')
 
+        if action == 'generate':
+            return self._generate(request, brand_id)
+
         try:
             poster_id = int(request.data.get('id') or 0)
         except (TypeError, ValueError):
@@ -157,6 +165,22 @@ class PostersAPI(APIView):
         if action == 'retry':
             return self._retry(poster)
         return err('Unknown action.')
+
+    def _generate(self, request, brand_id):
+        try:
+            item = PlanItem.objects.select_related('plan__brand').get(
+                id=int(request.data.get('plan_item_id') or 0), plan__brand_id=brand_id)
+        except (PlanItem.DoesNotExist, TypeError, ValueError):
+            return err('Plan item not found.', status=404)
+        if item.posters.exists():
+            return err('This item already has a poster — use Regenerate on it instead.')
+        try:
+            poster = designer.regenerate_poster(item)
+        except Exception as exc:
+            return err(f'Poster generation failed: {exc}')
+        return ok({
+            'id': poster.id, 'version': poster.version, 'status': poster.status,
+        }, message='Poster generated — review it below.')
 
     def _approve(self, poster, user):
         if not _is_latest_version(poster):

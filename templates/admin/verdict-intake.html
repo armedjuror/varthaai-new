@@ -1,0 +1,179 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Verdict Intake — Varthaai Admin{% endblock %}
+
+{% block content %}
+
+<div class="page-body">
+
+  <div class="page-header">
+    <div>
+      <h1>Varthaai Verdict — Product Intake</h1>
+      <p id="intakeSubtitle">Loading…</p>
+    </div>
+    <div class="page-header-actions">
+      <a href="{% url 'content:tasks' %}" class="btn btn-outline-secondary btn-sm">
+        <i class="fas fa-arrow-left me-1"></i>Back to Pending Tasks
+      </a>
+    </div>
+  </div>
+
+  <div class="alert alert-secondary" style="font-size:0.82rem">
+    <i class="fas fa-lock me-1"></i>
+    The product name below is <strong>internal only</strong> — it is never spoken on
+    camera or shown publicly. Save partial progress any time; the Copywriter Agent
+    only drafts the episode once every field below is filled in (either a photo or
+    typed text for ingredients/nutrition).
+  </div>
+
+  <form id="intakeForm" class="data-card" style="padding:24px">
+    <div class="row g-4">
+
+      <div class="col-md-6">
+        <label class="form-label">Product name (internal only) <span class="text-danger">*</span></label>
+        <input type="text" class="form-control" name="product_name" placeholder="e.g. Competitor X — Classic 150g">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Category</label>
+        <input type="text" class="form-control" name="product_category" placeholder="e.g. banana chips">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Market</label>
+        <input type="text" class="form-control" name="market" placeholder="India">
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label">Price point</label>
+        <input type="text" class="form-control" name="price_point" placeholder="e.g. ₹50 for 100g">
+      </div>
+      <div class="col-md-8">
+        <label class="form-label">Product photo (reference only, not analyzed)</label>
+        <input type="file" class="form-control" name="product_photo" accept="image/*">
+        <img id="productPhotoPreview" class="intake-preview" style="display:none">
+      </div>
+
+      <div class="col-12"><hr></div>
+
+      <div class="col-md-6">
+        <label class="form-label">Design score <span class="text-danger">*</span></label>
+        <input type="number" min="1" max="10" class="form-control" name="design_score" style="max-width:120px">
+      </div>
+      <div class="col-md-6"></div>
+      <div class="col-12">
+        <label class="form-label">Design notes <span class="text-danger">*</span></label>
+        <textarea class="form-control" name="design_notes" rows="2" placeholder="Your honest read on the packaging — don't hold back."></textarea>
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label">Pricing score <span class="text-danger">*</span></label>
+        <input type="number" min="1" max="10" class="form-control" name="pricing_score" style="max-width:120px">
+      </div>
+      <div class="col-md-6"></div>
+      <div class="col-12">
+        <label class="form-label">Pricing notes <span class="text-danger">*</span></label>
+        <textarea class="form-control" name="pricing_notes" rows="2" placeholder="Is it worth the price for what you get?"></textarea>
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label">Taste score <span class="text-danger">*</span></label>
+        <input type="number" min="1" max="10" class="form-control" name="taste_score" style="max-width:120px">
+      </div>
+      <div class="col-md-6"></div>
+      <div class="col-12">
+        <label class="form-label">Taste notes <span class="text-danger">*</span></label>
+        <textarea class="form-control" name="taste_notes" rows="2" placeholder="What it actually tastes like."></textarea>
+      </div>
+
+      <div class="col-12"><hr></div>
+
+      <div class="col-md-6">
+        <label class="form-label">Ingredients label photo</label>
+        <input type="file" class="form-control" name="ingredients_label_photo" accept="image/*">
+        <img id="ingredientsPhotoPreview" class="intake-preview" style="display:none">
+        <label class="form-label mt-2">…or type the ingredients list</label>
+        <textarea class="form-control" name="ingredients_text" rows="3" placeholder="As printed, in order — needed only if no photo is attached."></textarea>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Nutrition facts label photo</label>
+        <input type="file" class="form-control" name="nutrition_label_photo" accept="image/*">
+        <img id="nutritionPhotoPreview" class="intake-preview" style="display:none">
+        <label class="form-label mt-2">…or type the nutrition facts</label>
+        <textarea class="form-control" name="nutrition_text" rows="3" placeholder="Per serving and/or per 100g, as printed — needed only if no photo is attached."></textarea>
+      </div>
+
+    </div>
+
+    <div class="mt-4 d-flex align-items-center gap-2">
+      <button type="submit" class="btn btn-primary"><i class="fas fa-floppy-disk me-1"></i>Save Intake</button>
+      <span id="intakeSavedNote" class="text-muted" style="font-size:0.8rem;display:none"></span>
+    </div>
+  </form>
+
+</div><!-- /.page-body -->
+
+{% endblock %}
+
+{% block extra_js %}
+<style>
+  .intake-preview { display:block; margin-top:8px; max-height:120px; border-radius:8px; border:1px solid var(--gray-200); }
+</style>
+<script>
+  const PLAN_ITEM_ID = {{ plan_item_id }};
+  const PHOTO_FIELDS = [
+    ['product_photo', 'productPhotoPreview'],
+    ['ingredients_label_photo', 'ingredientsPhotoPreview'],
+    ['nutrition_label_photo', 'nutritionPhotoPreview'],
+  ];
+
+  async function loadIntake() {
+    const res = await apiGet('/admin/api/content/verdict/intake/' + PLAN_ITEM_ID + '/');
+    if (!res.success) { showAlertModal(res.message, 'error'); return; }
+    const d = res.data;
+    document.getElementById('intakeSubtitle').textContent =
+      d.working_title + ' — ' + formatDate(d.planned_date) + ' (' + d.plan_item_status + ')';
+
+    const form = document.getElementById('intakeForm');
+    ['product_name', 'product_category', 'market', 'price_point',
+     'design_notes', 'pricing_notes', 'taste_notes', 'ingredients_text', 'nutrition_text',
+     'design_score', 'pricing_score', 'taste_score'].forEach(function (f) {
+      if (d[f] !== null && d[f] !== undefined) form[f].value = d[f];
+    });
+
+    PHOTO_FIELDS.forEach(function (pair) {
+      const url = d[pair[0] + '_url'];
+      const img = document.getElementById(pair[1]);
+      if (url) { img.src = url; img.style.display = ''; }
+    });
+
+    if (d.submitted_at) {
+      const note = document.getElementById('intakeSavedNote');
+      note.style.display = '';
+      note.textContent = 'Last saved ' + formatDateTime(d.submitted_at);
+    }
+  }
+
+  document.getElementById('intakeForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const form = e.target;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    const formData = new FormData(form);
+    // Empty file inputs still append an empty File entry in some browsers —
+    // strip those so the backend's "only overwrite if a new file is
+    // actually included" check (request.FILES.get) isn't tripped by a
+    // zero-byte phantom upload on every re-save.
+    PHOTO_FIELDS.forEach(function (pair) {
+      const file = formData.get(pair[0]);
+      if (file instanceof File && file.size === 0 && file.name === '') formData.delete(pair[0]);
+    });
+    const res = await apiPostForm('/admin/api/content/verdict/intake/' + PLAN_ITEM_ID + '/', formData);
+    submitBtn.disabled = false;
+    if (!res.success) { showAlertModal(res.message, 'error'); return; }
+    showAlertModal('Saved.', 'success');
+    loadIntake();
+  });
+
+  loadIntake();
+</script>
+{% endblock %}

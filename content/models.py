@@ -327,6 +327,61 @@ class PosterAsset(models.Model):
         return f'{self.plan_item.working_title} poster v{self.version}'
 
 
+class VerdictIntake(models.Model):
+    """The rich input a Varthaai Verdict episode needs before the Copywriter
+    can draft it (content-generator-plan.md §5: "the richest ActionItem
+    case", §1: "a physically bought, tasted, photographed competitor
+    product; ingredients + nutrition label; Ajwad's Design/Pricing/Taste
+    notes + scores"). One row per PlanItem — filled in once via the intake
+    form, then read by copywriter.py's reel_verdict dispatch.
+
+    `product_name` is internal-only and must never reach a public-facing
+    field or template — the reel films with the brand hidden (varthaai-
+    verdict-script skill's own confidentiality rule, restated in the Brand
+    Kit per content-generator-plan.md §2)."""
+
+    plan_item = models.OneToOneField(PlanItem, on_delete=models.CASCADE, related_name='verdict_intake')
+
+    product_name = models.CharField(max_length=255, blank=True)
+    product_category = models.CharField(max_length=100, blank=True)
+    market = models.CharField(max_length=100, blank=True, default='India')
+    price_point = models.CharField(max_length=100, blank=True)
+
+    # Reference only — not fed to the food-quality-analyst call (that skill
+    # analyzes the ingredients/nutrition labels specifically, not a general
+    # product photo). Kept for Ajwad's own record and the History page.
+    product_photo = models.ImageField(upload_to='content/verdict/', blank=True)
+
+    # Either the photo OR the typed text is enough for each of these two —
+    # the readiness check (copywriter._verdict_intake_missing_fields)
+    # accepts whichever is present, never both.
+    ingredients_label_photo = models.ImageField(upload_to='content/verdict/', blank=True)
+    ingredients_text = models.TextField(blank=True)
+    nutrition_label_photo = models.ImageField(upload_to='content/verdict/', blank=True)
+    nutrition_text = models.TextField(blank=True)
+
+    design_score = models.PositiveSmallIntegerField(null=True, blank=True)
+    design_notes = models.TextField(blank=True)
+    pricing_score = models.PositiveSmallIntegerField(null=True, blank=True)
+    pricing_notes = models.TextField(blank=True)
+    taste_score = models.PositiveSmallIntegerField(null=True, blank=True)
+    taste_notes = models.TextField(blank=True)
+
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'verdict_intakes'
+
+    def __str__(self):
+        return f'Verdict intake — {self.plan_item.working_title}'
+
+
 class ActionItem(models.Model):
     """The Pending Tasks queue (§5) — every "input needed" and "needs your
     review" event resolves to one row here, so the dashboard is one query."""

@@ -101,7 +101,7 @@
     </a>
     {% endif %}
 
-    {% if 'content_dashboard' in nav_perms or 'content_calendar' in nav_perms or 'content_tasks' in nav_perms or 'content_scripts' in nav_perms or 'content_posters' in nav_perms %}
+    {% if 'content_dashboard' in nav_perms or 'content_calendar' in nav_perms or 'content_tasks' in nav_perms or 'content_scripts' in nav_perms or 'content_posters' in nav_perms or 'content_verdict' in nav_perms %}
     <p class="nav-section-label" style="margin-top:12px">Marketing</p>
 
     {% if 'content_dashboard' in nav_perms %}
@@ -129,6 +129,13 @@
     <a href="{% url 'content:content_posters' %}" class="nav-item{% if url_name == 'content_posters' %} active{% endif %}">
       <i class="fas fa-image"></i>
       <span>Posters</span>
+    </a>
+    {% endif %}
+
+    {% if 'content_verdict' in nav_perms %}
+    <a href="{% url 'content:verdict_history' %}" class="nav-item{% if url_name == 'verdict_history' %} active{% endif %}">
+      <i class="fas fa-scale-balanced"></i>
+      <span>Verdict History</span>
     </a>
     {% endif %}
 

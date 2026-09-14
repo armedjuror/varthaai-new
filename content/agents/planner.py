@@ -103,7 +103,8 @@ What "specific" means per content_type:
 - reel_inside (interview with Saad, alternate Mondays): write 2-3 SPECIFIC interview questions tied to one real theme (sourcing, quality control, a recent operational decision) — not "behind the scenes." Bad: "Ask about daily operations." Good: "Ask Saad: How do we test a new banana supplier before committing? What's the biggest mistake we made in year one of sourcing?"
 - poster_learn (teaching a word/phrase, currently Kannada): name the EXACT word or phrase being taught, its meaning, and how it's used — not "an educational angle." Bad: "Teach a food-related word." Good: "Teach the Kannada word 'ರುಚಿ' (ruchi) — meaning 'taste', used to compliment food, e.g. 'ತುಂಬಾ ರುಚಿ' (very tasty)."
 - poster_occasion / poster_event: name the specific occasion/event AND the specific angle tying it to the brand — commit even if the exact date is approximate, don't hedge with "if X doesn't fall here, do Y instead."
-- blog: state one specific thesis/claim/story the post argues or tells — not a generic topic category. Bad: "Write about seasonal eating." Good: "Write about why banana chips are a smarter monsoon snack than fried alternatives — shelf life, oil absorption, and how Varthaai's packaging keeps them crisp in humidity."."""
+- blog: state one specific thesis/claim/story the post argues or tells — not a generic topic category. Bad: "Write about seasonal eating." Good: "Write about why banana chips are a smarter monsoon snack than fried alternatives — shelf life, oil absorption, and how Varthaai's packaging keeps them crisp in humidity."
+- reel_verdict (blind competitor snack review — Ajwad buys/tastes/photographs a real competitor product): you do NOT know which product this will be — that's Ajwad's own real-world purchase decision, supplied later through a dedicated intake form (product photo, ingredient/nutrition labels, Design/Pricing/Taste scores), never through context_notes. Reserve the slot with a placeholder: working_title exactly "Varthaai Verdict — <date>" and context_notes exactly "Awaiting product selection and intake from Ajwad (photos, scores) — do not draft until submitted." NEVER invent a competitor product, brand name, or score for this content_type."""
 
 
 def build_planner_prompt(plan):
@@ -125,16 +126,16 @@ Recent post history (last ~90 days, for continuity/variety — don't repeat the 
 Manually flagged trends/topics to consider weaving in (may be empty):
 {_trend_context()}
 
-Task: propose the content plan for the recurring series above across the planning period, honoring each series' weekday/cadence exactly (skip a slot only if it falls outside the period). Also propose occasion posters for any real festivals, national/regional (Kerala/Karnataka) observances, or notable days that fall within the period and suit a food brand — do not invent a holiday that doesn't exist. Do NOT propose anything for the Varthaai Verdict series even though it's an active series — that series is intentionally excluded from planning for now (it will be turned on in a later phase).
+Task: propose the content plan for the recurring series above across the planning period, honoring each series' weekday/cadence exactly (skip a slot only if it falls outside the period) — this INCLUDES reel_verdict (Varthaai Verdict), reserved as a placeholder slot per the reel_verdict rule below, never left off the calendar. Also propose occasion posters for any real festivals, national/regional (Kerala/Karnataka) observances, or notable days that fall within the period and suit a food brand — do not invent a holiday that doesn't exist.
 
 Respond with ONLY a JSON array, no other text, of objects with exactly these keys:
-{{"planned_date": "YYYY-MM-DD", "series_slug": "<slug from the list above, or null for occasion/event posters not tied to a series>", "content_type": "<one of: reel_varthaanm, reel_inside, poster_learn, poster_occasion, poster_event, blog>", "working_title": "short internal working title, not the final caption", "context_notes": "a concrete, ready-to-write brief — see rules below"}}
+{{"planned_date": "YYYY-MM-DD", "series_slug": "<slug from the list above, or null for occasion/event posters not tied to a series>", "content_type": "<one of: reel_varthaanm, reel_inside, reel_verdict, poster_learn, poster_occasion, poster_event, blog>", "working_title": "short internal working title, not the final caption", "context_notes": "a concrete, ready-to-write brief — see rules below"}}
 
 {_CONTEXT_NOTES_GUIDANCE}
 
 Rules:
 - Every planned_date must fall within the planning period given above.
-- Never propose content_type "reel_verdict"."""
+- For reel_verdict specifically: working_title/context_notes must be EXACTLY the placeholder text given in the reel_verdict rule above — no exceptions, no invented product."""
 
 
 def build_regenerate_item_prompt(item, instruction=''):
@@ -222,8 +223,6 @@ def generate_plan(plan):
         if not (planned_date and content_type and working_title):
             logger.warning('planner: skipping malformed proposed item: %r', item)
             continue
-        if content_type == ContentSeries.ContentType.REEL_VERDICT:
-            continue  # Verdict is deliberately excluded from planning for now.
         if content_type not in ContentSeries.ContentType.values:
             logger.warning('planner: skipping unknown content_type: %r', item)
             continue
@@ -235,13 +234,24 @@ def generate_plan(plan):
         existing_keys.add(key)
 
         series = series_by_slug.get(item.get('series_slug') or '')
+        context_notes = item.get('context_notes') or ''
+        if content_type == ContentSeries.ContentType.REEL_VERDICT:
+            # Defense in depth for the "never invent a competitor product"
+            # rule (build_planner_prompt's reel_verdict instructions) — force
+            # the exact placeholder regardless of what the model actually
+            # wrote, rather than trusting it followed instructions.
+            working_title = f'Varthaai Verdict — {planned_date.isoformat()}'
+            context_notes = (
+                'Awaiting product selection and intake from Ajwad '
+                '(photos, scores) — do not draft until submitted.'
+            )
         PlanItem.objects.create(
             plan=plan,
             series=series,
             content_type=content_type,
             planned_date=planned_date,
             working_title=working_title[:255],
-            context_notes=item.get('context_notes') or '',
+            context_notes=context_notes,
         )
         created += 1
 

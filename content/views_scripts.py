@@ -95,8 +95,17 @@ class ScriptsAPI(APIView):
         return ok({'items': [_script_list_dict(s) for s in qs]})
 
     def post(self, request):
+        """action=draft|approve|request_changes|regenerate. `draft` is the
+        one action that takes `plan_item_id` instead of `script_id` — it
+        creates the FIRST Script for an item that has none yet (content-
+        generator-plan.md §24's manual trigger); every other action reviews
+        an EXISTING Script."""
         brand_id = current_brand_id(request)
         action = request.data.get('action')
+
+        if action == 'draft':
+            return self._draft(request, brand_id)
+
         try:
             script = Script.objects.select_related('plan_item', 'plan_item__plan').get(
                 id=int(request.data.get('script_id') or 0), plan_item__plan__brand_id=brand_id)
@@ -110,6 +119,20 @@ class ScriptsAPI(APIView):
         if action == 'regenerate':
             return self._regenerate(script, request)
         return err('Unknown action.')
+
+    def _draft(self, request, brand_id):
+        try:
+            item = PlanItem.objects.select_related('plan').get(
+                id=int(request.data.get('plan_item_id') or 0), plan__brand_id=brand_id)
+        except (PlanItem.DoesNotExist, TypeError, ValueError):
+            return err('Plan item not found.', status=404)
+        if item.scripts.exists():
+            return err('This item already has a script — use Regenerate on it instead.')
+        try:
+            script = copywriter.draft_now(item)
+        except Exception as exc:
+            return err(f'Draft failed: {exc}')
+        return ok(_script_detail_dict(script), message='Script drafted — review it below.')
 
     def _latest_version(self, plan_item):
         return plan_item.scripts.aggregate(Max('version'))['version__max']

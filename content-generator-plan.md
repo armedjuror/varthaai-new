@@ -1566,3 +1566,270 @@ Posters) added to `templates/admin/base.html`'s Marketing section.
 Verified: `manage.py check` clean (the namespace warning gone after the
 `urls.py` fix), all seven new/existing `content:*` url names reverse
 correctly, full project test suite re-run after every integration edit.
+
+---
+
+## 25. Phase 5 — Varthaai Verdict
+
+Triggered by: "start phase 5 Varthaai Verdict." The flagship series —
+launched 23 Sept, per §1's build-order note — was still fully manual: the
+Planner hard-excluded `reel_verdict` from every plan it generated, and no
+code dispatched `varthaai-verdict-script` at all. This section wires it up:
+Verdict slots now get reserved on the calendar automatically, a rich
+file-upload intake form collects what only Ajwad can supply (a physically
+bought/tasted/photographed competitor product), and the Copywriter runs
+`varthaai-verdict-script` — which itself invokes `food-quality-analyst` —
+in one headless session once that intake is complete.
+
+### The one real design decision: how "invoke a skill from a skill" works headless
+
+`varthaai-verdict-script`'s Step 1 is "Invoke the food-quality-analyst
+skill" — meaningful in an interactive Claude.ai session where skill
+invocation is a first-class action, meaningless as written for a single
+`claude -p` call with one `system_prompt`. Resolved by concatenating BOTH
+skills' full text (frontmatter stripped, same as every other dispatch) plus
+food-quality-analyst's two reference docs (`regulatory-sources.md`,
+`scoring-rubric.md` — only 176 lines combined, inlined rather than granting
+filesystem access to them) into one `system_prompt`
+(`copywriter._load_verdict_system_prompt`), so the model has everything
+food-quality-analyst's own Step 1 tells it to check, in the same session,
+without any tool-mediated cross-skill call.
+
+### `VerdictIntake` — the richest ActionItem (§5)
+
+New model (migration `0008`), one row per `PlanItem`: `product_name`
+(internal-only, never public — the reel films with the brand hidden),
+category/market/price_point, three score+notes pairs (Design/Pricing/
+Taste, Ajwad's own judgment), and two label fields that each accept EITHER
+a photo OR typed text (`ingredients_label_photo`/`ingredients_text`,
+`nutrition_label_photo`/`nutrition_text`) — never both required.
+`content/agents/copywriter._verdict_intake_missing_fields` is the single
+completeness check, reused by both the readiness gate and (implicitly) the
+intake form's own "what's still missing" framing.
+
+### Dispatch — `content/agents/copywriter.py`
+
+- `due_plan_items()` — the `reel_verdict` exclusion is gone; it goes
+  through the identical plan/item-approval + prep-deadline gate as every
+  other content_type. `run_daily_nudge`'s exclusion (planner.py) was
+  deliberately KEPT — nudging a verdict slot on a flagged trend is
+  meaningless, its content comes from Ajwad's intake, not a Planner angle.
+- `_is_ready()` gained a `reel_verdict` branch: no `VerdictIntake` row at
+  all → "no product intake submitted yet"; an incomplete one → names
+  exactly which fields are still missing. Both file the same
+  `INPUT_NEEDED` `ActionItem` the generic path already uses — self-healing
+  applies here too (§4's fix): once the intake is completed, the very next
+  Copywriter run drafts it.
+- `_run_verdict_and_save()` — the actual dispatch: `_load_verdict_system_prompt()`
+  as `system_prompt`, `build_verdict_prompt()` (structured intake data, not
+  context_notes — Verdict's real brief is Ajwad's scores/notes, not
+  anything the Planner writes) as the prompt, tools
+  `allowed_tools=['Read', 'WebSearch', 'WebFetch']` — Read is new here,
+  reusing the exact "grant Read, prompt for the absolute path" pattern
+  already proven in `ingest_poster_inspirations.py`'s `_caption()`, so the
+  model reads the actual label photos off disk rather than working from a
+  typed description of them. No `max_turns` cap — food-quality-analyst's
+  research workflow is many web_search/web_fetch/Read calls before it
+  writes a word.
+- `_extract_last_json_block()` — `varthaai-verdict-script`'s output has
+  THREE sections (talking-point sheet, sheet-row line, JSON block); the
+  existing `strip_code_fence` (built for a single-fenced-block response)
+  doesn't apply. Takes the LAST ` ```json ` fenced block in the text (the
+  skill's own Step 5 always produces it last), falling back through earlier
+  blocks if the last one fails to parse, `{}` if nothing does — never
+  raises, so a malformed response still leaves a reviewable `Script`
+  (`raw_output` has everything) rather than losing the draft.
+- `_persist_script()` (shared by every content_type, not verdict-specific)
+  gained a connection-health check — see "A real bug this surfaced" below.
+
+### Planner — `content/agents/planner.py`
+
+`reel_verdict` is no longer excluded from `build_planner_prompt`/
+`generate_plan`; instead it's given an explicit rule: propose Wednesday
+slots per the series' normal cadence, but working_title/context_notes must
+be the EXACT placeholder text ("Varthaai Verdict — <date>" /
+"Awaiting product selection and intake from Ajwad…") — never an invented
+product. **Defense in depth**: `generate_plan` doesn't just instruct this
+and trust the model — it force-overwrites whatever the model actually
+returned for any `reel_verdict` item with the exact placeholder,
+regardless of content, so a model that ignores the instruction (verified
+live with a deliberately misbehaving mocked response — see Verification)
+still can't leak an invented competitor name onto the calendar.
+
+### Intake form + Verdict History — `content/views_verdict.py` (new file)
+
+- `VerdictIntakeAPI` (multipart, `MultiPartParser`/`FormParser`) at
+  `/admin/content/verdict/intake/<plan_item_id>/` — GET current state (or
+  an empty shape), POST partial-or-full saves. Deliberately NOT gated on
+  completeness at save time (that's `_is_ready`'s job) — Ajwad should be
+  able to save progress mid-form. A file field is only overwritten when a
+  NEW file is actually present in the request, so a partial re-save (e.g.
+  just fixing a typo in `product_name`) never wipes an already-uploaded
+  label photo.
+- `VerdictHistoryAPI` at `/admin/content/verdict/history/` — one row per
+  `PlanItem`, its LATEST-version `Script` (any status). Reads
+  `Script.structured_json` as the source of truth for every scored field
+  (product name included) rather than `VerdictIntake` — a regenerated
+  script's numbers are what's actually current, not the input that
+  produced an earlier draft. `content_verdict` added to `NAV_MODULES` +
+  a "Verdict History" sidebar link; the intake form itself has no nav
+  entry (reached only via Pending Tasks' deep link, matching §12's
+  "input-needed → intake form" spec) — `content-tasks.html`'s `taskUrl()`
+  now special-cases `input_needed` + `content_type == 'reel_verdict'` to
+  route there instead of the Content Calendar.
+
+### A real bug this surfaced: stale DB connections across long external calls
+
+Live-verifying the Verdict path (food-quality-analyst's web research
+genuinely takes minutes, not seconds) hit
+`psycopg.OperationalError: consuming input failed: SSL error: unexpected
+eof while reading` on the very next DB write after the `claude -p` call
+returned — the connection to this project's remote Neon Postgres had gone
+idle-stale during the multi-minute subprocess wait. Not hypothetical: this
+is exactly what a real `run_copywriter_daily` sweep would hit in
+production once a `reel_verdict` item is due.
+
+First fix attempt (`close_old_connections()`) was wrong and proved it live:
+this project's `CONN_MAX_AGE` is Django's default `0`, which makes
+`close_old_connections()` treat EVERY connection as "obsolete" and close it
+unconditionally — harmless in a real request/task (Django reopens on next
+query), but it broke a `TestCase`-wrapped live test on the very next run
+(closed the TestCase's shared savepoint connection with no way for the
+wrapper to reopen it — `OperationalError: the connection is closed`, a
+*worse* failure than the one it was meant to fix). Corrected to a genuine
+health check: `if not connection.is_usable(): connection.close()` in
+`_persist_script` (shared by every content_type's dispatch, not just
+Verdict's) — only intervenes when the connection is actually dead, a
+no-op on a healthy one, verified to fix the live Verdict path and to leave
+the previously-flaky `TestCase` live test passing cleanly on retry.
+
+### Verified live (not just mocked)
+
+- **Full pipeline, real data**: a synthetic label photo (Pillow-generated,
+  with known text INCLUDING a deliberately-fake, sequentially-numbered
+  FSSAI license number) run through `draft_script_for_item` — the model
+  genuinely read the photo via the Read tool (transcribed "Raw Banana, Palm
+  Oil, Salt, Turmeric Powder (INS 100)" correctly), ran real regulatory web
+  research (cited FSSAI, flagged the fake license number's suspicious
+  sequential pattern as likely placeholder data rather than trusting it),
+  correctly folded the food-quality-analyst findings into a condensed
+  Ingredients & Nutrition verdict, combined it with the given Design/
+  Pricing/Taste scores into a `final_score` of 6.3 (average of
+  6/6/7/6.0, rounded to one decimal — matches the skill's own formula),
+  and set `controversial: true` on the transparency finding rather than
+  silently smoothing it. `structured_json` parsed correctly;
+  `PlanItem.status` → `needs_approval`; the Verdict History aggregation
+  (`_history_row`) round-tripped the same data correctly. Disposable
+  brand/intake/media deleted after.
+- **Planner placeholder slots, real call**: `generate_plan` against a real
+  2-week period produced two `reel_verdict` items, both on Wednesdays
+  (2026-09-16 and 2026-09-23 — the real launch date), both with the exact
+  required placeholder text, no invented product.
+- **Defense-in-depth, mocked adversarial input**: a mocked Planner response
+  that DID invent a product name/angle for `reel_verdict` was still forced
+  back to the exact placeholder by `generate_plan`'s own code, not the
+  model's good behavior.
+- 30 tests in `content/tests_verdict.py` (intake completeness, the
+  `_is_ready` branch, JSON extraction edge cases including a malformed
+  final block falling back to an earlier valid one, the dual-skill dispatch
+  call arguments — asserted directly on `system_prompt`/`allowed_tools`,
+  not just the persisted result — intake API multipart save/partial-resave/
+  cross-brand/wrong-content-type, history aggregation and brand scoping)
+  plus one updated `tests_copywriter.py` test that previously asserted the
+  now-removed exclusion. Full `content` app suite: 117/117 passing.
+
+### Not done (deferred, not blocking)
+
+- No manual "trigger Verdict draft now" button was added as part of this
+  section — the self-healing `due_plan_items` gate (§4) already picks up a
+  freshly-completed intake on the next scheduled sweep; a same-turn manual
+  trigger for Scripts/Posters was added separately (see the codebase's
+  current state — built alongside this work, not by this section).
+- Regulatory-research *quality* (whether the specific FSSAI citations are
+  actually correct, whether `fssai.gov.in`'s automated-fetch block degrades
+  gracefully to `WebSearch` as the skill specifies) was not independently
+  fact-checked — verified live that the mechanism fires (Read reads the
+  real photo, WebSearch/WebFetch actually run, JSON parses), not that
+  every regulatory claim in a given response is correct. That's a
+  domain-expertise review, not something re-verifiable from this
+  environment.
+
+---
+
+## 26. Manual "Draft Script" / "Generate Poster" triggers
+
+Triggered by: "How can I generate content and poster for a plan item" —
+investigation found that, despite Phase 2/3's full daily-sweep
+infrastructure (§24) landing, there genuinely was no manual per-item
+trigger anywhere in the API/UI at the time this question was asked
+(§25's "Not done" note above anticipates this work but nothing in
+`content/views_scripts.py`/`content/views_posters.py` implemented it —
+confirmed by grep before writing anything). Both `run_copywriter_daily`
+and `run_designer_daily` were correctly wired into `CELERY_BEAT_SCHEDULE`
+(7:00/7:30 AM), but that only fires content once an item falls inside its
+series' lead-time window — no way to force it on demand, and no beat
+process was even running locally to fire the schedule at all.
+
+This is the "single integration pass" §24's parallel-build note flagged
+as needed afterward — touches `content/agents/copywriter.py`,
+`content/views_scripts.py`, `content/views_posters.py`, `content/views.py`,
+and `templates/admin/content-calendar.html`, the exact "do not touch"
+file set §24 reserved for later.
+
+### What changed
+
+- **`copywriter.draft_now(item)`** — new wrapper around
+  `draft_script_for_item`. Bypasses the LEAD-TIME gate (the admin is
+  explicitly asking now) but deliberately keeps the INPUT-READINESS check
+  (`_is_ready`) — forcing a draft from insufficient `context_notes` would
+  just produce a bad script, not a useful override. On failure, files the
+  same `INPUT_NEEDED` `ActionItem` the automated sweep would, so the
+  bookkeeping is identical regardless of which path triggered it.
+- **`ScriptsAPI.post`** gains `action=draft` (takes `plan_item_id`, not
+  `script_id` — the one action that creates rather than reviews). Rejects
+  if the item already has a script ("use Regenerate instead").
+- **`PostersAPI.post`** gains `action=generate` (`plan_item_id`). No new
+  designer.py code needed — `regenerate_poster(plan_item, ...)` already
+  worked standalone for a FIRST poster (only requires an approved Script,
+  never required a pre-existing `PosterAsset`); the gap was purely that
+  the existing `PostersAPI` endpoint required an `id` to already exist.
+  Rejects if a poster already exists, same reasoning as the script guard.
+- **`ContentCalendarAPI.get`** now annotates each item with
+  `has_script`/`has_approved_script`/`has_poster` (via
+  `prefetch_related('scripts', 'posters')`, no extra queries) — drives
+  which action the Calendar page offers next.
+- **`content-calendar.html`**: once a plan is locked (approved), item rows
+  used to show a dead "Locked" badge. Now shows the actual next pipeline
+  step — "Draft Script" (no script yet) → "Awaiting script review" (links
+  to Scripts page) → "Generate Poster" (approved script, poster content
+  type, no poster yet) → "Poster generated" (links to Posters page) →
+  "Script approved" (non-poster types, nothing further to trigger here).
+  A skipped item just shows "Skipped". This is the direct, discoverable
+  answer to the question that started this section.
+
+### Verified live
+
+Built a locked (`APPROVED`) test plan with one real `poster_learn` item
+and a genuine context_notes brief (teaching the Kannada word "ಸಿಹಿ"). Full
+chain, each step a real network call:
+1. `has_script`/`has_approved_script`/`has_poster` all `false` initially.
+2. **Draft Script** → real `learn-with-varthaai-script` skill run, produced
+   a correct, WebSearch-verified Kannada/Malayalam translation pair.
+   `has_script` flipped to `true`.
+3. Approved the script via `ScriptsAPI` → `has_approved_script` flipped to
+   `true`.
+4. **Generate Poster** → real Gemini call, produced a 3.3MB image; the
+   brief text explicitly confirmed it used the **approved copy verbatim**
+   (the Script→Designer contract from §24 working correctly, not just
+   present in the code). `has_poster` flipped to `true`.
+5. Guard rails: drafting on an item with blank `context_notes` correctly
+   failed with the readiness message and filed a real `INPUT_NEEDED`
+   `ActionItem`; drafting on an already-scripted item and generating on an
+   already-postered item were both correctly rejected ("use Regenerate
+   instead").
+
+All test plans/items deleted afterward — a first cleanup attempt that
+tried to bundle verification and deletion in one command was correctly
+blocked by the environment's safety classifier for touching data broadly;
+redone as a separate, explicitly-scoped deletion of only the two test
+plan IDs. `manage.py check` clean.

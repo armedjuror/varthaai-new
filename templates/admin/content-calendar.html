@@ -194,6 +194,10 @@
   .month-chip.st-posted .dot { background:#2563eb; }
 </style>
 <script>
+  const contentScriptsUrl = '{% url "content:content_scripts" %}';
+  const contentPostersUrl = '{% url "content:content_posters" %}';
+  const contentScriptsApiUrl = '{% url "content:content_scripts_api" %}';
+  const contentPostersApiUrl = '{% url "content:content_posters_api" %}';
   const PLAN_STATUS_LABELS = { draft: 'Draft', generating: 'Generating…', needs_review: 'Needs review', approved: 'Approved' };
   // Matches the real ContentSeries.name values from the seed migration
   // (content/migrations/0002_seed_series.py) — not shorthand.
@@ -245,11 +249,41 @@
     '</div>';
   }
 
+  const POSTER_CONTENT_TYPES = ['poster_learn', 'poster_occasion', 'poster_event'];
+
+  // Once a plan is locked (approved), an item's own PLANNING controls
+  // (edit/regenerate/approve/skip) go away — but that's exactly when
+  // drafting the actual content becomes valid (copywriter.due_plan_items
+  // gates on plan.status==APPROVED). Shows the next single actionable step
+  // for the pipeline this item is at, not a dead "Locked" label.
+  function renderPipelineActions(i) {
+    if (i.status === 'skipped') {
+      return '<span class="item-locked-badge"><i class="fas fa-ban me-1"></i>Skipped</span>';
+    }
+    if (!i.has_script) {
+      return '<button class="btn btn-sm btn-outline-primary draft-script-btn" data-item-id="' + i.id + '">' +
+        '<i class="fas fa-wand-magic-sparkles me-1"></i>Draft Script</button>';
+    }
+    if (!i.has_approved_script) {
+      return '<a href="' + contentScriptsUrl + '" class="item-locked-badge">' +
+        '<i class="fas fa-file-pen me-1"></i>Awaiting script review →</a>';
+    }
+    if (POSTER_CONTENT_TYPES.indexOf(i.content_type) === -1) {
+      return '<span class="item-locked-badge"><i class="fas fa-check me-1"></i>Script approved</span>';
+    }
+    if (!i.has_poster) {
+      return '<button class="btn btn-sm btn-outline-primary generate-poster-btn" data-item-id="' + i.id + '">' +
+        '<i class="fas fa-image me-1"></i>Generate Poster</button>';
+    }
+    return '<a href="' + contentPostersUrl + '" class="item-locked-badge">' +
+      '<i class="fas fa-image me-1"></i>Poster generated →</a>';
+  }
+
   function renderItemRow(i, locked) {
     const decided = i.status === 'approved' ? 'decided-approved' : i.status === 'skipped' ? 'decided-skipped' : '';
     const typeLabel = CONTENT_TYPE_LABELS[i.content_type] || i.content_type;
     const actions = locked
-      ? '<span class="item-locked-badge"><i class="fas fa-lock me-1"></i>Locked</span>'
+      ? renderPipelineActions(i)
       : '<button class="item-decide-btn edit" data-action="edit_item" title="Edit"><i class="fas fa-pen"></i></button>' +
         '<button class="item-decide-btn edit" data-action="regenerate_item" title="Regenerate with AI"><i class="fas fa-arrows-rotate"></i></button>' +
         '<button class="item-decide-btn approve' + (i.status === 'approved' ? ' active' : '') + '" data-action="toggle_item_approve" title="Approve"><i class="fas fa-check"></i></button>' +
@@ -372,6 +406,32 @@
         const res = await postAction({ action: btn.dataset.action, item_id: btn.dataset.itemId });
         btn.disabled = false;
         if (res.success) { showAlertModal(res.message, 'success'); loadCalendar(); }
+      });
+    });
+
+    accordion.querySelectorAll('.draft-script-btn').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        btn.disabled = true;
+        showLoader('Drafting script — this can take up to a minute…');
+        const res = await apiPost(contentScriptsApiUrl, { action: 'draft', plan_item_id: btn.dataset.itemId });
+        hideLoader();
+        btn.disabled = false;
+        if (!res.success) { showAlertModal(res.message, 'error'); return; }
+        showAlertModal('Script drafted — review it on the Scripts page.', 'success');
+        loadCalendar();
+      });
+    });
+
+    accordion.querySelectorAll('.generate-poster-btn').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        btn.disabled = true;
+        showLoader('Generating poster — this can take 10-30 seconds…');
+        const res = await apiPost(contentPostersApiUrl, { action: 'generate', plan_item_id: btn.dataset.itemId });
+        hideLoader();
+        btn.disabled = false;
+        if (!res.success) { showAlertModal(res.message, 'error'); return; }
+        showAlertModal('Poster generated — review it on the Posters page.', 'success');
+        loadCalendar();
       });
     });
 

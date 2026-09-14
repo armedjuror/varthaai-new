@@ -67,14 +67,19 @@
   };
 
   // Each kind opens the page that actually resolves it (content-generator-
-  // plan.md §12: "each kind opens a matching form") — input_needed/
-  // plan_review both resolve on the Content Calendar (an input-needed item
-  // is fixed by editing its context_notes there; a plan_review item IS the
-  // calendar's own approval flow), script/poster_review deep-link straight
-  // to that item's detail via ?plan_item_id, which those pages read on load.
+  // plan.md §12: "each kind opens a matching form") — plan_review resolves
+  // on the Content Calendar (it IS the calendar's own approval flow);
+  // script/poster_review deep-link straight to that item's detail via
+  // ?plan_item_id, which those pages read on load. input_needed is the one
+  // kind with a content_type-dependent form: Varthaai Verdict's is the
+  // richest ActionItem (§5) — a dedicated file-upload intake page, not the
+  // Calendar's plain-text edit modal every other content_type uses.
   function taskUrl(t) {
     if (t.kind === 'script_review') return '/admin/content/scripts/?plan_item_id=' + t.plan_item_id;
     if (t.kind === 'poster_review') return '/admin/content/posters/?plan_item_id=' + t.plan_item_id;
+    if (t.kind === 'input_needed' && t.content_type === 'reel_verdict') {
+      return '/admin/content/verdict/intake/' + t.plan_item_id + '/';
+    }
     if (t.plan_id) return '/admin/content/calendar/?plan_id=' + t.plan_id;
     return '/admin/content/calendar/';
   }

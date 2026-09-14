@@ -63,8 +63,8 @@ def _mk_plan(brand, status=ContentPlan.Status.APPROVED, start=None, end=None):
 
 class DuePlanItemsGateTests(TestCase):
     """The core admin-approval gate (module docstring): plan APPROVED *and*
-    item APPROVED, never reel_verdict, never an item with an already-approved
-    Script. No claude CLI calls in this class."""
+    item APPROVED, never an item with an already-approved Script. No claude
+    CLI calls in this class."""
 
     def setUp(self):
         self.brand = _mk_brand()
@@ -106,12 +106,17 @@ class DuePlanItemsGateTests(TestCase):
         due_ids = list(copywriter.due_plan_items(brand=self.brand).values_list('id', flat=True))
         self.assertNotIn(item.id, due_ids)
 
-    def test_reel_verdict_excluded_even_if_fully_approved(self):
+    def test_reel_verdict_included_once_approved_and_due(self):
+        """Phase 5: reel_verdict is no longer hard-excluded from
+        due_plan_items — it goes through the exact same plan/item-approval
+        and deadline gate as every other content_type; VerdictIntake
+        completeness is a separate _is_ready() check, not a due_plan_items
+        exclusion (see content/tests_verdict.py for that branch)."""
         plan = _mk_plan(self.brand)
         today = timezone.localdate()
         item = self._mk_item(plan, planned_date=today, content_type='reel_verdict')
         due_ids = list(copywriter.due_plan_items(brand=self.brand).values_list('id', flat=True))
-        self.assertNotIn(item.id, due_ids)
+        self.assertIn(item.id, due_ids)
 
     def test_item_with_approved_script_excluded(self):
         """Stops an approved-script item from being redrafted every day —

@@ -1,0 +1,91 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Verdict History — Varthaai Admin{% endblock %}
+
+{% block content %}
+
+<div class="page-body">
+
+  <div class="page-header">
+    <div>
+      <h1>Verdict History</h1>
+      <p>Every Varthaai Verdict episode — internal product name, sub-scores, final score. Never shown publicly.</p>
+    </div>
+  </div>
+
+  <div class="data-card">
+    <div class="data-card-header">
+      <h3>Episodes</h3>
+    </div>
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Product (internal)</th>
+            <th>Design</th>
+            <th>Pricing</th>
+            <th>Taste</th>
+            <th>Ingredients &amp; Nutrition</th>
+            <th>Final</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="verdictHistoryBody">
+          <tr><td colspan="8" class="text-center py-4">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /.page-body -->
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  var STATUS_BADGE = {
+    draft: 'status-cancelled', needs_review: 'status-pending', approved: 'status-delivered', changes_requested: 'status-failed',
+  };
+
+  function scoreCell(score, legitimacyFlag) {
+    if (score === null || score === undefined) return '<span class="text-muted">—</span>';
+    var warn = legitimacyFlag ? ' <i class="fas fa-triangle-exclamation text-warning" title="Flagged — see script"></i>' : '';
+    return score + '/10' + warn;
+  }
+
+  async function loadHistory() {
+    const res = await apiGet('/admin/api/content/verdict/history/');
+    const tbody = document.getElementById('verdictHistoryBody');
+    if (!res.success) {
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">' + escHtml(res.message) + '</td></tr>';
+      return;
+    }
+    const items = res.data.items || [];
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4 text-muted">No Verdict episodes yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map(function (v) {
+      const statusLabel = v.script_status
+        ? '<span class="status ' + (STATUS_BADGE[v.script_status] || '') + '">' + v.script_status.replace('_', ' ') + '</span>'
+        : '<span class="status status-pending">' + v.plan_item_status.replace('_', ' ') + '</span>';
+      return '<tr>' +
+        '<td>' + formatDate(v.planned_date) + '</td>' +
+        '<td>' + escHtml(v.product_name) + '</td>' +
+        '<td>' + scoreCell(v.design_score) + '</td>' +
+        '<td>' + scoreCell(v.pricing_score) + '</td>' +
+        '<td>' + scoreCell(v.taste_score) + '</td>' +
+        '<td>' + scoreCell(v.ingredients_score, v.controversial) +
+          (v.legitimacy_status && v.legitimacy_status !== 'Consistent'
+            ? '<div style="font-size:0.68rem;color:#b45309">' + escHtml(v.legitimacy_status) + '</div>' : '') + '</td>' +
+        '<td><strong>' + (v.final_score !== null && v.final_score !== undefined ? v.final_score + '/10' : '—') + '</strong></td>' +
+        '<td>' + statusLabel + '</td>' +
+      '</tr>';
+    }).join('');
+  }
+
+  loadHistory();
+</script>
+{% endblock %}

@@ -79,6 +79,9 @@ def _action_item_dict(a):
         # the item (everything else) — lets the Pending Tasks page deep-link
         # each kind to the right page without a second lookup.
         'plan_id': a.plan_id or (a.plan_item.plan_id if a.plan_item_id else None),
+        # Lets Pending Tasks route an input_needed item for reel_verdict to
+        # the Verdict intake form instead of the Content Calendar (Phase 5).
+        'content_type': a.plan_item.content_type if a.plan_item_id else None,
         'created_at': a.created_at.isoformat(),
     }
 
@@ -142,7 +145,7 @@ class ContentCalendarAPI(APIView):
         brand_id = current_brand_id(request)
         qs = PlanItem.objects.filter(
             plan__brand_id=brand_id,
-        ).select_related('series', 'plan').order_by('planned_date')
+        ).select_related('series', 'plan').prefetch_related('scripts', 'posters').order_by('planned_date')
         start = request.query_params.get('start')
         end = request.query_params.get('end')
         if start:
@@ -162,6 +165,11 @@ class ContentCalendarAPI(APIView):
                 'series_slug': p.series.slug if p.series else None,
                 'plan_status': p.plan.status,
                 'proposed_changes': p.proposed_changes or {},
+                # Drives the Calendar page's "Draft Script"/"Generate Poster"
+                # manual triggers (§24) — only offered when nothing exists yet.
+                'has_script': bool(p.scripts.all()),
+                'has_approved_script': any(s.status == Script.Status.APPROVED for s in p.scripts.all()),
+                'has_poster': bool(p.posters.all()),
             }
             for p in qs
         ]
