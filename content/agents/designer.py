@@ -30,17 +30,25 @@ Public entry points:
   infer_topic_category(topic) -> str
   select_poster_inspiration(brand, topic, format) -> PosterInspiration | None
   list_eligible_inspirations(brand, topic=None, format=None) -> QuerySet
-  generate_poster_brief(brand, topic, inspiration, context_notes='') -> str
+  generate_poster_brief(brand, topic, inspiration, context_notes='', approved_copy=None) -> str
   generate_poster_image(brief, inspiration, ...) -> tuple[bytes | None, dict]
+  run_daily(brand=None) -> dict                       # Phase 3 daily sweep
+  regenerate_poster(plan_item, instruction='', inspiration_id=None) -> PosterAsset
 """
 import logging
+import mimetypes
 import shutil
+from datetime import timedelta
 
 from django.conf import settings
+from django.core.files.base import ContentFile
+from django.utils import timezone
 
 from core.claude_cli import NO_TOOLS, run_claude_cli
 
-from content.models import PosterFormat, PosterInspiration
+from content.models import (
+    ActionItem, ContentSeries, PlanItem, PosterAsset, PosterFormat, PosterInspiration, Script,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,13 +123,22 @@ def select_poster_inspiration(brand, topic, format=PosterFormat.SQUARE):
 # --------------------------------------------------------------------------- #
 # Brief generation — headless `claude -p`, no tools (poster plan §5).
 # --------------------------------------------------------------------------- #
-def generate_poster_brief(brand, topic, inspiration, context_notes=''):
+def generate_poster_brief(brand, topic, inspiration, context_notes='', approved_copy=None):
     """
     Returns the brief as plain text, fed verbatim into the image prompt
     later (generate_poster_image). Raises on failure rather than
     swallowing it — same as debugger's _call_advisor; best-effort handling
     (catch, log, surface to the admin) belongs to the calling agent code,
     not this function.
+
+    `approved_copy`, when given, is the admin-approved on-poster text (a
+    Copywriter-produced Script's `raw_output` for poster_learn/poster_
+    occasion/poster_event — content-generator-plan.md's Script->Designer
+    contract). When set, the brief-writer is told the headline/subheadline
+    are ALREADY WRITTEN and must be used verbatim (trimmed only if the
+    reference layout can't fit it) — never paraphrased or invented fresh.
+    Backward compatible: omitted (the default), this behaves exactly as
+    before — DesignerTestAPI's existing calls never pass it.
     """
     if not shutil.which(settings.CLAUDE_CLI_BIN):
         raise RuntimeError(f'claude CLI not found on PATH ({settings.CLAUDE_CLI_BIN!r})')
@@ -145,11 +162,23 @@ def generate_poster_brief(brand, topic, inspiration, context_notes=''):
         "could execute from scratch, staying within the brand kit's visual rules."
     )
 
+    approved_copy_block = (
+        f"\nAPPROVED COPY — the headline/subheadline are ALREADY WRITTEN and "
+        f"approved by the admin; do not invent alternative wording:\n{approved_copy}\n"
+        if approved_copy else ""
+    )
+    approved_copy_rule = (
+        "\n- The headline/subheadline text above is ALREADY APPROVED — copy it "
+        "into those fields verbatim (trim only if the reference layout genuinely "
+        "can't fit all of it), never rephrase or invent different wording."
+        if approved_copy else ""
+    )
+
     prompt = f"""Brand kit:
 {brand.brand_kit or '(no brand kit written yet — use generic, tasteful defaults and say so is risky; flag this in your response)'}
 
 {ref_block}
-
+{approved_copy_block}
 Topic: {topic}
 {"Additional context (event details, angle, etc.): " + context_notes if context_notes else ""}
 
@@ -162,7 +191,7 @@ Rules:
 - headline/subheadline must be short enough to read on a phone screen in
   under a second — this is a poster, not a paragraph.
 - Don't invent a brand fact, claim, or detail that isn't in the brand kit
-  or the topic/context given above.
+  or the topic/context given above.{approved_copy_rule}
 - End with one line starting "Constraint: " reminding the image model not
   to look like a generic stock template or obviously AI-generated art."""
 
@@ -303,7 +332,6 @@ def _image_part(image_field):
     mime type derived from the file's actual extension rather than assumed —
     ImageField doesn't enforce a single format, so a hardcoded 'image/png'
     would mislabel a stored .jpg."""
-    import mimetypes
     mime_type = mimetypes.guess_type(image_field.name)[0] or 'image/jpeg'
     image_field.open('rb')
     try:
@@ -322,3 +350,239 @@ def _extract_image_bytes(response):
             if inline and getattr(inline, 'data', None):
                 return inline.data, getattr(inline, 'mime_type', None) or 'image/jpeg'
     return None, None
+
+
+# --------------------------------------------------------------------------- #
+# Daily orchestration + versioning/edit loop (content-generator-plan.md §13
+# Phase 3, poster-generation-plan.md §7). Gated on an approved Script per the
+# Script->Designer contract: for poster_learn/poster_occasion/poster_event,
+# a Script's `raw_output` IS the approved on-poster copy, passed through as
+# `approved_copy` so the brief-writer renders it rather than inventing its
+# own headline/subheadline.
+# --------------------------------------------------------------------------- #
+_POSTER_CONTENT_TYPES = (
+    ContentSeries.ContentType.POSTER_LEARN,
+    ContentSeries.ContentType.POSTER_OCCASION,
+    ContentSeries.ContentType.POSTER_EVENT,
+)
+
+# content-generator-plan.md §13 Phase 3: poster generation "runs 2 days
+# before publish" — applied uniformly across all three poster content types
+# for v1 rather than a per-series lead time (none of them specify a
+# different number). Only an upper bound: an item whose planned_date has
+# already passed is still eligible (a late run shouldn't skip it), this just
+# stops run_daily from generating weeks-early posters the moment a Script
+# happens to get approved far ahead of schedule.
+POSTER_LEAD_DAYS = 2
+
+# Format-default rule: poster_learn/poster_occasion always publish square
+# (1:1) — that's the only shape these two series have ever used. poster_event
+# has no fixed shape (a launch-party poster and a "join our webinar" story
+# graphic are both "events"), so it defaults to square too UNLESS the admin's
+# context_notes (the one place event specifics are ever supplied, per
+# content-generator-plan.md §1 — "never inferred") explicitly names a
+# different shape via a keyword match. Simple and legible over clever; revisit
+# if poster_event's real usage shows a better default.
+_FORMAT_HINT_KEYWORDS = {
+    PosterFormat.STORY: ['9:16', 'story format', 'reel format', 'stories', 'instagram story'],
+    PosterFormat.PORTRAIT: ['4:5', 'portrait'],
+}
+
+
+def _resolve_poster_format(plan_item):
+    if plan_item.content_type != ContentSeries.ContentType.POSTER_EVENT:
+        return PosterFormat.SQUARE
+    text = (plan_item.context_notes or '').lower()
+    for fmt, keywords in _FORMAT_HINT_KEYWORDS.items():
+        if any(keyword in text for keyword in keywords):
+            return fmt
+    return PosterFormat.SQUARE
+
+
+def _next_poster_version(plan_item):
+    latest = PosterAsset.objects.filter(plan_item=plan_item).order_by('-version').first()
+    return (latest.version + 1) if latest else 1
+
+
+def _ensure_poster_review_action_item(plan_item):
+    ActionItem.objects.get_or_create(
+        plan_item=plan_item, kind=ActionItem.Kind.POSTER_REVIEW, status=ActionItem.Status.OPEN,
+        defaults={'title': f'Review poster: {plan_item.working_title}'},
+    )
+
+
+def _save_poster_image(poster, image_bytes, debug):
+    """Attaches generated image bytes to an (unsaved) PosterAsset using the
+    REAL extension from debug['mime_type'] — Gemini 3 Pro Image returns
+    image/jpeg by default, not PNG (see generate_poster_image's docstring);
+    hardcoding `.png` here would reintroduce the exact bug already found and
+    fixed once for the reference-image read path."""
+    ext = mimetypes.guess_extension((debug or {}).get('mime_type') or '') or '.jpg'
+    poster.image.save(
+        f'poster_{poster.plan_item_id}_v{poster.version}{ext}',
+        ContentFile(image_bytes), save=False,
+    )
+
+
+def _latest_approved_script(plan_item):
+    return plan_item.scripts.filter(status=Script.Status.APPROVED).order_by('-version').first()
+
+
+def run_daily(brand=None):
+    """
+    Daily poster-generation sweep (content-generator-plan.md §13 Phase 3).
+
+    For every PlanItem whose content_type is a poster type (poster_learn,
+    poster_occasion, poster_event) with a latest-by-version Script whose
+    status is APPROVED, generate a poster UNLESS one has already been
+    attempted for this item and either (a) is awaiting/has passed review
+    (status NEEDS_REVIEW or APPROVED — don't regenerate something already
+    in the queue), or (b) failed to produce an image at all. (b) is a
+    deliberate choice: a failed Gemini call (bad key, model outage, content
+    policy block) should NOT retry-storm on every daily run — it counts as
+    "already attempted" same as a successful one. The admin can explicitly
+    ask for a fresh attempt via the review UI's `retry` action (POST
+    action=retry -> regenerate_poster), which creates a new version and so
+    un-sticks this gate on the next daily run too.
+
+    A PlanItem whose only PosterAsset history is CHANGES_REQUESTED is NOT
+    considered "already attempted" — that's the admin asking for a new
+    take, so a fresh automated attempt is allowed the next time this runs
+    (in addition to the admin's own explicit `regenerate` action).
+
+    Also gated on POSTER_LEAD_DAYS: an item whose planned_date is more than
+    2 days out is left alone even if its Script is already approved (early
+    approval shouldn't mean early generation) — it becomes eligible the
+    moment today crosses that 2-day window, same "re-checked every run"
+    idea as the Copywriter's own prep-lead-days gate.
+
+    Brand-scoped via `plan_item.plan.brand` when `brand` is given (matches
+    the Copywriter sibling task's own `run_daily(brand=None)` idiom).
+
+    Returns {'generated': int, 'failed': int, 'skipped': int} — 'generated'
+    counts attempts that produced a real image, 'failed' counts attempts
+    that ran (brief and/or image call) but produced nothing, both of which
+    still persist a PosterAsset so nothing vanishes silently (poster-
+    generation-plan.md §11's "always report the failure"). Not-yet-in-window
+    items don't count toward any of these three — they're simply not
+    iterated, same as an item with no approved Script at all.
+    """
+    cutoff = timezone.localdate() + timedelta(days=POSTER_LEAD_DAYS)
+    qs = (
+        PlanItem.objects.filter(content_type__in=_POSTER_CONTENT_TYPES, planned_date__lte=cutoff)
+        .select_related('plan__brand')
+    )
+    if brand is not None:
+        qs = qs.filter(plan__brand=brand)
+
+    summary = {'generated': 0, 'failed': 0, 'skipped': 0}
+
+    for plan_item in qs:
+        script = _latest_approved_script(plan_item)
+        if not script:
+            continue  # nothing approved to gate on yet — not a "skip", just not eligible
+
+        latest_poster = PosterAsset.objects.filter(plan_item=plan_item).order_by('-version').first()
+        if latest_poster and (
+            latest_poster.status in (PosterAsset.Status.NEEDS_REVIEW, PosterAsset.Status.APPROVED)
+            or not latest_poster.image
+        ):
+            summary['skipped'] += 1
+            continue
+
+        brand_obj = plan_item.plan.brand
+        format = _resolve_poster_format(plan_item)
+        inspiration = select_poster_inspiration(brand_obj, plan_item.working_title, format=format)
+
+        try:
+            brief = generate_poster_brief(
+                brand_obj, plan_item.working_title, inspiration,
+                context_notes=plan_item.context_notes, approved_copy=script.raw_output,
+            )
+        except Exception as exc:
+            logger.exception('run_daily: brief generation failed for PlanItem %s', plan_item.id)
+            PosterAsset.objects.create(
+                plan_item=plan_item, format=format, inspiration=inspiration,
+                brief={}, generation_metadata={'error': f'brief generation failed: {exc}'},
+                version=_next_poster_version(plan_item), status=PosterAsset.Status.NEEDS_REVIEW,
+            )
+            _ensure_poster_review_action_item(plan_item)
+            summary['failed'] += 1
+            continue
+
+        image_bytes, debug = generate_poster_image(
+            brief, inspiration, format=format, brand_name=brand_obj.name,
+        )
+
+        poster = PosterAsset(
+            plan_item=plan_item, format=format, inspiration=inspiration,
+            brief={'text': brief}, generation_metadata=debug,
+            version=_next_poster_version(plan_item), status=PosterAsset.Status.NEEDS_REVIEW,
+        )
+        if image_bytes:
+            _save_poster_image(poster, image_bytes, debug)
+        poster.save()
+        _ensure_poster_review_action_item(plan_item)
+
+        summary['generated' if image_bytes else 'failed'] += 1
+
+    return summary
+
+
+def regenerate_poster(plan_item, instruction='', inspiration_id=None):
+    """
+    Poster plan §7's "Preview/edit endpoint" — re-runs brief+image
+    generation for `plan_item`'s latest APPROVED Script (raises if there
+    isn't one — same contract as the rest of this codebase's agent
+    functions, e.g. planner.regenerate_item), optionally steered by a
+    free-text `instruction` (appended verbatim to generate_poster_image's
+    existing `extra_instruction` param) and/or a different `inspiration_id`
+    (must belong to the same brand as `plan_item.plan.brand` — raises
+    ValueError otherwise, never silently falls back to a random one).
+
+    Always creates a NEW PosterAsset row (version = 1 + the current max
+    version for this plan_item) — never mutates an existing reviewed row,
+    so a rejected/approved version stays exactly as the admin left it.
+
+    Unlike generate_poster_image itself, THIS function's image-generation
+    failure is still captured, not raised — mirrors run_daily's "always
+    persist and report" rule so a regenerate attempt that fails is visible
+    on the review page (a new NEEDS_REVIEW row with image=None) rather than
+    the admin seeing nothing happen. Only a missing-approved-Script or an
+    invalid inspiration_id raises (a real caller/programming error, not a
+    generation-time failure).
+    """
+    script = _latest_approved_script(plan_item)
+    if not script:
+        raise RuntimeError(
+            'This plan item has no approved Script yet — nothing to render a poster from.')
+
+    brand = plan_item.plan.brand
+    format = _resolve_poster_format(plan_item)
+
+    if inspiration_id is not None:
+        inspiration = PosterInspiration.objects.filter(id=inspiration_id, brand=brand).first()
+        if not inspiration:
+            raise ValueError('inspiration_id does not belong to this brand (or does not exist).')
+    else:
+        inspiration = select_poster_inspiration(brand, plan_item.working_title, format=format)
+
+    brief = generate_poster_brief(
+        brand, plan_item.working_title, inspiration,
+        context_notes=plan_item.context_notes, approved_copy=script.raw_output,
+    )
+    image_bytes, debug = generate_poster_image(
+        brief, inspiration, extra_instruction=(instruction or None),
+        format=format, brand_name=brand.name,
+    )
+
+    poster = PosterAsset(
+        plan_item=plan_item, format=format, inspiration=inspiration,
+        brief={'text': brief}, generation_metadata=debug,
+        version=_next_poster_version(plan_item), status=PosterAsset.Status.NEEDS_REVIEW,
+    )
+    if image_bytes:
+        _save_poster_image(poster, image_bytes, debug)
+    poster.save()
+    _ensure_poster_review_action_item(plan_item)
+    return poster

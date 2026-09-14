@@ -1396,3 +1396,173 @@ from `approved` back to `planned`. Regenerating on a subsequently-locked
 plan was correctly rejected with the same message the other item actions
 use. Test data deleted after. `manage.py check` clean; full `debugger` +
 `content` suite (71 tests) still passes.
+
+---
+
+## 24. Phase 2 (Copywriter Agent) and Phase 3 (Designer Agent) — built in parallel
+
+Triggered by: "Apply phase 2 and 3 parallely using multiple agents." Both were
+genuinely unbuilt at the integration level (Phase 1's Planner and Track B's
+Designer *core pipeline* existed; nothing dispatched a skill against a due
+`PlanItem`, nothing gated poster generation on an approved `Script`, and
+neither had a review UI). Two agents ran concurrently against the same
+working tree, each scoped to a disjoint file set — new `views_*.py`/`urls_*.py`/
+templates/tests per agent, and a shared "do not touch" list (`content/models.py`,
+`content/tasks.py`, `content/urls.py`, `content/views.py`,
+`core/context_processors.py`, `templates/admin/base.html`,
+`Varthaai/settings.py`, `Varthaai/urls.py`) reserved for a single integration
+pass afterward — to avoid the two agents clobbering each other on Celery
+task wrappers, URL wiring, nav permissions, or (if either had judged one
+necessary) a migration.
+
+**The one real coupling between the phases**, resolved up front rather than
+left for the two agents to independently guess at: for poster content types,
+the Copywriter's approved `Script` IS the actual on-poster copy (headline +
+subline + any CTA), not an abstract "script" — so the Designer's brief-writer
+must not invent its own headline independently of what the admin already
+approved. Given to the Designer agent as a fixed contract; it implemented an
+`approved_copy` param on `generate_poster_brief` that locks the brief to the
+approved text (trim-only, never rephrase). The Designer agent also didn't
+wait on the Copywriter's actual code landing — it built and verified against
+its own disposable, hand-created `Script` rows, so the two genuinely didn't
+block each other.
+
+### Phase 2 — `content/agents/copywriter.py`
+
+The orchestrator described in §3: most days it has nothing to draft, its
+real job is checking whether a due `PlanItem`'s required input actually
+exists before generating anything.
+
+- `due_plan_items()` — gates on **both** `plan.status == APPROVED` and
+  `item.status == APPROVED` (not just the item's own toggle, which can be
+  provisional inside a still-`NEEDS_REVIEW` plan — see §21), excludes
+  `reel_verdict` (Phase 5) and items that already have an `APPROVED` `Script`.
+- Per-content-type input-readiness check (blank/placeholder `context_notes`
+  → files an `INPUT_NEEDED` `ActionItem`, get-or-create so reruns don't
+  duplicate it, sets `PlanItem.status = NEEDS_INPUT`) before ever calling
+  the CLI.
+- Skill dispatch — `reel_varthaanm` → `varthaai-varthaanm-script`,
+  `reel_inside` → `varthaai-inside-questions`, `poster_learn` →
+  `learn-with-varthaai-script`, `poster_occasion`/`poster_event`/`blog` →
+  `varthaai-generic-content.md` (`reel_verdict` never dispatched). Skill
+  text goes in as `system_prompt`; `run_claude_cli` runs with
+  **WebSearch/WebFetch enabled** (§3/§9 — live verification is a
+  correctness requirement for these series) and Write/Edit/Bash denied — the
+  CLI never touches the DB directly, this module parses its text output and
+  writes the `Script` row itself.
+- Varthaanm recap continuity (§6): reads the most recent *APPROVED*
+  Varthaanm `Script`'s `recap_summary` for the same brand, asks the model to
+  end its response with a machine-parseable `RECAP_FOR_NEXT_EPISODE:` line,
+  stores it on the new (draft) `Script` for the *next* run to read once
+  this one is approved.
+- **Status-transition scheme** (the contract Phase 3's gate relies on):
+  `PlanItem.status == APPROVED` is deliberately overloaded — "approved as an
+  idea, no script yet" pre-`due_plan_items` vs. "script approved" post-review
+  — disambiguated only by whether an `APPROVED` `Script` exists.
+  `NEEDS_INPUT` → `NEEDS_APPROVAL` (script drafted) → back to `APPROVED`
+  once `content/views_scripts.py`'s `ScriptsAPI.approve` fires (also
+  resolving the `SCRIPT_REVIEW` `ActionItem`). Regenerating a `Script`
+  creates a new version and resets `PlanItem.status` to `NEEDS_APPROVAL`
+  (the admin hasn't read the new draft yet — same reasoning as
+  `planner.regenerate_item`, §23).
+- **Known gap, flagged not fixed**: an item that goes `NEEDS_INPUT` doesn't
+  self-heal once `context_notes` is later filled in — `due_plan_items` only
+  reads `status == APPROVED`, so re-surfacing it is a later-phase concern.
+- Review UI: `content/views_scripts.py` (`ScriptsAPI` — list/detail/
+  `approve`/`request_changes`/`regenerate`, brand-scoped, rejects
+  acting on a stale (non-latest) `Script` version) +
+  `templates/admin/content-scripts.html` (list + detail/review modal,
+  mirrors the plan-review page's approve/regenerate UX) at
+  `/admin/content/scripts/`, permission module `content_scripts`.
+
+**Verified live**: real `claude -p` round trips for `reel_varthaanm` (two
+episodes back-to-back, second one's draft call genuinely read the first's
+`recap_summary` from a real DB row) and for the generic-content path
+(`poster_occasion`), plus a live `regenerate` through the API. 33 tests in
+`content/tests_copywriter.py` (parsing helpers, the due-items gate, the
+readiness check, `INPUT_NEEDED` filing + non-duplication, `ScriptsAPI`'s
+full action set, page permission gating) — all passing individually and in
+combined runs. All against disposable data, deleted after. `manage.py check`
+clean; zero edits to any file the pre-existing test baseline exercises.
+
+### Phase 3 — `content/agents/designer.py` (extended)
+
+Builds on Track B's core pipeline (§17/§20: `select_poster_inspiration`,
+`generate_poster_brief`, `generate_poster_image` already existed and worked)
+with the piece that was actually missing — gating, persistence, versioning,
+and review.
+
+- `generate_poster_brief(..., approved_copy=None)` — new optional param
+  (backward-compatible; the existing `DesignerTestAPI` never passes it and
+  is unaffected). When given, splices an "APPROVED COPY" block into the
+  prompt plus a rule forbidding the brief-writer from rephrasing it —
+  implements this section's coupling contract above.
+- `run_daily(brand=None)` — eligible `PlanItem`s: poster content type +
+  a latest-by-version `Script` that's `APPROVED`. Skips one whose latest
+  `PosterAsset` is `NEEDS_REVIEW`/`APPROVED` (already in the queue or done)
+  **or has no image at all** — a failed Gemini call deliberately counts as
+  "already attempted" so a bad key/outage can't retry-storm every run; only
+  `CHANGES_REQUESTED` (or no attempt yet) allows a fresh automatic try. Every
+  attempt persists a `PosterAsset` (even a failed one, with the failure
+  recorded in `generation_metadata`) so nothing vanishes silently
+  (poster-generation-plan.md §11). Format defaults: `poster_learn`/
+  `poster_occasion` always square; `poster_event` square unless
+  `context_notes` hints at a different aspect ratio.
+- `regenerate_poster(plan_item, instruction='', inspiration_id=None)` —
+  poster-generation-plan.md §7's edit loop: new `PosterAsset` version, reuses
+  `generate_poster_image`'s existing `extra_instruction` plumbing, optional
+  different inspiration (brand-validated).
+- Review UI: `content/views_posters.py` (`PostersAPI` — list/detail/
+  `approve`/`request_changes`/`regenerate`/`retry`, same staleness and
+  brand-scoping discipline as the Scripts API) + `templates/admin/
+  content-posters.html` (image preview in the detail view, regenerate modal
+  with an optional instruction + inspiration picker) at
+  `/admin/content/posters/`, permission module `content_posters`.
+- **Shared-file gap noted, not fixed**: `PosterAsset` has no
+  `review_notes`/`reviewed_by`/`reviewed_at` (unlike `Script`) —
+  `request_changes` notes are stashed in `generation_metadata` for now,
+  functional but a second `request_changes` call overwrites the first note.
+  Would need a migration; deferred rather than made unilaterally mid-parallel-run.
+
+**Verified live**: `GEMINI_API_KEY` confirmed genuinely configured;
+`run_daily()` against a disposable approved `Script` produced a real
+1,073,398-byte JPEG (mime type correctly detected as `image/jpeg`, not
+assumed PNG), brief text genuinely reflected the approved Kannada copy and
+brand-kit colors, an immediate rerun correctly skipped, and
+`regenerate_poster(instruction=...)` produced a real version-2 image with the
+instruction applied. 34 tests in `content/tests_designer.py` (the
+`approved_copy` splice, every format-resolution case, the full gating
+matrix, versioning, cross-brand validation, `PostersAPI`'s full action set)
+— all passing. Full project suite re-run at 132/132 mid-build. Caught and
+fixed three of its own bugs before declaring done: tests were leaking real
+tiny image files into the live `media/content/posters/` directory (Django's
+`TestCase` doesn't sandbox `MEDIA_ROOT` — fixed with a `tempfile`-based
+override, ~10 already-leaked files deleted); a test urlconf omitted the
+`accounts` namespace and broke `base.html` rendering; one test had the wrong
+expected status code for an error path. All disposable data and media
+cleaned up.
+
+### Integration pass (orchestrator, after both agents finished)
+
+Both delivered exactly within their file scope (`git diff --stat` showed
+only `content/agents/designer.py` modified plus each agent's own new
+files — confirmed neither touched the other's or the forbidden shared
+files). What the two `urls_*.py` fragments couldn't do themselves — because
+two Django `include()` calls under the *same* explicit namespace don't both
+reverse (`namespace_dict` keeps only the first-registered urlconf per
+namespace; the second `include()`'s names silently fail to reverse rather
+than erroring at `check` time, only a `urls.W005` warning surfaces it) — was
+folding `urls_scripts.urlpatterns`/`urls_posters.urlpatterns` into
+`content/urls.py`'s own list (still `app_name = 'content'`, one urlconf, one
+namespace) rather than adding two more `include()` lines in
+`Varthaai/urls.py`. Also done: `content.tasks.run_copywriter_daily`/
+`run_designer_daily` (thin wrappers around each agent's `run_daily()`, same
+try/except/log shape as `run_planner_task` but with no per-object status to
+flip since a sweep's per-item failures are already recorded by the agent
+itself); `CELERY_BEAT_SCHEDULE` entries at 07:00/07:30 (after the existing
+06:00 plan-seed slot); `content_scripts`/`content_posters` added to
+`core/context_processors.py`'s `NAV_MODULES`; sidebar links (Scripts,
+Posters) added to `templates/admin/base.html`'s Marketing section.
+Verified: `manage.py check` clean (the namespace warning gone after the
+`urls.py` fix), all seven new/existing `content:*` url names reverse
+correctly, full project test suite re-run after every integration edit.

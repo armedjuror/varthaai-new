@@ -12,7 +12,11 @@
       <h1>Content Calendar</h1>
       <p>Review each plan's proposed items, then approve. Newest plan first.</p>
     </div>
-    <div class="page-header-actions">
+    <div class="page-header-actions" style="display:flex;gap:8px;align-items:center">
+      <div class="btn-group btn-group-sm" role="group">
+        <button type="button" class="btn btn-outline-secondary" id="viewToggleList">List</button>
+        <button type="button" class="btn btn-outline-secondary" id="viewToggleMonth">Month</button>
+      </div>
       <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#generatePlanModal">
         <i class="fas fa-wand-magic-sparkles me-1"></i>Generate Plan
       </button>
@@ -20,6 +24,15 @@
   </div>
 
   <div id="plansAccordion" class="accordion"></div>
+
+  <div id="monthView" style="display:none">
+    <div class="month-nav">
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="monthPrev"><i class="fas fa-chevron-left"></i></button>
+      <div class="month-nav-label" id="monthNavLabel"></div>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="monthNext"><i class="fas fa-chevron-right"></i></button>
+    </div>
+    <div class="month-grid" id="monthGrid"></div>
+  </div>
 
   <div id="emptyState" class="empty-state" style="display:none;margin-top:20px">
     <i class="fas fa-calendar-days"></i>No plans yet — click "Generate Plan" above to have the Planner Agent propose one.
@@ -158,6 +171,27 @@
   .item-decide-btn.skip.active { background:#dc2626; border-color:#dc2626; color:#fff; }
   .item-decide-btn.edit:hover { background:var(--gray-50); }
   .item-locked-badge { font-size:0.7rem; color:var(--gray-400); }
+  .item-proposal { margin-top:10px; padding:10px 12px; background:#fffbeb; border:1px solid #fde68a; border-radius:8px; font-size:0.78rem; }
+  .item-proposal-label { font-weight:700; color:#92400e; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.02em; margin-bottom:6px; }
+  .item-proposal-diff-row { display:flex; gap:8px; margin-bottom:4px; }
+  .item-proposal-diff-old { color:var(--gray-400); text-decoration:line-through; }
+  .item-proposal-diff-new { color:#166534; font-weight:600; }
+  .item-proposal-actions { display:flex; gap:8px; margin-top:8px; }
+  .month-nav { display:flex; align-items:center; justify-content:center; gap:16px; margin-bottom:12px; }
+  .month-nav-label { font-weight:700; font-size:0.95rem; min-width:160px; text-align:center; }
+  .month-grid { display:grid; grid-template-columns:repeat(7, 1fr); gap:6px; }
+  .month-grid-dow { font-size:0.72rem; font-weight:700; color:var(--gray-400); text-align:center; padding-bottom:4px; text-transform:uppercase; }
+  .month-cell { background:#fff; border:1px solid var(--gray-100); border-radius:10px; min-height:96px; padding:8px; }
+  .month-cell.outside { background:var(--gray-50); }
+  .month-cell.today { border-color:#85AA4E; border-width:2px; }
+  .month-cell-date { font-size:0.76rem; font-weight:700; color:var(--gray-500); margin-bottom:4px; }
+  .month-chip { display:block; width:100%; text-align:left; background:none; border:none; padding:2px 4px; margin-bottom:2px; border-radius:5px; font-size:0.68rem; line-height:1.3; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .month-chip:hover { background:var(--gray-50); }
+  .month-chip .dot { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:4px; }
+  .month-chip.st-approved .dot { background:#16a34a; }
+  .month-chip.st-skipped .dot { background:#9ca3af; }
+  .month-chip.st-planned .dot, .month-chip.st-needs_input .dot, .month-chip.st-needs_approval .dot { background:#f59e0b; }
+  .month-chip.st-posted .dot { background:#2563eb; }
 </style>
 <script>
   const PLAN_STATUS_LABELS = { draft: 'Draft', generating: 'Generating…', needs_review: 'Needs review', approved: 'Approved' };
@@ -188,6 +222,29 @@
     return res;
   }
 
+  function renderProposalBlock(i) {
+    const p = i.proposed_changes;
+    if (!p || !Object.keys(p).length) return '';
+    const rows = [];
+    if ('working_title' in p && p.working_title !== i.working_title) {
+      rows.push('<div class="item-proposal-diff-row"><span class="item-proposal-diff-old">' + escHtml(i.working_title) + '</span>' +
+        '<i class="fas fa-arrow-right" style="color:var(--gray-300);font-size:0.7rem;margin-top:2px"></i>' +
+        '<span class="item-proposal-diff-new">' + escHtml(p.working_title) + '</span></div>');
+    }
+    if ('context_notes' in p && p.context_notes !== i.context_notes) {
+      rows.push('<div class="item-proposal-diff-old" style="margin-bottom:2px">' + escHtml(i.context_notes || '(empty)') + '</div>' +
+        '<div class="item-proposal-diff-new">' + escHtml(p.context_notes || '(empty)') + '</div>');
+    }
+    return '<div class="item-proposal">' +
+      '<div class="item-proposal-label"><i class="fas fa-lightbulb me-1"></i>Planner proposes a change</div>' +
+      rows.join('') +
+      '<div class="item-proposal-actions">' +
+        '<button class="btn btn-sm btn-success" data-action="accept_proposal" data-item-id="' + i.id + '"><i class="fas fa-check me-1"></i>Accept</button>' +
+        '<button class="btn btn-sm btn-outline-secondary" data-action="reject_proposal" data-item-id="' + i.id + '">Dismiss</button>' +
+      '</div>' +
+    '</div>';
+  }
+
   function renderItemRow(i, locked) {
     const decided = i.status === 'approved' ? 'decided-approved' : i.status === 'skipped' ? 'decided-skipped' : '';
     const typeLabel = CONTENT_TYPE_LABELS[i.content_type] || i.content_type;
@@ -204,6 +261,7 @@
         '<div class="item-title">' + escHtml(i.working_title) + '</div>' +
         '<div class="item-meta">' + formatDate(i.planned_date) + ' &middot; ' + escHtml(i.series || typeLabel) + '</div>' +
         (i.context_notes ? '<div class="item-context">' + escHtml(i.context_notes) + '</div>' : '') +
+        renderProposalBlock(i) +
       '</div>' +
       '<div class="item-actions">' + actions + '</div>' +
     '</div>';
@@ -247,6 +305,9 @@
 
   let pollTimer = null;
   let openPlanIds = new Set();
+  let cachedItems = [];
+  let currentView = 'list';
+  let monthCursor = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
 
   async function loadCalendar() {
     const res = await apiGet('/admin/api/content/calendar/');
@@ -257,10 +318,18 @@
     }
     const plans = res.data.plans || [];
     const items = res.data.items || [];
+    cachedItems = items;
     document.getElementById('emptyState').style.display = plans.length ? 'none' : '';
 
-    // Default the newest (first) plan open on first load only.
-    if (!openPlanIds.size && plans.length) openPlanIds.add(plans[0].id);
+    // Deep-link from Pending Tasks (?plan_id=<id>) — open that plan
+    // specifically instead of just defaulting to the newest.
+    const linkedPlanId = new URLSearchParams(window.location.search).get('plan_id');
+    if (linkedPlanId && !openPlanIds.has(parseInt(linkedPlanId, 10))) {
+      openPlanIds.add(parseInt(linkedPlanId, 10));
+    } else if (!openPlanIds.size && plans.length) {
+      // Default the newest (first) plan open on first load only.
+      openPlanIds.add(plans[0].id);
+    }
 
     accordion.innerHTML = plans.map(function (p) {
       const planItems = items.filter(function (i) { return i.plan_id === p.id; });
@@ -297,9 +366,84 @@
       });
     });
 
+    accordion.querySelectorAll('[data-action="accept_proposal"], [data-action="reject_proposal"]').forEach(function (btn) {
+      btn.addEventListener('click', async function () {
+        btn.disabled = true;
+        const res = await postAction({ action: btn.dataset.action, item_id: btn.dataset.itemId });
+        btn.disabled = false;
+        if (res.success) { showAlertModal(res.message, 'success'); loadCalendar(); }
+      });
+    });
+
     const stillGenerating = plans.some(function (p) { return p.status === 'generating'; });
     clearTimeout(pollTimer);
     if (stillGenerating) pollTimer = setTimeout(loadCalendar, 3000);
+
+    if (currentView === 'month') renderMonthGrid();
+  }
+
+  const DOW_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  function isoDate(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+
+  function renderMonthGrid() {
+    const grid = document.getElementById('monthGrid');
+    const year = monthCursor.getFullYear();
+    const month = monthCursor.getMonth();
+    document.getElementById('monthNavLabel').textContent =
+      monthCursor.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+
+    const firstOfMonth = new Date(year, month, 1);
+    // Monday-first grid: shift so Monday=0..Sunday=6.
+    const leadingBlanks = (firstOfMonth.getDay() + 6) % 7;
+    const gridStart = new Date(year, month, 1 - leadingBlanks);
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const totalCells = Math.ceil((leadingBlanks + daysInMonth) / 7) * 7;
+    const todayIso = isoDate(new Date());
+
+    const itemsByDate = {};
+    cachedItems.forEach(function (i) {
+      (itemsByDate[i.planned_date] = itemsByDate[i.planned_date] || []).push(i);
+    });
+
+    let html = DOW_LABELS.map(function (d) { return '<div class="month-grid-dow">' + d + '</div>'; }).join('');
+    for (let cellIdx = 0; cellIdx < totalCells; cellIdx++) {
+      const cellDate = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + cellIdx);
+      const cellIso = isoDate(cellDate);
+      const outside = cellDate.getMonth() !== month;
+      const dayItems = itemsByDate[cellIso] || [];
+      const chips = dayItems.map(function (i) {
+        return '<button type="button" class="month-chip st-' + i.status + '" data-item-id="' + i.id + '" title="' +
+          escHtml(i.working_title) + '"><span class="dot"></span>' + escHtml(i.working_title) + '</button>';
+      }).join('');
+      html += '<div class="month-cell' + (outside ? ' outside' : '') + (cellIso === todayIso ? ' today' : '') + '">' +
+        '<div class="month-cell-date">' + cellDate.getDate() + '</div>' + chips + '</div>';
+    }
+    grid.innerHTML = html;
+
+    grid.querySelectorAll('.month-chip').forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        const item = cachedItems.find(function (i) { return i.id === parseInt(chip.dataset.itemId, 10); });
+        if (!item) return;
+        openEditModal({
+          dataset: {
+            itemId: item.id, workingTitle: item.working_title, plannedDate: item.planned_date,
+            contentType: item.content_type, contextNotes: item.context_notes || '',
+          },
+        });
+      });
+    });
+  }
+
+  function setView(view) {
+    currentView = view;
+    document.getElementById('plansAccordion').style.display = view === 'list' ? '' : 'none';
+    document.getElementById('monthView').style.display = view === 'month' ? '' : 'none';
+    document.getElementById('viewToggleList').classList.toggle('active', view === 'list');
+    document.getElementById('viewToggleMonth').classList.toggle('active', view === 'month');
+    if (view === 'month') renderMonthGrid();
   }
 
   function openEditModal(row) {
@@ -320,6 +464,18 @@
   }
 
   document.addEventListener('DOMContentLoaded', function () {
+    document.getElementById('viewToggleList').addEventListener('click', function () { setView('list'); });
+    document.getElementById('viewToggleMonth').addEventListener('click', function () { setView('month'); });
+    document.getElementById('monthPrev').addEventListener('click', function () {
+      monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() - 1, 1);
+      renderMonthGrid();
+    });
+    document.getElementById('monthNext').addEventListener('click', function () {
+      monthCursor = new Date(monthCursor.getFullYear(), monthCursor.getMonth() + 1, 1);
+      renderMonthGrid();
+    });
+    setView('list');
+
     const range = defaultNextMonthRange();
     const form = document.getElementById('generatePlanForm');
     form.period_start.value = range.start;

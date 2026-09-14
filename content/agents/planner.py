@@ -14,18 +14,25 @@ Public entry points:
   generate_plan(plan) -> int          # number of PlanItems created
   regenerate_item(item, instruction='') -> PlanItem  # fresh working_title/
                                        # context_notes for one existing item
+  propose_change_for_item(item, trend_texts) -> dict | None  # one item's
+                                       # proposed diff, or None if no change
+  run_daily_nudge(brand=None) -> dict # never raises; per-item catch
+                                       # (content-generator-plan.md §13
+                                       # Phase 1 step 3 / Phase 4's
+                                       # review-diff UI)
 """
 import json
 import logging
 import shutil
 
 from django.conf import settings
+from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from core.claude_cli import NO_TOOLS, run_claude_cli
 
 from content.agents._util import strip_code_fence
-from content.models import ContentSeries, PlanItem, TrendFlag
+from content.models import ActionItem, ContentPlan, ContentSeries, PlanItem, TrendFlag
 
 logger = logging.getLogger(__name__)
 
@@ -292,3 +299,172 @@ def regenerate_item(item, instruction=''):
     item.status = PlanItem.Status.PLANNED
     item.save(update_fields=['working_title', 'context_notes', 'status', 'updated_at'])
     return item
+
+
+# --------------------------------------------------------------------------- #
+# Phase 4 — proposing changes to an ALREADY-APPROVED plan (content-generator-
+# plan.md §4: "an already-approved plan can still be improvised on later
+# Planner runs, but a proposed change sits as a diff awaiting separate
+# approval — it never silently overwrites an approved plan"). This is the
+# "daily nudge" described in §13 Phase 1 step 3, built here rather than in
+# Phase 1 because there was nothing to review it with until now.
+# --------------------------------------------------------------------------- #
+def _open_trend_flags():
+    """Same pool _trend_context() draws from when generating a brand-new
+    plan (considered=False, not yet linked to any item) — reused here so a
+    flagged trend is available to EITHER path, whichever runs first."""
+    return TrendFlag.objects.filter(considered=False, plan_item__isnull=True).order_by('-flagged_at')[:20]
+
+
+def build_propose_change_prompt(item, trend_texts):
+    series = item.series
+    series_line = (
+        f'{series.name} (content_type: {series.content_type}, format: {series.format})'
+        if series else f'content_type: {item.content_type} (no series link)'
+    )
+    trends_block = '\n'.join(f'- {t}' for t in trend_texts)
+    return f"""Brand kit:
+{item.plan.brand.brand_kit or '(no brand kit written yet — use generic, tasteful defaults)'}
+
+This item is ALREADY APPROVED and scheduled. You are being asked whether the newly flagged trends below make a genuinely better angle worth proposing for THIS SAME slot — not to change it just for the sake of change. Most of the time the right answer is "no change" — only propose one if a trend meaningfully improves this specific item.
+
+Series/content type: {series_line}
+Scheduled date: {item.planned_date}
+
+Current working_title: {item.working_title}
+Current context_notes: {item.context_notes or '(empty)'}
+
+Newly flagged trends/topics to consider:
+{trends_block}
+
+Respond with ONLY a JSON object, no other text, with exactly these keys:
+{{"has_change": true or false, "working_title": "...", "context_notes": "..."}}
+
+If has_change is false, still fill working_title/context_notes with the CURRENT values unchanged (so the response is always a complete object) — but has_change must reflect your genuine recommendation, never default it to true just to have something to propose.
+
+{_CONTEXT_NOTES_GUIDANCE}"""
+
+
+def propose_change_for_item(item, trend_texts):
+    """
+    Asks the Planner whether newly flagged trends warrant a different angle
+    for ONE already-approved item. Returns {'working_title':...,
+    'context_notes':...} if a genuine change is proposed, or None if the
+    model recommends leaving it as-is. Raises on failure (missing CLI,
+    error result, parse failure) — same contract as generate_plan/
+    regenerate_item; the caller (run_daily_nudge) is responsible for
+    catching it per-item so one bad item doesn't stop the rest of the run.
+    """
+    if not shutil.which(settings.CLAUDE_CLI_BIN):
+        raise RuntimeError(f'claude CLI not found on PATH ({settings.CLAUDE_CLI_BIN!r})')
+
+    prompt = build_propose_change_prompt(item, trend_texts)
+    result = run_claude_cli(
+        prompt,
+        disallowed_tools=NO_TOOLS,
+        model=settings.CONTENT_TEXT_MODEL,
+        max_turns=1,
+    )
+    if result.get('is_error'):
+        raise RuntimeError(
+            f'change-proposal generation failed (subtype={result.get("subtype")}): '
+            f'{result.get("text") or "(no text)"}')
+    text = result.get('text') or ''
+
+    try:
+        proposed = json.loads(strip_code_fence(text))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f'change-proposal generation returned unparseable JSON: {exc}') from exc
+    if not isinstance(proposed, dict):
+        raise RuntimeError('change-proposal generation returned JSON that is not an object')
+
+    if not proposed.get('has_change'):
+        return None
+
+    working_title = (proposed.get('working_title') or '').strip()
+    if not working_title:
+        raise RuntimeError('change-proposal generation returned an empty working_title')
+
+    return {'working_title': working_title[:255], 'context_notes': proposed.get('context_notes') or ''}
+
+
+def run_daily_nudge(brand=None):
+    """
+    Daily sweep (content-generator-plan.md §13 Phase 1 step 3): for every
+    APPROVED ContentPlan's still-future PlanItems, ask whether newly
+    flagged trends warrant a different angle — but ONLY if there are
+    genuinely new (considered=False) TrendFlags to react to; most days,
+    for most brands, this makes zero LLM calls.
+
+    A proposal is written to PlanItem.proposed_changes (never applied
+    directly — see this section's module docstring) and surfaced via an
+    ITEM_CHANGE_PROPOSED ActionItem; content/views.py's ContentCalendarAPI
+    (`accept_proposal`/`reject_proposal`) applies or discards it.
+
+    Never touches: reel_verdict items (Phase 5), items whose planned_date
+    has already passed (nothing left to "improvise" on), items that already
+    have any Script (the Copywriter has moved past the planning stage —
+    changing the brief under a script in progress would be confusing, not
+    helpful), items that already carry a pending proposal (don't stack a
+    second one on top before the admin resolves the first), or items whose
+    plan isn't APPROVED (there's no "already-approved plan" to nudge yet).
+
+    Trend flags are only marked considered=True once actually fed to at
+    least one eligible item this run — a brand with open trends but zero
+    eligible items (e.g. no approved plan yet) leaves them open for the
+    next run that does have something to apply them to.
+
+    Returns {'proposed': int, 'unchanged': int, 'failed': int} — never
+    raises; each item's failure is caught and counted, same idiom as
+    copywriter.run_daily/designer.run_daily.
+    """
+    trend_flags = list(_open_trend_flags())
+    if not trend_flags:
+        return {'proposed': 0, 'unchanged': 0, 'failed': 0}
+    trend_texts = [f.source_text for f in trend_flags]
+
+    today = timezone.localdate()
+    qs = (
+        PlanItem.objects.filter(
+            plan__status=ContentPlan.Status.APPROVED,
+            status=PlanItem.Status.APPROVED,
+            planned_date__gt=today,
+            proposed_changes={},
+        )
+        .exclude(content_type=ContentSeries.ContentType.REEL_VERDICT)
+        .exclude(scripts__isnull=False)
+        .select_related('plan', 'plan__brand', 'series')
+        .distinct()
+    )
+    if brand is not None:
+        qs = qs.filter(plan__brand=brand)
+    items = list(qs)
+
+    summary = {'proposed': 0, 'unchanged': 0, 'failed': 0}
+    if not items:
+        return summary
+
+    for item in items:
+        try:
+            proposal = propose_change_for_item(item, trend_texts)
+        except Exception:
+            logger.exception('planner: propose_change_for_item failed for plan_item %s', item.id)
+            summary['failed'] += 1
+            continue
+        if not proposal:
+            summary['unchanged'] += 1
+            continue
+        item.proposed_changes = proposal
+        item.save(update_fields=['proposed_changes', 'updated_at'])
+        ActionItem.objects.get_or_create(
+            plan_item=item, kind=ActionItem.Kind.ITEM_CHANGE_PROPOSED, status=ActionItem.Status.OPEN,
+            defaults={
+                'title': f'Proposed change: {item.working_title}',
+                'description': 'The Planner proposed a different angle based on newly flagged trends.',
+                'due_date': item.planned_date,
+            },
+        )
+        summary['proposed'] += 1
+
+    TrendFlag.objects.filter(id__in=[f.id for f in trend_flags]).update(considered=True)
+    return summary

@@ -11,7 +11,7 @@ urlpatterns = [
     path('admin/', include('crm.urls')),               # B2B pipeline
     path('admin/', include('finance.urls')),           # expenses, investments
     path('admin/', include('marketing.urls')),         # reviews, blogs
-    path('admin/', include('content.urls')),           # Content Studio (Phase 0 — see content-generator-plan.md)
+    path('admin/', include('content.urls')),           # Content Studio (Phase 0/1/2/3 — see content-generator-plan.md)
     path('admin/', include('debugger.urls')),          # Debugger Agent (super_admin)
     path('', include('storefront.urls')),              # Phase 15 — public storefront
 ]

@@ -75,6 +75,10 @@ def _action_item_dict(a):
         'description': a.description,
         'due_date': a.due_date.isoformat() if a.due_date else None,
         'plan_item_id': a.plan_item_id,
+        # Resolved either from the plan-level FK (plan_review) or through
+        # the item (everything else) — lets the Pending Tasks page deep-link
+        # each kind to the right page without a second lookup.
+        'plan_id': a.plan_id or (a.plan_item.plan_id if a.plan_item_id else None),
         'created_at': a.created_at.isoformat(),
     }
 
@@ -157,6 +161,7 @@ class ContentCalendarAPI(APIView):
                 'series': p.series.name if p.series else None,
                 'series_slug': p.series.slug if p.series else None,
                 'plan_status': p.plan.status,
+                'proposed_changes': p.proposed_changes or {},
             }
             for p in qs
         ]
@@ -190,10 +195,10 @@ class ContentCalendarAPI(APIView):
 
     def post(self, request):
         """action=approve_plan|toggle_item_approve|toggle_item_skip|update_item|
-        regenerate_item, same {success,message} action-dispatch style as
-        marketing's ReviewsAPI.post — the admin-approval gate
-        content-generator-plan.md §4 requires before a plan (or any item
-        in it) moves forward.
+        regenerate_item|accept_proposal|reject_proposal, same {success,message}
+        action-dispatch style as marketing's ReviewsAPI.post — the
+        admin-approval gate content-generator-plan.md §4 requires before a
+        plan (or any item in it) moves forward.
 
         Per-item review is a 3-way toggle: PLANNED (undecided, the default)
         <-> APPROVED <-> SKIPPED, each a single click, clicking the active
@@ -208,6 +213,15 @@ class ContentCalendarAPI(APIView):
         status back to PLANNED, since the admin hasn't seen the new content
         yet. All item-level actions reject once the parent plan is
         APPROVED — a locked plan's items don't change.
+
+        accept_proposal/reject_proposal are the ONE pair of item-level
+        actions that DO apply to an APPROVED plan's items — they're how an
+        admin resolves a diff the Planner's daily nudge wrote into
+        `proposed_changes` (content/agents/planner.py's run_daily_nudge,
+        content-generator-plan.md §4's "sits as a diff awaiting separate
+        approval, never silently overwrites"). accept applies the proposed
+        fields onto the item and clears proposed_changes; reject just clears
+        it, leaving the item exactly as it was.
         """
         brand_id = current_brand_id(request)
         action = request.data.get('action')
@@ -231,12 +245,22 @@ class ContentCalendarAPI(APIView):
             ).update(status=ActionItem.Status.DONE, resolved_by=request.user, resolved_at=timezone.now())
             return ok(message='Plan approved.')
 
-        if action in ('toggle_item_approve', 'toggle_item_skip', 'update_item', 'regenerate_item'):
+        if action in ('toggle_item_approve', 'toggle_item_skip', 'update_item', 'regenerate_item',
+                      'accept_proposal', 'reject_proposal'):
             try:
                 item = PlanItem.objects.select_related('plan').get(
                     id=int(request.data.get('item_id') or 0), plan__brand_id=brand_id)
             except (PlanItem.DoesNotExist, TypeError, ValueError):
                 return err('Plan item not found.', status=404)
+
+            # accept_proposal/reject_proposal are the one pair that operate
+            # on an APPROVED plan's items on purpose — see this method's
+            # docstring. Everything else stays locked once the plan is approved.
+            if action == 'accept_proposal':
+                return self._accept_proposal(item, request.user)
+            if action == 'reject_proposal':
+                return self._reject_proposal(item, request.user)
+
             if item.plan.status == ContentPlan.Status.APPROVED:
                 return err('This plan is already approved — items can no longer be changed.')
 
@@ -251,6 +275,36 @@ class ContentCalendarAPI(APIView):
             return ok({'status': item.status})
 
         return err('Unknown action.')
+
+    def _accept_proposal(self, item, user):
+        if not item.proposed_changes:
+            return err('This item has no pending proposed change.')
+        proposed = item.proposed_changes
+        fields = []
+        if 'working_title' in proposed:
+            item.working_title = (proposed.get('working_title') or item.working_title)[:255]
+            fields.append('working_title')
+        if 'context_notes' in proposed:
+            item.context_notes = proposed.get('context_notes') or ''
+            fields.append('context_notes')
+        item.proposed_changes = {}
+        item.save(update_fields=fields + ['proposed_changes', 'updated_at'])
+        ActionItem.objects.filter(
+            plan_item=item, kind=ActionItem.Kind.ITEM_CHANGE_PROPOSED, status=ActionItem.Status.OPEN,
+        ).update(status=ActionItem.Status.DONE, resolved_by=user, resolved_at=timezone.now())
+        return ok({
+            'working_title': item.working_title, 'context_notes': item.context_notes,
+        }, message='Proposed change applied.')
+
+    def _reject_proposal(self, item, user):
+        if not item.proposed_changes:
+            return err('This item has no pending proposed change.')
+        item.proposed_changes = {}
+        item.save(update_fields=['proposed_changes', 'updated_at'])
+        ActionItem.objects.filter(
+            plan_item=item, kind=ActionItem.Kind.ITEM_CHANGE_PROPOSED, status=ActionItem.Status.OPEN,
+        ).update(status=ActionItem.Status.DISMISSED, resolved_by=user, resolved_at=timezone.now())
+        return ok(message='Proposed change dismissed — item left unchanged.')
 
     def _regenerate_item(self, item, data):
         """Re-runs the Planner for ONE existing item (same slot, fresh

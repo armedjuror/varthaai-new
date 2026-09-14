@@ -1,8 +1,17 @@
 """
 Celery tasks for the Content Studio (content-generator-plan.md §8, §13
-Phase 1). Same idiom as debugger/tasks.py: set a transient status before
+Phase 1/2/3). Same idiom as debugger/tasks.py: set a transient status before
 dispatch, catch SoftTimeLimitExceeded/Exception, always land back on a
 stable status with the error surfaced on the row.
+
+run_copywriter_daily/run_designer_daily are thin beat-schedule wrappers around
+content.agents.copywriter.run_daily()/content.agents.designer.run_daily()
+respectively. Unlike run_planner_task, these sweep ALL due PlanItems across
+brands in one call rather than acting on a single row, so there's no
+per-object status to flip before/after — each agent's own per-item loop
+already records a failure on that item's Script/PosterAsset rather than
+raising, so the only thing these wrappers guard against is the whole sweep
+dying outright (SoftTimeLimitExceeded, or an exception before the loop starts).
 """
 import logging
 
@@ -96,3 +105,68 @@ def seed_next_month_plans(self):
         dispatched += 1
     logger.info('seed_next_month_plans: dispatched %s plan(s)', dispatched)
     return dispatched
+
+
+@shared_task(bind=True, max_retries=0)
+def run_copywriter_daily(self):
+    """Beat task (content-generator-plan.md §7/§13 Phase 2): sweep every
+    active brand's due PlanItems, drafting Scripts where inputs are ready
+    and filing input_needed ActionItems where they aren't. See
+    content/agents/copywriter.py's module docstring for the full
+    status-transition scheme this sweeps against."""
+    from content.agents import copywriter
+
+    try:
+        summary = copywriter.run_daily()
+    except SoftTimeLimitExceeded:
+        logger.warning('run_copywriter_daily timed out')
+        return
+    except Exception:
+        logger.exception('run_copywriter_daily failed')
+        return
+    logger.info('run_copywriter_daily: %s', summary)
+    return summary
+
+
+@shared_task(bind=True, max_retries=0)
+def run_planner_nudge_daily(self):
+    """Beat task (content-generator-plan.md §13 Phase 1 step 3 / Phase 4):
+    sweep every APPROVED plan's still-future items for a diff-worthy change
+    given newly flagged trends, writing any proposal to PlanItem.proposed_changes
+    for admin review (accept/reject) rather than applying it directly. See
+    content/agents/planner.py's run_daily_nudge() docstring — most days this
+    makes zero LLM calls (no open TrendFlags to react to)."""
+    from content.agents import planner
+
+    try:
+        summary = planner.run_daily_nudge()
+    except SoftTimeLimitExceeded:
+        logger.warning('run_planner_nudge_daily timed out')
+        return
+    except Exception:
+        logger.exception('run_planner_nudge_daily failed')
+        return
+    logger.info('run_planner_nudge_daily: %s', summary)
+    return summary
+
+
+@shared_task(bind=True, max_retries=0)
+def run_designer_daily(self):
+    """Beat task (content-generator-plan.md §13 Phase 3): sweep every
+    PlanItem with an approved Script and a poster content_type, generating
+    a PosterAsset for each one not already attempted. See
+    content/agents/designer.py's run_daily() docstring for the exact
+    gating rule (a failed attempt counts as "already attempted" so a
+    broken Gemini key can't retry-storm every run)."""
+    from content.agents import designer
+
+    try:
+        summary = designer.run_daily()
+    except SoftTimeLimitExceeded:
+        logger.warning('run_designer_daily timed out')
+        return
+    except Exception:
+        logger.exception('run_designer_daily failed')
+        return
+    logger.info('run_designer_daily: %s', summary)
+    return summary

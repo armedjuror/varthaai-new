@@ -1,0 +1,300 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Scripts — Varthaai Admin{% endblock %}
+
+{% block content %}
+
+<div class="page-body">
+
+  <div class="page-header">
+    <div>
+      <h1>Scripts</h1>
+      <p>Copywriter Agent drafts awaiting your review — approve, request changes, or regenerate.</p>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <div class="row g-2 align-items-center">
+      <div class="col-auto">
+        <select class="form-select form-select-sm" id="statusFilter" style="width:auto">
+          <option value="">All statuses</option>
+          <option value="needs_review">Needs review</option>
+          <option value="approved">Approved</option>
+          <option value="changes_requested">Changes requested</option>
+          <option value="draft">Draft</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="data-card">
+    <div class="data-card-header">
+      <h3>Scripts</h3>
+    </div>
+    <div class="table-responsive">
+      <table class="table" id="scriptsTable">
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Type</th>
+            <th>Skill</th>
+            <th>Version</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Preview</th>
+          </tr>
+        </thead>
+        <tbody id="scriptsBody">
+          <tr><td colspan="7" class="text-center py-4">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- /.page-body -->
+
+<!-- Script Detail / Review Modal -->
+<div class="modal fade" id="scriptDetailModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-file-lines me-2"></i><span id="scriptDetailTitle">Script</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="scriptDetailMeta" style="font-size:0.8rem;color:var(--gray-500);margin-bottom:12px"></div>
+        <div id="scriptDetailContext" class="alert alert-secondary" style="font-size:0.82rem;display:none"></div>
+        <pre id="scriptDetailRaw" style="white-space:pre-wrap;font-family:inherit;font-size:0.85rem;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:10px;padding:16px;max-height:420px;overflow-y:auto"></pre>
+        <div id="scriptDetailRecap" style="font-size:0.78rem;color:var(--gray-500);margin-top:8px;display:none"></div>
+        <div id="scriptDetailReviewNotes" class="alert alert-danger" style="font-size:0.82rem;margin-top:8px;display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-outline-primary btn-sm" id="scriptRegenerateBtn"><i class="fas fa-arrows-rotate me-1"></i>Regenerate</button>
+        <button type="button" class="btn btn-outline-danger btn-sm" id="scriptRequestChangesBtn"><i class="fas fa-xmark me-1"></i>Request Changes</button>
+        <button type="button" class="btn btn-primary btn-sm" id="scriptApproveBtn"><i class="fas fa-check me-1"></i>Approve</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Request Changes Modal -->
+<div class="modal fade" id="requestChangesModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-xmark me-2"></i>Request Changes</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="requestChangesForm">
+        <input type="hidden" name="script_id">
+        <div class="modal-body">
+          <label class="form-label">What needs to change?</label>
+          <textarea class="form-control" name="review_notes" rows="3" placeholder="e.g. too long, tighten the hook"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger btn-sm">Request Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Regenerate Modal (same "optional instruction" pattern as the Calendar's regenerate-item modal) -->
+<div class="modal fade" id="regenerateScriptModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-arrows-rotate me-2"></i>Regenerate Script</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="regenerateScriptForm">
+        <input type="hidden" name="script_id">
+        <div class="modal-body">
+          <p class="text-muted" style="font-size:0.85rem">
+            Re-runs the same skill for this item and creates a new version. If it was already
+            approved or had changes requested, that decision resets so you review the new draft.
+          </p>
+          <label class="form-label">What would you like different? (optional)</label>
+          <textarea class="form-control" name="instruction" rows="3" placeholder="e.g. make the hook punchier"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-arrows-rotate me-1"></i>Regenerate</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<style>
+  #scriptsBody tr { cursor: pointer; }
+</style>
+<script>
+  var STATUS_LABELS = {
+    draft: 'Draft', needs_review: 'Needs review', approved: 'Approved', changes_requested: 'Changes requested',
+  };
+  var STATUS_BADGE = {
+    draft: 'status-cancelled', needs_review: 'status-pending', approved: 'status-delivered', changes_requested: 'status-failed',
+  };
+  var CONTENT_TYPE_LABELS = {
+    reel_varthaanm: 'Varthaai Varthaanm', reel_verdict: 'Varthaai Verdict', reel_inside: 'Varthaai Inside',
+    poster_learn: 'Learn With Varthaai', poster_occasion: 'Occasion', poster_event: 'Event', blog: 'Blog',
+  };
+
+  var currentScript = null;
+
+  async function loadScripts() {
+    const status = document.getElementById('statusFilter').value;
+    const res = await apiGet('/admin/api/content/scripts/', status ? { status: status } : {});
+    const tbody = document.getElementById('scriptsBody');
+    if (!res.success) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">' + escHtml(res.message) + '</td></tr>';
+      return;
+    }
+    const items = res.data.items || [];
+    if (!items.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4 text-muted">No scripts yet.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = items.map(function (s) {
+      return '<tr data-script-id="' + s.id + '" data-plan-item-id="' + s.plan_item_id + '">' +
+        '<td>' + escHtml(s.working_title) + '</td>' +
+        '<td>' + (CONTENT_TYPE_LABELS[s.content_type] || s.content_type) + '</td>' +
+        '<td>' + escHtml(s.skill_used) + '</td>' +
+        '<td>v' + s.version + '</td>' +
+        '<td><span class="status ' + (STATUS_BADGE[s.status] || '') + '">' + (STATUS_LABELS[s.status] || s.status) + '</span></td>' +
+        '<td>' + formatDate(s.created_at) + '</td>' +
+        '<td style="max-width:280px;font-size:0.78rem;color:var(--gray-500)">' + escHtml(s.preview) + '</td>' +
+      '</tr>';
+    }).join('');
+
+    tbody.querySelectorAll('tr[data-script-id]').forEach(function (row) {
+      row.addEventListener('click', function () { openDetail(row.dataset.scriptId); });
+    });
+
+    // Deep-link from Pending Tasks (?plan_item_id=<id>) — open that item's
+    // latest script automatically (list is already ordered -created_at, so
+    // the first DOM match for this plan_item is its latest version).
+    const linkedPlanItemId = new URLSearchParams(window.location.search).get('plan_item_id');
+    if (linkedPlanItemId) {
+      const row = tbody.querySelector('tr[data-plan-item-id="' + linkedPlanItemId + '"]');
+      if (row) openDetail(row.dataset.scriptId);
+    }
+  }
+
+  async function openDetail(scriptId) {
+    const res = await apiGet('/admin/api/content/scripts/', { id: scriptId });
+    if (!res.success) { showAlertModal(res.message, 'error'); return; }
+    currentScript = res.data;
+
+    document.getElementById('scriptDetailTitle').textContent = currentScript.working_title;
+    document.getElementById('scriptDetailMeta').textContent =
+      (CONTENT_TYPE_LABELS[currentScript.content_type] || currentScript.content_type) + ' · ' +
+      formatDate(currentScript.planned_date) + ' · ' + currentScript.skill_used + ' · v' + currentScript.version +
+      ' · ' + (STATUS_LABELS[currentScript.status] || currentScript.status);
+
+    const contextEl = document.getElementById('scriptDetailContext');
+    if (currentScript.context_notes) {
+      contextEl.style.display = '';
+      contextEl.textContent = 'Brief: ' + currentScript.context_notes;
+    } else {
+      contextEl.style.display = 'none';
+    }
+
+    document.getElementById('scriptDetailRaw').textContent = currentScript.raw_output || '(empty)';
+
+    const recapEl = document.getElementById('scriptDetailRecap');
+    if (currentScript.recap_summary) {
+      recapEl.style.display = '';
+      recapEl.textContent = 'Recap for next episode: ' + currentScript.recap_summary;
+    } else {
+      recapEl.style.display = 'none';
+    }
+
+    const notesEl = document.getElementById('scriptDetailReviewNotes');
+    if (currentScript.review_notes) {
+      notesEl.style.display = '';
+      notesEl.textContent = 'Changes requested: ' + currentScript.review_notes;
+    } else {
+      notesEl.style.display = 'none';
+    }
+
+    const approveBtn = document.getElementById('scriptApproveBtn');
+    approveBtn.disabled = currentScript.status === 'approved';
+    approveBtn.textContent = currentScript.status === 'approved' ? 'Already approved' : 'Approve';
+
+    new bootstrap.Modal(document.getElementById('scriptDetailModal')).show();
+  }
+
+  document.getElementById('scriptApproveBtn').addEventListener('click', async function () {
+    if (!currentScript) return;
+    const btn = this;
+    btn.disabled = true;
+    const res = await apiPost('/admin/api/content/scripts/', { action: 'approve', script_id: currentScript.id });
+    btn.disabled = false;
+    if (!res.success) { showAlertModal(res.message, 'error'); return; }
+    bootstrap.Modal.getInstance(document.getElementById('scriptDetailModal')).hide();
+    showAlertModal('Script approved.', 'success');
+    loadScripts();
+  });
+
+  document.getElementById('scriptRequestChangesBtn').addEventListener('click', function () {
+    if (!currentScript) return;
+    const form = document.getElementById('requestChangesForm');
+    form.script_id.value = currentScript.id;
+    form.review_notes.value = '';
+    new bootstrap.Modal(document.getElementById('requestChangesModal')).show();
+  });
+
+  document.getElementById('scriptRegenerateBtn').addEventListener('click', function () {
+    if (!currentScript) return;
+    const form = document.getElementById('regenerateScriptForm');
+    form.script_id.value = currentScript.id;
+    form.instruction.value = '';
+    new bootstrap.Modal(document.getElementById('regenerateScriptModal')).show();
+  });
+
+  document.getElementById('requestChangesForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const form = e.target;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    const res = await apiPost('/admin/api/content/scripts/', {
+      action: 'request_changes', script_id: form.script_id.value, review_notes: form.review_notes.value,
+    });
+    submitBtn.disabled = false;
+    if (!res.success) { showAlertModal(res.message, 'error'); return; }
+    bootstrap.Modal.getInstance(document.getElementById('requestChangesModal')).hide();
+    bootstrap.Modal.getInstance(document.getElementById('scriptDetailModal'))?.hide();
+    showAlertModal('Changes requested.', 'success');
+    loadScripts();
+  });
+
+  document.getElementById('regenerateScriptForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const form = e.target;
+    const submitBtn = form.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    showLoader('Regenerating — this can take 10-60 seconds…');
+    const res = await apiPost('/admin/api/content/scripts/', {
+      action: 'regenerate', script_id: form.script_id.value, instruction: form.instruction.value,
+    });
+    hideLoader();
+    submitBtn.disabled = false;
+    if (!res.success) { showAlertModal(res.message, 'error'); return; }
+    bootstrap.Modal.getInstance(document.getElementById('regenerateScriptModal')).hide();
+    bootstrap.Modal.getInstance(document.getElementById('scriptDetailModal'))?.hide();
+    showAlertModal('Script regenerated — review the new draft.', 'success');
+    loadScripts();
+  });
+
+  document.getElementById('statusFilter').addEventListener('change', loadScripts);
+  loadScripts();
+</script>
+{% endblock %}

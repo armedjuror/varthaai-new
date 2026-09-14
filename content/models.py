@@ -140,6 +140,14 @@ class PlanItem(models.Model):
     # specifics live (§1: "never inferred", supplied here explicitly).
     context_notes = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PLANNED)
+    # Phase 4 (§4's "improvised later" rule): the Planner's daily nudge run
+    # proposes changes to an ALREADY-APPROVED item as a diff sitting here,
+    # never overwriting working_title/context_notes/planned_date/content_type
+    # directly. Empty dict = no pending proposal. Keys are a subset of
+    # {working_title, context_notes, planned_date, content_type}; applied
+    # atomically onto the real fields (and cleared) only on admin accept,
+    # discarded (cleared, untouched fields) on reject.
+    proposed_changes = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -302,6 +310,12 @@ class PosterAsset(models.Model):
     generation_metadata = models.JSONField(default=dict, blank=True)
     version = models.PositiveSmallIntegerField(default=1)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -320,6 +334,7 @@ class ActionItem(models.Model):
     class Kind(models.TextChoices):
         INPUT_NEEDED = 'input_needed', 'Input needed'
         PLAN_REVIEW = 'plan_review', 'Plan review'
+        ITEM_CHANGE_PROPOSED = 'item_change_proposed', 'Plan item change proposed'
         SCRIPT_REVIEW = 'script_review', 'Script review'
         POSTER_REVIEW = 'poster_review', 'Poster review'
 

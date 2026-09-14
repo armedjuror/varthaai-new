@@ -273,6 +273,26 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'content.tasks.seed_next_month_plans',
         'schedule': crontab(hour=6, minute=0, day_of_month=28),
     },
+    # Content Studio Phase 4 — propose diffs to already-approved plans'
+    # future items when new trends are flagged. Runs before the Copywriter
+    # so an accepted proposal's fresh context_notes is what gets drafted
+    # later the same morning, not stale text from before the nudge.
+    'content-planner-nudge-daily': {
+        'task': 'content.tasks.run_planner_nudge_daily',
+        'schedule': crontab(hour=6, minute=30),
+    },
+    # Content Studio Phase 2 — draft Scripts for due, input-ready PlanItems.
+    'content-copywriter-daily': {
+        'task': 'content.tasks.run_copywriter_daily',
+        'schedule': crontab(hour=7, minute=0),
+    },
+    # Content Studio Phase 3 — generate posters for PlanItems with an
+    # approved Script. Runs after the Copywriter so a same-day approval can
+    # be picked up same-day if needed.
+    'content-designer-daily': {
+        'task': 'content.tasks.run_designer_daily',
+        'schedule': crontab(hour=7, minute=30),
+    },
 }
 
 # ---------------------------------------------------------------------------
