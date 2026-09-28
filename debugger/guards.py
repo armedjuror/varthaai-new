@@ -8,6 +8,8 @@ Two guarantees enforced here (in addition to the DB-level read-only role):
 """
 import re
 
+from core.sql_guards import check_sql_readonly  # noqa: F401 — re-exported for `guards.check_sql_readonly`
+
 # Tools the agent is never allowed to invoke (writes / side effects).
 BLOCKED_TOOLS = {
     'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'NotebookWrite',
@@ -36,30 +38,6 @@ ALLOWED_GIT_SUBCMDS = {
     'log', 'diff', 'show', 'status', 'blame', 'branch', 'rev-parse',
     'ls-files', 'ls-tree', 'cat-file', 'shortlog', 'describe', 'grep',
 }
-
-# Whole-word SQL keywords that indicate a write / DDL / side effect.
-_FORBIDDEN_SQL = re.compile(
-    r'\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|'
-    r'copy|call|do|merge|comment|reindex|vacuum|lock|set|begin|commit|'
-    r'rollback|savepoint|prepare|execute|listen|notify|refresh)\b',
-    re.IGNORECASE,
-)
-
-
-def check_sql_readonly(sql):
-    """Return (ok, reason). Enforces a single read-only SELECT/CTE statement."""
-    if not sql or not sql.strip():
-        return False, 'Empty query.'
-    cleaned = sql.strip().rstrip(';').strip()
-    # No statement chaining.
-    if ';' in cleaned:
-        return False, 'Multiple statements are not allowed — run one SELECT.'
-    first = cleaned.split(None, 1)[0].lower()
-    if first not in ('select', 'with'):
-        return False, 'Only SELECT (or WITH ... SELECT) queries are allowed.'
-    if _FORBIDDEN_SQL.search(cleaned):
-        return False, 'Query contains a non-read-only keyword.'
-    return True, ''
 
 
 def _split_bash(command):

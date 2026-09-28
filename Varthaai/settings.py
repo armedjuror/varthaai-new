@@ -71,6 +71,7 @@ LOCAL_APPS = [
     'marketing',
     'storefront',
     'debugger',
+    'bizmcp',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -309,3 +310,15 @@ AI_ASSIST_MODELS = [
     {'id': 'anthropic/claude-sonnet-5', 'label': 'Claude Sonnet', 'provider': 'anthropic'},
 ]
 AI_ASSIST_DEFAULT_MODEL = 'anthropic/claude-sonnet-5'
+
+# ---------------------------------------------------------------------------
+# Business Analysis MCP server (bizmcp app). Runs as its own ASGI process
+# (bizmcp/asgi.py, uvicorn) — not gunicorn/WSGI — behind an nginx path with
+# bearer-token auth. See deploy/MCP_ANALYTICS.md.
+# ---------------------------------------------------------------------------
+# Static bearer token required on every request (Authorization: Bearer ...).
+# The server refuses every request (500) if this is blank — never ship with
+# no token configured.
+MCP_API_KEY = env('MCP_API_KEY', '')
+# Hard cap on rows any single run_readonly_sql call may return.
+MCP_DB_ROW_LIMIT = int(env('MCP_DB_ROW_LIMIT', '200'))
