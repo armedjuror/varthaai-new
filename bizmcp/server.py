@@ -14,12 +14,24 @@ streamable-http session state lives in this process's memory.
 import asyncio
 from typing import Optional
 
+from django.conf import settings
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from bizmcp import sql_tool, tools
 from bizmcp.auth import BearerTokenMiddleware, StripMcpTrailingSlashMiddleware
 
-mcp = FastMCP('varthaai-analytics', stateless_http=True)
+# FastMCP auto-enables DNS-rebinding protection allowing only localhost Host
+# headers; behind nginx the Host is the public domain, so list it explicitly.
+mcp = FastMCP(
+    'varthaai-analytics',
+    stateless_http=True,
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=['127.0.0.1:*', 'localhost:*', *settings.MCP_ALLOWED_HOSTS],
+        allowed_origins=['http://127.0.0.1:*', 'http://localhost:*', *settings.MCP_ALLOWED_ORIGINS],
+    ),
+)
 
 
 async def _run(fn, /, **kwargs):

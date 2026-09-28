@@ -176,3 +176,16 @@ class AsgiMiddlewareTests(SimpleTestCase):
         status, path = _call_asgi(wrap, '/mcp/', [(b'authorization', b'Bearer test-token')])
         self.assertEqual(status, 200)
         self.assertEqual(path, '/mcp')
+
+
+class TransportSecurityTests(SimpleTestCase):
+    """Regression cover: FastMCP's default DNS-rebinding protection only
+    allowed localhost Host headers, so every request nginx forwarded with
+    Host: varthaai.com was rejected with 421 in production."""
+
+    def test_public_domain_allowed_and_protection_on(self):
+        from bizmcp.server import mcp
+        sec = mcp.settings.transport_security
+        self.assertTrue(sec.enable_dns_rebinding_protection)
+        self.assertIn('varthaai.com', sec.allowed_hosts)
+        self.assertIn('127.0.0.1:*', sec.allowed_hosts)
