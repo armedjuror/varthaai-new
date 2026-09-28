@@ -1,9 +1,11 @@
+import asyncio
 from datetime import timedelta
 
-from django.test import TestCase, TransactionTestCase
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
 from bizmcp import sql_tool, tools
+from bizmcp.auth import BearerTokenMiddleware, StripMcpTrailingSlashMiddleware
 from accounts.models import User
 from core.models import Brand
 from crm.models import B2BCompany
@@ -123,3 +125,54 @@ class RunReadonlySqlTestCase(TransactionTestCase):
         result = sql_tool.run_readonly_sql('SELECT count(*) AS n FROM brands')
         self.assertNotIn('error', result)
         self.assertEqual(result['rows'][0]['n'], 1)
+
+
+def _call_asgi(app, path, headers=()):
+    """Drive an ASGI app with one HTTP request; return (status, path_seen_by_inner_app)."""
+    seen = {}
+
+    async def inner(scope, receive, send):
+        seen['path'] = scope['path']
+        await send({'type': 'http.response.start', 'status': 200, 'headers': []})
+        await send({'type': 'http.response.body', 'body': b''})
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    async def receive():
+        return {'type': 'http.request', 'body': b''}
+
+    scope = {'type': 'http', 'path': path, 'headers': list(headers)}
+    asyncio.run(app(inner)(scope, receive, send))
+    return sent[0]['status'], seen.get('path')
+
+
+@override_settings(MCP_API_KEY='test-token')
+class AsgiMiddlewareTests(SimpleTestCase):
+    """Regression cover for a production bug: a client configured with the
+    trailing-slash URL hit FastMCP's own /mcp/ -> /mcp 307, dropped the
+    Authorization header following it, and got 401 despite a correct token."""
+
+    def test_trailing_slash_rewritten_without_redirect(self):
+        status, path = _call_asgi(StripMcpTrailingSlashMiddleware, '/mcp/')
+        self.assertEqual(status, 200)
+        self.assertEqual(path, '/mcp')
+
+    def test_other_paths_untouched(self):
+        for p in ('/mcp', '/mcp/foo', '/'):
+            _, path = _call_asgi(StripMcpTrailingSlashMiddleware, p)
+            self.assertEqual(path, p)
+
+    def test_auth_still_enforced_on_trailing_slash(self):
+        wrap = lambda inner: BearerTokenMiddleware(StripMcpTrailingSlashMiddleware(inner))
+        status, path = _call_asgi(wrap, '/mcp/')
+        self.assertEqual(status, 401)
+        self.assertIsNone(path)
+
+    def test_valid_token_on_trailing_slash_reaches_app(self):
+        wrap = lambda inner: BearerTokenMiddleware(StripMcpTrailingSlashMiddleware(inner))
+        status, path = _call_asgi(wrap, '/mcp/', [(b'authorization', b'Bearer test-token')])
+        self.assertEqual(status, 200)
+        self.assertEqual(path, '/mcp')

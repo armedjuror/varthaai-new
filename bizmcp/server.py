@@ -17,7 +17,7 @@ from typing import Optional
 from mcp.server.fastmcp import FastMCP
 
 from bizmcp import sql_tool, tools
-from bizmcp.auth import BearerTokenMiddleware
+from bizmcp.auth import BearerTokenMiddleware, StripMcpTrailingSlashMiddleware
 
 mcp = FastMCP('varthaai-analytics', stateless_http=True)
 
@@ -130,4 +130,4 @@ async def run_readonly_sql(sql: str) -> dict:
 
 
 def build_asgi_app():
-    return BearerTokenMiddleware(mcp.streamable_http_app())
+    return BearerTokenMiddleware(StripMcpTrailingSlashMiddleware(mcp.streamable_http_app()))
