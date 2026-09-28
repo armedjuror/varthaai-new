@@ -322,3 +322,11 @@ AI_ASSIST_DEFAULT_MODEL = 'anthropic/claude-sonnet-5'
 MCP_API_KEY = env('MCP_API_KEY', '')
 # Hard cap on rows any single run_readonly_sql call may return.
 MCP_DB_ROW_LIMIT = int(env('MCP_DB_ROW_LIMIT', '200'))
+# Host headers the MCP transport accepts (its DNS-rebinding protection). Behind
+# nginx every request carries the public domain, so it must be listed here or
+# FastMCP answers 421 "Invalid Host header". localhost stays allowed for
+# on-box checks.
+MCP_ALLOWED_HOSTS = [h for h in env('MCP_ALLOWED_HOSTS', 'varthaai.com,www.varthaai.com').split(',') if h]
+# Origin headers accepted; requests without an Origin (server-side clients)
+# always pass.
+MCP_ALLOWED_ORIGINS = [o for o in env('MCP_ALLOWED_ORIGINS', 'https://claude.ai,https://claude.com').split(',') if o]

@@ -110,6 +110,17 @@ psql "host=127.0.0.1 dbname=varthaai_db user=varthaai_ro password=..." \
 # => ERROR: cannot execute UPDATE in a read-only transaction
 ```
 
+## Troubleshooting
+- **`421 Invalid Host header`** (in `journalctl -u varthaai-mcp`): the MCP
+  SDK's DNS-rebinding protection rejects Host headers not in
+  `MCP_ALLOWED_HOSTS`. Add the public domain nginx forwards, restart the unit.
+- **`401` with `header_present=False`** in the `bizmcp auth reject` log line:
+  the Authorization header never arrived — check the connector's header is
+  set, and that nothing between client and server redirects the request
+  (clients drop Authorization on redirect).
+- **Django HTML 404 at `/mcp`**: nginx isn't routing to the MCP upstream —
+  the `location /mcp` block is missing from the live config.
+
 ## Rotating the token
 Change `MCP_API_KEY` in `.env` and restart the unit:
 ```bash
