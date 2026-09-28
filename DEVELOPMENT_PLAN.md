@@ -192,6 +192,24 @@ FKs to the admin user use `settings.AUTH_USER_MODEL` with `related_name='+'`.
       Switcher itself stays on `accounts:brand_switch` (base.html topbar). Delete guarded
       when brand has users/orders. Runtime smoke: super_admin GET returns the list shape (2026-07-22).
 
+- [x] **Phase 17 — Business Analysis MCP server**: new `bizmcp` app exposes
+      curated read-only analysis tools (dashboard/sales/stock/B2B pipeline &
+      outstanding/customers/coupons/finance/marketing + a `b2b_report` reuse
+      of `orders.reports_b2b.build_b2b_report`) plus a `run_readonly_sql`
+      fallback, over MCP so Claude (claude.ai / Claude Code / Claude Desktop)
+      can connect directly for business analysis. Runs as its own ASGI
+      process (`bizmcp/asgi.py`, uvicorn on `:8801`, single worker) behind
+      nginx `/mcp/` with a static bearer token (`MCP_API_KEY`) — see
+      `deploy/MCP_ANALYTICS.md`. Reuses the Debugger Agent's dedicated
+      `readonly` Postgres role; the SELECT-only guard was extracted to
+      `core/sql_guards.py` (both `debugger/guards.py` and `bizmcp/sql_tool.py`
+      import it from there now — single source of truth). Reports at
+      super_admin/all-brand scope by design (personal analysis tool, not a
+      multi-admin surface) — no per-module permission check. Unit tests in
+      `bizmcp/tests.py` cover the B2B balance math (`total_amount -
+      paid_amount`, never `balance_amount`), stock status classification,
+      and the read-only SQL guard against the real `readonly` alias.
+
 ---
 
 ## 4. Parallelization strategy

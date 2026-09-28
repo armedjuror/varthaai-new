@@ -1,0 +1,34 @@
+# systemd unit for the Business Analysis MCP server (uvicorn on 127.0.0.1:8801).
+# A separate process from the main app (varthaai.service) — see
+# deploy/MCP_ANALYTICS.md. Install:
+#   sudo cp deploy/varthaai-mcp.service /etc/systemd/system/varthaai-mcp.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now varthaai-mcp
+# Logs:     sudo journalctl -u varthaai-mcp -f
+[Unit]
+Description=Varthaai Business Analysis MCP server (uvicorn)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/varthaai-new
+
+Environment=DJANGO_SETTINGS_MODULE=Varthaai.settings
+
+# Single worker process only — FastMCP's streamable-http session state lives
+# in this process's memory (see bizmcp/server.py's module docstring).
+ExecStart=/home/ubuntu/varthaai-new/venv/bin/uvicorn bizmcp.asgi:application \
+    --host 127.0.0.1 --port 8801
+
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
