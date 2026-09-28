@@ -57,3 +57,25 @@ class BearerTokenMiddleware:
             'headers': [(b'content-type', b'text/plain; charset=utf-8')],
         })
         await send({'type': 'http.response.body', 'body': body})
+
+
+class StripMcpTrailingSlashMiddleware:
+    """FastMCP mounts its app at exactly /mcp and issues its own 307 redirect
+    for /mcp/ -> /mcp. Confirmed in production: at least one real MCP client
+    drops the Authorization header when following that redirect (a common,
+    reasonable security default in HTTP clients), silently turning a
+    correctly-configured request into an unauthenticated one. Normalize the
+    one case that matters (/mcp/ itself) before it reaches FastMCP's router,
+    so the redirect — and the header loss that comes with it — never
+    happens, regardless of which exact URL a client was configured with.
+    Sub-paths like /mcp/foo are untouched; FastMCP's Mount handles those
+    directly without a redirect."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope['type'] == 'http' and scope.get('path') == '/mcp/':
+            scope = dict(scope)
+            scope['path'] = '/mcp'
+        return await self.app(scope, receive, send)
