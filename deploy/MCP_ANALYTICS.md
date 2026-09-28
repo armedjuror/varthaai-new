@@ -63,16 +63,30 @@ session state lives in that process's memory.
 
 ## 5. nginx
 Already added to `deploy/varthaai.nginx.conf` (`upstream varthaai_mcp` +
-`location /mcp/`, unbuffered, long read timeout for the long-lived
-streamable-http connection). Reload after pulling the updated config:
+`location /mcp`, unbuffered, long read timeout for the long-lived
+streamable-http connection). Note the location has no trailing slash and
+`proxy_pass http://varthaai_mcp;` has no trailing slash either — both
+deliberate, so the exact path FastMCP forwards to (`/mcp`) reaches it
+unrewritten. Reload after pulling the updated config:
 ```bash
 sudo nginx -t && sudo systemctl reload nginx
 ```
-The endpoint is now `https://varthaai.com/mcp/`.
+The endpoint is `https://varthaai.com/mcp` (with or without a trailing
+slash both work — nginx forwards either through unchanged, and FastMCP's
+own router handles the redirect between them).
+
+Sanity-check before wiring up a connector — with no/wrong token you should
+get `401`, never `404` (a `404` here means the nginx path rewrite is wrong
+again — see the note above) or Django's HTML 404 page (means nginx isn't
+routing to the MCP upstream at all):
+```bash
+curl -i https://varthaai.com/mcp/                                    # expect 401
+curl -i -H "Authorization: Bearer wrong" https://varthaai.com/mcp/   # expect 401
+```
 
 ## 6. Add it as a connector in Claude
 **claude.ai**: Settings → Connectors → Add custom connector
-- URL: `https://varthaai.com/mcp/`
+- URL: `https://varthaai.com/mcp`
 - Header: `Authorization: Bearer <MCP_API_KEY>`
 
 **Claude Code / Claude Desktop**: add a remote MCP server entry pointing at
