@@ -6,8 +6,11 @@ appropriate for a personal analysis tool with super_admin/all-brand scope.
 Rotate by changing the env var and restarting the unit.
 """
 import hmac
+import logging
 
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 class BearerTokenMiddleware:
@@ -30,6 +33,17 @@ class BearerTokenMiddleware:
         raw = headers.get(b'authorization', b'').decode('latin-1')
         token = raw[7:] if raw.lower().startswith('bearer ') else ''
         if not token or not hmac.compare_digest(token, expected):
+            # TEMP DIAGNOSTIC (remove once the 401 mismatch is root-caused):
+            # never logs the header/token content, only shape, so it's safe
+            # to leave in journalctl output.
+            logger.warning(
+                'bizmcp auth reject: header_present=%s raw_len=%d '
+                'starts_with_bearer=%s token_len=%d expected_len=%d '
+                'stripped_match=%s casefold_match=%s',
+                b'authorization' in headers, len(raw),
+                raw.lower().startswith('bearer '), len(token), len(expected),
+                token.strip() == expected.strip(), token.casefold() == expected.casefold(),
+            )
             return await self._deny(send, 401, 'Unauthorized.')
 
         return await self.app(scope, receive, send)
