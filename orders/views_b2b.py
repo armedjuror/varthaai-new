@@ -28,7 +28,7 @@ from crm.models import B2BActivity, B2BCompany, B2BContact
 from finance.services import sync_b2b_order_income
 from orders.models import B2BOffer, B2BOrder, B2BOrderItem, B2BPayment, B2BReturn
 from products.models import Flavor, FlavorPack, Stock
-from products.services import available_grams, deduct_stock, restock_batch, revert_stock
+from products.services import available_grams, deduct_from_batch, deduct_stock, restock_batch, revert_stock
 
 OFFER_TYPES = ['buy_x_get_y', 'discount_percent', 'flat_discount']
 
@@ -635,30 +635,73 @@ class B2BOrdersAPI(APIView):
             return err('Only draft orders can be confirmed.')
 
         if not order.stock_deducted:
-            items = list(order.items.select_related('flavor'))
-            needed = {}
-            for it in items:
-                needed[it.flavor_id] = needed.get(it.flavor_id, 0) + it.total_weight_grams
-            for it in items:
-                if it.flavor_id in needed:
-                    avail = available_grams(it.flavor)
-                    if avail < needed[it.flavor_id]:
-                        return err(
-                            f'Insufficient stock for {it.flavor_name}. '
-                            f'Available: {avail}g, needed: {needed[it.flavor_id]}g.',
-                        )
-                    del needed[it.flavor_id]
-            for it in items:
-                deduct_stock(
-                    it.flavor, it.total_weight_grams,
-                    reference_type='b2b_sale', reference_id=order.id,
-                    created_by=request.user, notes=f'B2B order {order.id}',
-                )
+            error = self._deduct_order_stock(order, request.user)
+            if error:
+                return error
             order.stock_deducted = True
 
         order.status = B2BOrder.Status.CONFIRMED
         order.save(update_fields=['status', 'stock_deducted', 'updated_at'])
         return ok(None, 'Order confirmed and stock deducted.')
+
+    def _deduct_order_stock(self, order, user):
+        """
+        Deduct stock for every line of `order`. Lines pinned to a batch
+        (`item.stock_id`, chosen by the admin in the order-create form) are
+        deducted from that exact batch — NOT the FIFO active batch, which is
+        a B2C-only concept. Unpinned lines fall back to FIFO deduction.
+        Returns an error response if stock is insufficient, else None.
+        """
+        items = list(order.items.select_related('flavor', 'stock'))
+        batch_needed = {}
+        flavor_needed = {}
+        pinned_by_flavor = {}
+        for it in items:
+            if it.stock_id:
+                batch_needed[it.stock_id] = batch_needed.get(it.stock_id, 0) + it.total_weight_grams
+                pinned_by_flavor[it.flavor_id] = pinned_by_flavor.get(it.flavor_id, 0) + it.total_weight_grams
+            else:
+                flavor_needed[it.flavor_id] = flavor_needed.get(it.flavor_id, 0) + it.total_weight_grams
+
+        seen_batches = {}
+        seen_flavors = {}
+        for it in items:
+            if it.stock_id and it.stock_id not in seen_batches:
+                seen_batches[it.stock_id] = it
+                needed = batch_needed[it.stock_id]
+                if not it.stock or it.stock.quantity_grams < needed:
+                    avail = it.stock.quantity_grams if it.stock else 0
+                    return err(
+                        f'Insufficient stock in batch for {it.flavor_name}. '
+                        f'Available: {avail}g, needed: {needed}g.',
+                    )
+            elif not it.stock_id and it.flavor_id not in seen_flavors:
+                seen_flavors[it.flavor_id] = it
+                needed = flavor_needed[it.flavor_id]
+                # Grams already claimed by this order's pinned batches for the
+                # same flavor are counted in available_grams() but are NOT
+                # available to unpinned lines — subtract them out.
+                avail = available_grams(it.flavor) - pinned_by_flavor.get(it.flavor_id, 0)
+                if avail < needed:
+                    return err(
+                        f'Insufficient stock for {it.flavor_name}. '
+                        f'Available: {avail}g, needed: {needed}g.',
+                    )
+
+        for it in items:
+            if it.stock_id and it.stock:
+                deduct_from_batch(
+                    it.stock, it.total_weight_grams,
+                    reference_type='b2b_sale', reference_id=order.id,
+                    created_by=user, notes=f'B2B order {order.id}',
+                )
+            else:
+                deduct_stock(
+                    it.flavor, it.total_weight_grams,
+                    reference_type='b2b_sale', reference_id=order.id,
+                    created_by=user, notes=f'B2B order {order.id}',
+                )
+        return None
 
     # ── status update ──
     # Any status is reachable from any other. Stock is deducted iff the
@@ -680,25 +723,9 @@ class B2BOrdersAPI(APIView):
 
         should_be_deducted = target in ('confirmed', 'dispatched', 'delivered')
         if should_be_deducted and not order.stock_deducted:
-            items = list(order.items.select_related('flavor'))
-            needed = {}
-            for it in items:
-                needed[it.flavor_id] = needed.get(it.flavor_id, 0) + it.total_weight_grams
-            for it in items:
-                if it.flavor_id in needed:
-                    avail = available_grams(it.flavor)
-                    if avail < needed[it.flavor_id]:
-                        return err(
-                            f'Insufficient stock for {it.flavor_name}. '
-                            f'Available: {avail}g, needed: {needed[it.flavor_id]}g.',
-                        )
-                    del needed[it.flavor_id]
-            for it in items:
-                deduct_stock(
-                    it.flavor, it.total_weight_grams,
-                    reference_type='b2b_sale', reference_id=order.id,
-                    created_by=request.user, notes=f'B2B order {order.id}',
-                )
+            error = self._deduct_order_stock(order, request.user)
+            if error:
+                return error
             order.stock_deducted = True
         elif not should_be_deducted and order.stock_deducted:
             self._revert_order_stock(order, request.user)
@@ -713,12 +740,19 @@ class B2BOrdersAPI(APIView):
         return ok(None, f'Order status updated to {target}.')
 
     def _revert_order_stock(self, order, user):
-        for it in order.items.select_related('flavor'):
-            revert_stock(
-                it.flavor, it.total_weight_grams,
-                reference_type='b2b_reversal', reference_id=order.id,
-                created_by=user, notes=f'Stock reverted — B2B order {order.id}',
-            )
+        for it in order.items.select_related('flavor', 'stock'):
+            if it.stock_id and it.stock:
+                restock_batch(
+                    it.stock, it.total_weight_grams,
+                    reference_type='b2b_reversal', reference_id=order.id,
+                    created_by=user, notes=f'Stock reverted — B2B order {order.id}',
+                )
+            else:
+                revert_stock(
+                    it.flavor, it.total_weight_grams,
+                    reference_type='b2b_reversal', reference_id=order.id,
+                    created_by=user, notes=f'Stock reverted — B2B order {order.id}',
+                )
         order.stock_deducted = False
 
     # ── payment ──

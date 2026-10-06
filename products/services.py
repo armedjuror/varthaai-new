@@ -6,8 +6,11 @@ orders app). Owned by the foundation; order agents import, don't modify.
 
 Business rules (from the PHP app):
   - Each flavor has multiple Stock batches; one is the `is_active_batch`.
-  - Deduction draws from the active batch, then auto-activates the next
-    non-empty batch (FIFO by id) when one empties.
+  - B2C deduction draws from the active batch (`deduct_stock`), then
+    auto-activates the next non-empty batch (FIFO by id) when one empties.
+    The active-batch/FIFO concept is a B2C-only convenience — B2B order
+    lines pin an exact batch at order-creation time and must be deducted
+    from/reverted to that batch via `deduct_from_batch`/`restock_batch`.
   - Every change records a StockMovement (audit trail).
   - After any change, low/out-of-stock alerts are refreshed.
 """
@@ -87,6 +90,27 @@ def revert_stock(flavor, grams, *, reference_type, reference_id='', created_by=N
     )
     _refresh_alerts(flavor)
     return True
+
+
+@transaction.atomic
+def deduct_from_batch(stock, grams, *, reference_type, reference_id='', created_by=None, notes=''):
+    """
+    Deduct `grams` from a *specific* stock batch — used when a sale is pinned
+    to one batch (e.g. a B2B order line whose admin picked a batch at order
+    time), unlike `deduct_stock`, which always draws from the FIFO active
+    batch. Mirrors `restock_batch`'s targeting; callers must verify the batch
+    holds enough quantity before calling.
+    """
+    prev = stock.quantity_grams
+    stock.quantity_grams = prev - int(grams)
+    stock.save(update_fields=['quantity_grams'])
+    StockMovement.objects.create(
+        flavor=stock.flavor, stock=stock, movement_type=StockMovement.MovementType.OUT,
+        quantity_grams=int(grams), previous_quantity_grams=prev, new_quantity_grams=stock.quantity_grams,
+        reference_type=reference_type, reference_id=str(reference_id),
+        created_by=created_by, notes=notes,
+    )
+    _refresh_alerts(stock.flavor)
 
 
 @transaction.atomic
