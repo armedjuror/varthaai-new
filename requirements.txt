@@ -31,6 +31,10 @@ mcp==1.29.0
 # available to confirm it in this session.
 litellm==1.55.8
 Markdown==3.10.3
+# bizmcp app's MCP server. Version constrained by claude-agent-sdk's own
+# `mcp<2.0.0,>=1.23.0` requirement (verified by resolving both together).
+mcp==1.30.0
+uvicorn==0.34.0
 pillow==12.3.0
 psycopg==3.3.4
 psycopg-binary==3.3.4

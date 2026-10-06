@@ -73,6 +73,7 @@ LOCAL_APPS = [
     'storefront',
     'debugger',
     'content',
+    'bizmcp',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -266,44 +267,12 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'debugger.tasks.poll_open_prs',
         'schedule': DEBUGGER_PR_POLL_SECONDS,
     },
-    # Content Studio: seed next month's plan on the 28th (content-generator-
-    # plan.md §8). The same run_planner_task also backs the admin's manual
-    # "Generate plan" trigger — one code path either way.
-    'content-plan-next-month': {
-        'task': 'content.tasks.seed_next_month_plans',
-        'schedule': crontab(hour=6, minute=0, day_of_month=28),
-    },
-    # Content Studio Phase 4 — propose diffs to already-approved plans'
-    # future items when new trends are flagged. Runs before the Copywriter
-    # so an accepted proposal's fresh context_notes is what gets drafted
-    # later the same morning, not stale text from before the nudge.
-    'content-planner-nudge-daily': {
-        'task': 'content.tasks.run_planner_nudge_daily',
-        'schedule': crontab(hour=6, minute=30),
-    },
-    # Content Studio Phase 2 — draft Scripts for due, input-ready PlanItems.
-    'content-copywriter-daily': {
-        'task': 'content.tasks.run_copywriter_daily',
-        'schedule': crontab(hour=7, minute=0),
-    },
-    # Content Studio Phase 3 — generate posters for PlanItems with an
-    # approved Script. Runs after the Copywriter so a same-day approval can
-    # be picked up same-day if needed.
-    'content-designer-daily': {
-        'task': 'content.tasks.run_designer_daily',
-        'schedule': crontab(hour=7, minute=30),
-    },
 }
 
 # ---------------------------------------------------------------------------
 # Debugger Agent (super-admin RCA + PR bot). See debugger/ app.
 # ---------------------------------------------------------------------------
-# NOT used by the Debugger Agent or the Content Studio any more — both
-# authenticate `claude` calls off the CLI's own login session (see
-# core/claude_cli.py; rotate that key was the old guidance, no longer
-# applies). Still used by the Blog AI writing assistant (marketing/ai.py,
-# via litellm) below, which hasn't been converted off the direct Anthropic
-# API yet — see content-generator-plan.md's note on retiring it.
+# Claude Agent SDK auth. Rotate this key — it was previously committed to .env.
 ANTHROPIC_API_KEY = env('ANTHROPIC_API_KEY', '')
 DEBUGGER_MODEL = env('DEBUGGER_MODEL', 'claude-sonnet-5')
 # Stronger model consulted (via the consult_advisor tool) for final synthesis
@@ -329,36 +298,6 @@ DEBUGGER_DB_ROW_LIMIT = int(env('DEBUGGER_DB_ROW_LIMIT', '200'))
 # observed "reached maximum number of turns" failure on a cross-app feature
 # request. Tune via env if it needs to move again.
 DEBUGGER_MAX_TURNS = int(env('DEBUGGER_MAX_TURNS', '60'))
-
-# ---------------------------------------------------------------------------
-# Claude CLI runner (core/claude_cli.py) — generic subprocess wrapper around
-# `claude -p ...` shared by the Debugger Agent (and future agentic apps, e.g.
-# `content/`). NOT debugger-specific: any Celery task that needs an agentic
-# Claude session goes through this, all coordinating on the same Redis-backed
-# concurrency limit below.
-# ---------------------------------------------------------------------------
-CLAUDE_CLI_BIN = env('CLAUDE_CLI_BIN', 'claude')
-# Reuses the Celery broker Redis instance — Redis is already a hard dependency
-# (see CELERY_BROKER_URL above); no new infra needed for the semaphore.
-CLAUDE_CLI_REDIS_URL = env('CLAUDE_CLI_REDIS_URL', CELERY_BROKER_URL)
-# Global cap on concurrent `claude` CLI subprocesses across the WHOLE system
-# (all apps, all Celery worker processes/children/hosts) — each one can hold
-# 0.5-1GB+ RSS on a long agentic run (see deploy/DEBUGGER.md). Enforced via a
-# Redis-backed semaphore, not an in-process lock, because the worker can run
-# multiple prefork children (CELERY_WORKER_MAX_TASKS_PER_CHILD is set but
-# --concurrency is not pinned) and a future `content` app's Celery tasks must
-# coordinate against the same limit.
-CLAUDE_CLI_MAX_CONCURRENT = int(env('CLAUDE_CLI_MAX_CONCURRENT', '2'))
-CLAUDE_CLI_SEMAPHORE_KEY = env('CLAUDE_CLI_SEMAPHORE_KEY', 'claude_cli:semaphore')
-# Lease TTL for a held slot; renewed (heartbeated) periodically by a background
-# thread while the subprocess runs, so this bounds "how long a slot stays
-# stuck" after a crash (worker OOM-killed, kill -9, host reboot) — NOT the
-# max runtime of a single call. Self-healing: no worker-restart recovery step
-# is needed (unlike debugger/apps.py's requeue_orphaned_requests, which exists
-# because DB status rows have no TTL of their own).
-CLAUDE_CLI_LEASE_TTL_SECONDS = int(env('CLAUDE_CLI_LEASE_TTL_SECONDS', '90'))
-# How long a caller blocks waiting for a free slot before giving up.
-CLAUDE_CLI_ACQUIRE_TIMEOUT_SECONDS = int(env('CLAUDE_CLI_ACQUIRE_TIMEOUT_SECONDS', '900'))
 
 # ---------------------------------------------------------------------------
 # Blog AI writing assistant (marketing app). Uses litellm — NOT the agentic
@@ -399,3 +338,23 @@ CONTENT_TEXT_MODEL = env('CONTENT_TEXT_MODEL', 'claude-sonnet-5')
 # for the verified calling convention.
 GEMINI_API_KEY = env('GEMINI_API_KEY', '')
 GEMINI_POSTER_MODEL = env('GEMINI_POSTER_MODEL', 'gemini-3-pro-image')
+
+# ---------------------------------------------------------------------------
+# Business Analysis MCP server (bizmcp app). Runs as its own ASGI process
+# (bizmcp/asgi.py, uvicorn) — not gunicorn/WSGI — behind an nginx path with
+# bearer-token auth. See deploy/MCP_ANALYTICS.md.
+# ---------------------------------------------------------------------------
+# Static bearer token required on every request (Authorization: Bearer ...).
+# The server refuses every request (500) if this is blank — never ship with
+# no token configured.
+MCP_API_KEY = env('MCP_API_KEY', '')
+# Hard cap on rows any single run_readonly_sql call may return.
+MCP_DB_ROW_LIMIT = int(env('MCP_DB_ROW_LIMIT', '200'))
+# Host headers the MCP transport accepts (its DNS-rebinding protection). Behind
+# nginx every request carries the public domain, so it must be listed here or
+# FastMCP answers 421 "Invalid Host header". localhost stays allowed for
+# on-box checks.
+MCP_ALLOWED_HOSTS = [h for h in env('MCP_ALLOWED_HOSTS', 'varthaai.com,www.varthaai.com').split(',') if h]
+# Origin headers accepted; requests without an Origin (server-side clients)
+# always pass.
+MCP_ALLOWED_ORIGINS = [o for o in env('MCP_ALLOWED_ORIGINS', 'https://claude.ai,https://claude.com').split(',') if o]
