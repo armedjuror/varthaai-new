@@ -276,7 +276,7 @@
       (currentScript.status === 'approved' && POSTER_CONTENT_TYPES.indexOf(currentScript.content_type) !== -1)
         ? '' : 'none';
 
-    new bootstrap.Modal(document.getElementById('scriptDetailModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('scriptDetailModal')).show();
   }
 
   document.getElementById('scriptVersionSelect').addEventListener('change', function () {
@@ -319,7 +319,7 @@
     const form = document.getElementById('requestChangesForm');
     form.script_id.value = currentScript.id;
     form.review_notes.value = '';
-    new bootstrap.Modal(document.getElementById('requestChangesModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('requestChangesModal')).show();
   });
 
   document.getElementById('scriptRegenerateBtn').addEventListener('click', function () {
@@ -327,7 +327,7 @@
     const form = document.getElementById('regenerateScriptForm');
     form.script_id.value = currentScript.id;
     form.instruction.value = '';
-    new bootstrap.Modal(document.getElementById('regenerateScriptModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('regenerateScriptModal')).show();
   });
 
   document.getElementById('requestChangesForm').addEventListener('submit', async function (e) {

@@ -69,6 +69,13 @@ async def db_query_ro(sql: str) -> str:
     # (`SynchronousOnlyOperation`), so the actual query runs in a worker
     # thread — same pattern the old Agent SDK version used (asyncio.to_thread).
     def _run():
+        # This MCP server is a long-lived stdio process, not a Django
+        # request/response cycle, so the `request_started` signal that
+        # normally closes stale connections never fires. Do the same check
+        # it does — if Postgres (or a pooler) dropped the idle connection,
+        # this closes the dead handle so the cursor below reconnects
+        # instead of raising "connection already closed".
+        connections['readonly'].close_if_unusable_or_obsolete()
         with connections['readonly'].cursor() as cur:
             cur.execute(sql)
             cols = [c[0] for c in cur.description] if cur.description else []

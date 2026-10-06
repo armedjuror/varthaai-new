@@ -96,7 +96,7 @@ async function openPosterDetail(id) {
   if (!res.success) { showAlertModal(res.message, 'danger'); return; }
   currentPosterDetail = res.data;
   renderPosterDetail(currentPosterDetail);
-  new bootstrap.Modal(document.getElementById('posterDetailModal')).show();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('posterDetailModal')).show();
 }
 
 function renderPosterDetail(d) {
@@ -157,7 +157,7 @@ function openRequestChangesModal() {
   var form = document.getElementById('requestChangesForm');
   form.id.value = currentPosterDetail.id;
   form.notes.value = '';
-  new bootstrap.Modal(document.getElementById('requestChangesModal')).show();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('requestChangesModal')).show();
 }
 
 function openRegenerateModal() {
@@ -172,7 +172,7 @@ function openRegenerateModal() {
     options.push('<option value="' + insp.id + '"' + selected + '>' + escHtml(insp.source_label) + ' (' + escHtml(insp.format) + ')</option>');
   });
   select.innerHTML = options.join('');
-  new bootstrap.Modal(document.getElementById('regeneratePosterModal')).show();
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('regeneratePosterModal')).show();
 }
 
 async function retryPoster() {
