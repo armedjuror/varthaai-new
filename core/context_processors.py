@@ -10,7 +10,7 @@ NAV_MODULES = [
     'b2b', 'stocks', 'expenses', 'blogs',
     'content_dashboard', 'content_calendar', 'content_tasks',
     'content_scripts', 'content_posters', 'content_verdict',
-    'employee_performance',
+    'field_employee', 'employee_performance',
 ]
 
 

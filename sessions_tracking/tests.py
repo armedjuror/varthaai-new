@@ -55,11 +55,17 @@ class BaseFixtures(TestCase):
             username='admin2', password='pw123456', name='Admin Two', role=AdminUser.Role.ADMIN,
             brand_permissions={str(self.brand.id): ['orders']},
         )
+        # Field-employee is a permission ('field_employee'), not a role — an
+        # ordinary staff/admin account gets granted it, exactly like any
+        # other module. Mirrors the real Saad: an `admin`/`staff` account
+        # that also does field work.
         self.employee1 = AdminUser.objects.create_user(
-            username='saad', password='pw123456', name='Saad', role=AdminUser.Role.EMPLOYEE,
+            username='saad', password='pw123456', name='Saad', role=AdminUser.Role.STAFF,
+            brand_permissions={str(self.brand.id): ['field_employee']},
         )
         self.employee2 = AdminUser.objects.create_user(
-            username='priya', password='pw123456', name='Priya', role=AdminUser.Role.EMPLOYEE,
+            username='priya', password='pw123456', name='Priya', role=AdminUser.Role.STAFF,
+            brand_permissions={str(self.brand.id): ['field_employee']},
         )
         self.flavor = Flavor.objects.create(name='Classic Banana Chips')
         self.flavor2 = Flavor.objects.create(name='Spicy Banana Chips')
@@ -496,9 +502,13 @@ class DeliveredAtHookTests(BaseFixtures):
 class EmployeeIsolationTests(BaseFixtures):
     def setUp(self):
         super().setUp()
-        self.client.login(username='saad', password='pw123456')
+        login_with_brand(self.client, 'saad', 'pw123456', self.brand.id)
 
     def test_employee_login_redirects_to_my_day(self):
+        # saad has no 'dashboard' permission, only 'field_employee' — a
+        # fresh login (not the already-authenticated branch) must land him
+        # on My Day, not 403 on the dashboard.
+        self.client.logout()
         resp = self.client.post(reverse('accounts:login'), {'username': 'saad', 'password': 'pw123456'})
         self.assertRedirects(resp, reverse('sessions_tracking:my_day'))
 
@@ -542,6 +552,39 @@ class EmployeeIsolationTests(BaseFixtures):
         resp = self.client.get(reverse('sessions_tracking:session_state_api'))
         self.assertEqual(resp.status_code, 200)
         self.assertIsNone(resp.json()['data']['open_session'])  # saad has no open session of his own
+
+
+class DualCapabilityTests(BaseFixtures):
+    """field_employee is a permission, not a role — the same AdminUser can
+    be a normal dashboard admin AND use My Day (the real Saad)."""
+
+    def setUp(self):
+        super().setUp()
+        self.dual = AdminUser.objects.create_user(
+            username='dual', password='pw123456', name='Dual Role', role=AdminUser.Role.ADMIN,
+            brand_permissions={str(self.brand.id): ['dashboard', 'field_employee']},
+        )
+
+    def test_login_lands_on_dashboard_when_dashboard_permission_present(self):
+        resp = self.client.post(reverse('accounts:login'), {'username': 'dual', 'password': 'pw123456'})
+        self.assertRedirects(resp, reverse('core:dashboard'))
+
+    def test_can_still_reach_my_day(self):
+        login_with_brand(self.client, 'dual', 'pw123456', self.brand.id)
+        resp = self.client.get(reverse('sessions_tracking:my_day'))
+        self.assertEqual(resp.status_code, 200)
+
+    @patch('sessions_tracking.services.sessions.ist_now')
+    def test_can_use_own_session_endpoints(self, mock_now):
+        mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
+        login_with_brand(self.client, 'dual', 'pw123456', self.brand.id)
+        resp = self.client.post(
+            reverse('sessions_tracking:session_start_api'),
+            data=json.dumps({'type': 'sales'}),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['success'])
 
 
 class AdminDashboardPermissionTests(BaseFixtures):

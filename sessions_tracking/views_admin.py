@@ -1,10 +1,12 @@
 """
 Admin-only Employee Performance dashboard — selector, daily report, period
-report (+ CSV export), overall performance. Every view here requires both
-`IsAdminRole` (hard role check — an employee can never pass, regardless of
-brand_permissions) and the project's existing module-permission mechanism
-(`permission_module = 'employee_performance'`), so a brand admin can be
-scoped out of this screen the same way as any other module.
+report (+ CSV export), overall performance. Gated by the project's existing
+module-permission mechanism (`permission_module = 'employee_performance'`),
+exactly like any other admin screen — so a brand admin can be scoped out
+the same way. Field-employee status is itself just a permission
+('field_employee', see sessions_tracking.permissions.is_field_employee),
+not a separate role, so this list can include ordinary admin/staff accounts
+that also do field work.
 
 All metric computation is delegated to services.reporting /
 services.overall — nothing here recomputes a number.
@@ -21,7 +23,7 @@ from accounts.models import AdminUser
 from core.api import HasModulePermission, err, ok
 from core.auth import require_module
 from sessions_tracking.models import Session
-from sessions_tracking.permissions import IsAdminRole
+from sessions_tracking.permissions import is_field_employee
 from sessions_tracking.services import sessions as session_service
 from sessions_tracking.services.overall import build_ranking, conversion_summary, weekly_trend
 from sessions_tracking.services.reporting import (
@@ -34,11 +36,18 @@ from sessions_tracking.views_common import catch_validation, parse_ist_datetime,
 
 
 def _employees_qs():
-    return AdminUser.objects.filter(role=AdminUser.Role.EMPLOYEE).order_by('name')
+    employees = [u for u in AdminUser.objects.all() if is_field_employee(u)]
+    employees.sort(key=lambda u: (u.name or u.username))
+    return employees
 
 
 def resolve_employee(user_id):
-    return AdminUser.objects.filter(id=user_id, role=AdminUser.Role.EMPLOYEE).first()
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        return None
+    user = AdminUser.objects.filter(id=user_id).first()
+    return user if user and is_field_employee(user) else None
 
 
 # ── Pages ───────────────────────────────────────────────────────────────
@@ -61,18 +70,19 @@ def performance_overall_page(request):
 # ── APIs ────────────────────────────────────────────────────────────────
 
 class EmployeeListAPI(APIView):
-    permission_classes = [IsAdminRole, HasModulePermission]
+    permission_classes = [HasModulePermission]
     permission_module = 'employee_performance'
 
     def get(self, request):
-        employees = list(
-            _employees_qs().values('id', 'name', 'username', 'is_active'),
-        )
+        employees = [
+            {'id': u.id, 'name': u.name, 'username': u.username, 'is_active': u.is_active}
+            for u in _employees_qs()
+        ]
         return ok(employees)
 
 
 class DailyReportAdminAPI(APIView):
-    permission_classes = [IsAdminRole, HasModulePermission]
+    permission_classes = [HasModulePermission]
     permission_module = 'employee_performance'
 
     @catch_validation
@@ -88,14 +98,14 @@ class EditSessionEndTimeAdminAPI(APIView):
     """Admin correction of any employee's session end time — same rule as
     the employee's own edit (required note), but not restricted to the
     requester's own session."""
-    permission_classes = [IsAdminRole, HasModulePermission]
+    permission_classes = [HasModulePermission]
     permission_module = 'employee_performance'
 
     @catch_validation
     def post(self, request):
         session_id = request.data.get('session_id')
-        session = Session.objects.filter(id=session_id, user__role=AdminUser.Role.EMPLOYEE).first()
-        if not session:
+        session = Session.objects.filter(id=session_id).select_related('user').first()
+        if not session or not is_field_employee(session.user):
             return err('Session not found.', status=404)
         new_ended_at = parse_ist_datetime(request.data.get('ended_at'))
         session_service.edit_session_end_time(session, new_ended_at, request.data.get('note'))
@@ -126,7 +136,7 @@ def _resolve_range(request):
 
 
 class PeriodReportAdminAPI(APIView):
-    permission_classes = [IsAdminRole, HasModulePermission]
+    permission_classes = [HasModulePermission]
     permission_module = 'employee_performance'
 
     @catch_validation
@@ -144,7 +154,7 @@ class PeriodReportAdminAPI(APIView):
 
 
 class PeriodReportCSVAPI(APIView):
-    permission_classes = [IsAdminRole, HasModulePermission]
+    permission_classes = [HasModulePermission]
     permission_module = 'employee_performance'
 
     @catch_validation
@@ -185,7 +195,7 @@ class PeriodReportCSVAPI(APIView):
 
 
 class OverallPerformanceAdminAPI(APIView):
-    permission_classes = [IsAdminRole, HasModulePermission]
+    permission_classes = [HasModulePermission]
     permission_module = 'employee_performance'
 
     @catch_validation

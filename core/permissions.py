@@ -31,6 +31,7 @@ MODULE_PERMISSIONS = [
     ('expenses', 'Expenses'),
     ('settings', 'Settings'),
     ('b2b', 'B2B'),
+    ('field_employee', 'Field Employee (sessions)'),
     ('employee_performance', 'Employee Performance'),
     ('content_dashboard', 'Content: Dashboard'),
     ('content_calendar', 'Content: Calendar'),

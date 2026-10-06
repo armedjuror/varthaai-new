@@ -12,6 +12,7 @@ from django.conf import settings
 
 from accounts.models import AdminUser
 from sessions_tracking.models import TelegramReportLog
+from sessions_tracking.permissions import is_field_employee
 from sessions_tracking.services.reporting import build_daily_report
 from sessions_tracking.timeutil import to_ist
 
@@ -133,7 +134,10 @@ def _send_telegram_message(text):
 
 
 def build_combined_report_text(date):
-    employees = AdminUser.objects.filter(role=AdminUser.Role.EMPLOYEE, is_active=True).order_by('name')
+    employees = sorted(
+        (u for u in AdminUser.objects.filter(is_active=True) if is_field_employee(u)),
+        key=lambda u: (u.name or u.username),
+    )
     reports = [format_employee_report(u, build_daily_report(u, date)) for u in employees]
     return '\n\n'.join(reports) if reports else 'No employees configured.'
 

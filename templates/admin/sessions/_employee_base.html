@@ -37,7 +37,12 @@
 
 <header class="employee-topbar">
   <span class="name"><i class="fas fa-user me-2"></i>{{ request.user.name|default:request.user.username }}</span>
-  <a href="{% url 'accounts:logout' %}" title="Logout"><i class="fas fa-arrow-right-from-bracket"></i></a>
+  <span>
+    {% if 'dashboard' in nav_perms %}
+      <a href="{% url 'core:dashboard' %}" title="Dashboard" class="me-3"><i class="fas fa-gauge-high"></i></a>
+    {% endif %}
+    <a href="{% url 'accounts:logout' %}" title="Logout"><i class="fas fa-arrow-right-from-bracket"></i></a>
+  </span>
 </header>
 
 <div class="employee-wrap">

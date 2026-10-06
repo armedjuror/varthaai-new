@@ -1,42 +1,43 @@
 """
-Permission model for sessions_tracking.
+Field-employee access is a per-brand module permission ('field_employee'),
+not a separate AdminUser role — any super_admin/admin/staff account can be
+granted it (see core/permissions.py's MODULE_PERMISSIONS), so the same
+account can be both an admin and a field employee (e.g. Saad). Self-service
+session-tracking endpoints (sessions_tracking.views_employee) gate on this
+the same way as every other admin screen: core.api.HasModulePermission with
+permission_module='field_employee'. The admin-only Employee Performance
+dashboard (sessions_tracking.views_admin) gates the same way with
+permission_module='employee_performance'.
 
-Deliberately independent of core.api.HasModulePermission / brand_permissions:
-employees have none of that — `role == EMPLOYEE` is a separate, restricted
-tier (see accounts.models.AdminUser.Role) with no brand context at all.
-
-Employee-facing endpoints never take a target user id — they always act on
-`request.user`, which structurally rules out IDOR for that half of the API.
-Admin dashboard endpoints accept an explicit employee id and must combine
-IsAdminRole with an explicit `role=EMPLOYEE` filter when resolving it (see
-sessions_tracking.views_admin.resolve_employee).
+`is_field_employee` below is only needed where we have to resolve WHICH
+AdminUsers count as field employees at all — the dashboard's employee
+selector and the Telegram report's recipient list — a question
+`brand_permissions` (a per-brand JSON blob) can't answer with a plain
+queryset filter, so it's a small Python-side check instead.
 """
-from rest_framework.permissions import BasePermission
+from core.api import has_module_permission
 
 
-class IsEmployee(BasePermission):
-    """Employee-only endpoints — all scoped implicitly to request.user."""
-
-    message = 'This endpoint is for employee accounts only.'
-
-    def has_permission(self, request, view):
-        user = request.user
-        return bool(user and user.is_authenticated and user.is_employee)
-
-
-class IsAdminRole(BasePermission):
+def is_field_employee(user, brand_id=None):
     """
-    Admin-dashboard endpoints. Any authenticated non-employee AdminUser
-    (super_admin/admin/staff) passes this check; combine with
-    core.api.HasModulePermission (permission_module='employee_performance')
-    on views that should additionally respect the brand_permissions module
-    list, per the project's existing permission mechanism.
+    Two different questions depending on `brand_id`:
+
+    - brand_id given: may `user` use field-employee session tracking RIGHT
+      NOW, for that brand? Ordinary permission-check semantics via
+      has_module_permission — super_admin and the 'all' wildcard both pass,
+      exactly like any other module. Used to gate the session-tracking
+      endpoints and the post-login redirect.
+
+    - brand_id=None (default): does `user` actually hold an explicit
+      'field_employee' grant on some brand? Used to decide "is this account
+      one of our field employees at all" — the dashboard's employee
+      selector, the Telegram report's recipient list. Deliberately does NOT
+      treat super_admin or the 'all' wildcard as a yes here: bypassing the
+      permission check isn't the same as being a field employee, and a
+      full-access admin shouldn't appear in that list (or get the daily
+      Telegram report) just because they technically could use the feature.
     """
-
-    message = 'Admin access required.'
-
-    def has_permission(self, request, view):
-        user = request.user
-        if not (user and user.is_authenticated):
-            return False
-        return not user.is_employee
+    if brand_id is not None:
+        return has_module_permission(user, brand_id, 'field_employee')
+    perms = user.brand_permissions or {}
+    return any('field_employee' in granted for granted in perms.values())

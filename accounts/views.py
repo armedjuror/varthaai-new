@@ -7,14 +7,30 @@ from django.shortcuts import redirect, render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
-from core.api import BRAND_SESSION_KEY
+from core.api import BRAND_SESSION_KEY, current_brand_id, has_module_permission
 from core.auth import establish_admin_session
+
+
+def _post_login_redirect_target(user, brand_id):
+    """
+    Where to land after login. Most accounts have 'dashboard' permission and
+    go there; an account whose ONLY module is 'field_employee' (a pure field
+    employee — see sessions_tracking.permissions) has no dashboard access and
+    goes straight to their own session-tracking page instead. Field-employee
+    is just a permission, not a role, so an account can have both and still
+    lands on the dashboard — "My Day" is one click away in the sidebar.
+    """
+    if has_module_permission(user, brand_id, 'dashboard'):
+        return 'core:dashboard'
+    if has_module_permission(user, brand_id, 'field_employee'):
+        return 'sessions_tracking:my_day'
+    return 'core:dashboard'
 
 
 @ensure_csrf_cookie
 def login_view(request):
     if request.user.is_authenticated:
-        return redirect('sessions_tracking:my_day' if request.user.is_employee else 'core:dashboard')
+        return redirect(_post_login_redirect_target(request.user, current_brand_id(request)))
 
     if request.method == 'POST':
         username = (request.POST.get('username') or '').strip()
@@ -26,18 +42,14 @@ def login_view(request):
                 'username': username,
             })
         login(request, user)
-        if user.is_employee:
-            # Employees have no brand/module access at all — they never go
-            # through establish_admin_session's brand gate, just straight to
-            # their own mobile session-tracking page.
-            return redirect('sessions_tracking:my_day')
-        if establish_admin_session(request, user) is None:
+        brand_id = establish_admin_session(request, user)
+        if brand_id is None:
             logout(request)
             return render(request, 'admin/login.html', {
                 'error': 'Your account has no brand access.',
                 'username': username,
             })
-        return redirect('core:dashboard')
+        return redirect(_post_login_redirect_target(user, brand_id))
 
     return render(request, 'admin/login.html')
 

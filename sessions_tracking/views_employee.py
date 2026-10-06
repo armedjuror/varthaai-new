@@ -1,21 +1,26 @@
 """
 Employee-facing API + the mobile "My Day" page.
 
+Field-employee access is a per-brand module permission ('field_employee'),
+not a separate AdminUser role — any super_admin/admin/staff account can be
+granted it (see core/permissions.py), so the same person can be an admin
+and a field employee at once (e.g. Saad). Gated the same way as every other
+admin screen: HasModulePermission + permission_module.
+
 Every endpoint here acts only on `request.user` — none accepts another
 user's id — which rules out IDOR for this half of the API by construction
 (the one exception, SessionEditEndTimeAPI, still re-filters by
 `user=request.user` so a foreign session id 404s rather than trusting a
 client-supplied owner).
 """
-from django.shortcuts import redirect, render
+from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.views import APIView
 
-from core.api import err, ok
-from core.auth import admin_login_required
+from core.api import HasModulePermission, err, ok
+from core.auth import require_module
 from products.models import Flavor
 from sessions_tracking.models import Leave, Session
-from sessions_tracking.permissions import IsEmployee
 from sessions_tracking.services import leave as leave_service
 from sessions_tracking.services import sessions as session_service
 from sessions_tracking.services import visits as visit_service
@@ -24,11 +29,9 @@ from sessions_tracking.timeutil import ist_today
 from sessions_tracking.views_common import catch_validation, parse_iso_date, parse_ist_datetime
 
 
-@admin_login_required
+@require_module('field_employee')
 @ensure_csrf_cookie
 def my_day_page(request):
-    if not request.user.is_employee:
-        return redirect('core:dashboard')
     return render(request, 'admin/sessions/my_day.html')
 
 
@@ -44,7 +47,8 @@ def _serialize_open_session(session):
 class SessionStateAPI(APIView):
     """Current open session (if any) + today's numbers — drives which of
     Start/Break/Resume/End the UI shows."""
-    permission_classes = [IsEmployee]
+    permission_classes = [HasModulePermission]
+    permission_module = 'field_employee'
 
     def get(self, request):
         session = session_service.get_open_session(request.user)
@@ -55,7 +59,8 @@ class SessionStateAPI(APIView):
 
 
 class SessionStartAPI(APIView):
-    permission_classes = [IsEmployee]
+    permission_classes = [HasModulePermission]
+    permission_module = 'field_employee'
 
     @catch_validation
     def post(self, request):
@@ -64,7 +69,8 @@ class SessionStartAPI(APIView):
 
 
 class SessionBreakAPI(APIView):
-    permission_classes = [IsEmployee]
+    permission_classes = [HasModulePermission]
+    permission_module = 'field_employee'
 
     @catch_validation
     def post(self, request):
@@ -73,7 +79,8 @@ class SessionBreakAPI(APIView):
 
 
 class SessionResumeAPI(APIView):
-    permission_classes = [IsEmployee]
+    permission_classes = [HasModulePermission]
+    permission_module = 'field_employee'
 
     @catch_validation
     def post(self, request):
@@ -82,7 +89,8 @@ class SessionResumeAPI(APIView):
 
 
 class SessionEndAPI(APIView):
-    permission_classes = [IsEmployee]
+    permission_classes = [HasModulePermission]
+    permission_module = 'field_employee'
 
     @catch_validation
     def post(self, request):
@@ -92,7 +100,8 @@ class SessionEndAPI(APIView):
 
 
 class SessionEditEndTimeAPI(APIView):
-    permission_classes = [IsEmployee]
+    permission_classes = [HasModulePermission]
+    permission_module = 'field_employee'
 
     @catch_validation
     def post(self, request):
@@ -106,7 +115,8 @@ class SessionEditEndTimeAPI(APIView):
 
 class DailyReportAPI(APIView):
     """The employee's own numbers for a given date (default: today)."""
-    permission_classes = [IsEmployee]
+    permission_classes = [HasModulePermission]
+    permission_module = 'field_employee'
 
     @catch_validation
     def get(self, request):
@@ -116,7 +126,8 @@ class DailyReportAPI(APIView):
 
 class FlavorPickerAPI(APIView):
     """Minimal flavour list (id + name only) for the packing end screen."""
-    permission_classes = [IsEmployee]
+    permission_classes = [HasModulePermission]
+    permission_module = 'field_employee'
 
     def get(self, request):
         return ok(list(Flavor.objects.filter(is_active=True).order_by('name').values('id', 'name')))
@@ -125,14 +136,16 @@ class FlavorPickerAPI(APIView):
 class CompanyPickerAPI(APIView):
     """Minimal company fields for the visit-logging picker — never a full
     B2B record (see sessions_tracking.services.visits.company_picker_results)."""
-    permission_classes = [IsEmployee]
+    permission_classes = [HasModulePermission]
+    permission_module = 'field_employee'
 
     def get(self, request):
         return ok(visit_service.company_picker_results(request.query_params.get('q', '')))
 
 
 class VisitCreateAPI(APIView):
-    permission_classes = [IsEmployee]
+    permission_classes = [HasModulePermission]
+    permission_module = 'field_employee'
 
     @catch_validation
     def post(self, request):
@@ -141,7 +154,8 @@ class VisitCreateAPI(APIView):
 
 
 class WeeklyOffAPI(APIView):
-    permission_classes = [IsEmployee]
+    permission_classes = [HasModulePermission]
+    permission_module = 'field_employee'
 
     def get(self, request):
         today = ist_today()
@@ -160,7 +174,8 @@ class WeeklyOffAPI(APIView):
 
 
 class LeaveAPI(APIView):
-    permission_classes = [IsEmployee]
+    permission_classes = [HasModulePermission]
+    permission_module = 'field_employee'
 
     def get(self, request):
         year = int(request.query_params.get('year') or ist_today().year)

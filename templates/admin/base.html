@@ -149,6 +149,13 @@
       </a>
     {% endif %}
 
+    {% if 'field_employee' in nav_perms %}
+      <a href="{% url 'sessions_tracking:my_day' %}" class="nav-item{% if url_name == 'my_day' %} active{% endif %}">
+        <i class="fas fa-route"></i>
+        <span>My Day</span>
+      </a>
+    {% endif %}
+
     {% if 'employee_performance' in nav_perms %}
       <a href="{% url 'sessions_tracking:performance' %}" class="nav-item{% if url_name == 'performance' or url_name == 'performance_period' or url_name == 'performance_overall' %} active{% endif %}">
         <i class="fas fa-user-clock"></i>
