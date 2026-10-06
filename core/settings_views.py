@@ -23,6 +23,7 @@ from accounts.models import AdminUser, User
 from core.api import HasModulePermission
 from core.auth import require_module
 from core.models import Brand, Setting
+from core.permissions import MODULE_PERMISSIONS
 from marketing.models import Review
 from orders.models import Coupon, Order
 from products.models import Flavor
@@ -96,6 +97,9 @@ class SettingsAPI(APIView):
             payload['brands'] = list(
                 Brand.objects.filter(is_active=True).order_by('id').values('id', 'name')
             )
+            payload['permission_modules'] = [
+                {'key': key, 'label': label} for key, label in MODULE_PERMISSIONS
+            ]
 
         return Response(payload)
 

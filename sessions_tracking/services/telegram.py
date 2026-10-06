@@ -2,7 +2,8 @@
 Daily Telegram report — one plain-text message per employee (combined into
 as few Telegram messages as the 4096-char limit allows), sent via the
 Telegram Bot API. Idempotent per report date via TelegramReportLog; never
-logs or hard-codes TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID.
+logs or hard-codes TELEGRAM_BOT_TOKEN / TELEGRAM_GROUP_CHAT_ID (reused from
+the new-order notification settings — same bot, same chat).
 """
 import logging
 
@@ -114,9 +115,9 @@ def _chunk_message(text, limit=TELEGRAM_MESSAGE_LIMIT):
 
 def _send_telegram_message(text):
     token = settings.TELEGRAM_BOT_TOKEN
-    chat_id = settings.TELEGRAM_CHAT_ID
+    chat_id = settings.TELEGRAM_GROUP_CHAT_ID
     if not token or not chat_id:
-        log.error('TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set — skipping daily report send.')
+        log.error('TELEGRAM_BOT_TOKEN or TELEGRAM_GROUP_CHAT_ID is not set — skipping daily report send.')
         return False
     try:
         resp = requests.post(

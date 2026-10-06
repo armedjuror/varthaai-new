@@ -408,7 +408,7 @@ class PeriodReportTests(BaseFixtures):
 
 # ───────────────────────────────── Telegram report ─────────────────────────────────
 
-@override_settings(TELEGRAM_BOT_TOKEN='test-token', TELEGRAM_CHAT_ID='12345')
+@override_settings(TELEGRAM_BOT_TOKEN='test-token', TELEGRAM_GROUP_CHAT_ID='12345')
 class TelegramReportTests(BaseFixtures):
     @patch('sessions_tracking.services.telegram.requests.post')
     def test_send_is_idempotent(self, mock_post):
@@ -437,7 +437,7 @@ class TelegramReportTests(BaseFixtures):
         self.assertEqual(TelegramReportLog.objects.count(), 0)
 
 
-@override_settings(TELEGRAM_BOT_TOKEN='', TELEGRAM_CHAT_ID='')
+@override_settings(TELEGRAM_BOT_TOKEN='', TELEGRAM_GROUP_CHAT_ID='')
 class TelegramMissingConfigTests(BaseFixtures):
     @patch('sessions_tracking.services.telegram.requests.post')
     def test_missing_config_fails_loudly_without_raising(self, mock_post):

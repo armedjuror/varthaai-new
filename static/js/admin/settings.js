@@ -3,21 +3,10 @@
 var _allAdmins = [];
 var _allBrands = [];
 
-var PERM_KEYS = {
-  all:       'Full Access',
-  dashboard: 'Dashboard',
-  orders:    'Orders',
-  coupons:   'Coupons',
-  flavors:   'Flavors',
-  packs:     'Packs',
-  stocks:    'Stocks',
-  customers: 'Customers',
-  reviews:   'Reviews',
-  expenses:  'Expenses',
-  settings:  'Settings',
-  b2b:       'B2B',
-  blogs:     'Blogs'
-};
+// Populated from the /admin/api/settings/ response (res.permission_modules),
+// which is generated server-side from core/permissions.py — that file is the
+// single source of truth for permission keys/labels, not this dict.
+var PERM_KEYS = {};
 
 $(function () {
   loadSettings();
@@ -146,6 +135,10 @@ function loadSettings() {
       if (!res.success) { showAlertModal(res.message, 'danger'); return; }
       populateSettings(res.settings || {});
       renderSystemStats(res.stats || {});
+      if (res.permission_modules) {
+        PERM_KEYS = {};
+        res.permission_modules.forEach(function (p) { PERM_KEYS[p.key] = p.label; });
+      }
       if (res.brands) { _allBrands = res.brands; renderBrandPermsUI('create'); renderBrandPermsUI('edit'); }
       if (res.admins) { _allAdmins = res.admins; renderAdminsTable(_allAdmins); }
     })

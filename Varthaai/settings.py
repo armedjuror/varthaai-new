@@ -236,13 +236,12 @@ RECAPTCHA_SITE_KEY = env('RECAPTCHA_SITE_KEY', '')
 RECAPTCHA_SECRET = env('RECAPTCHA_SECRET', '')
 
 # Telegram new-order notifications. Blank token => notifications are skipped.
+# Also reused by the sessions_tracking app's daily employee work-session
+# report (19:30 IST) — same bot, same chat. Blank => that report logs an
+# error and skips sending (see sessions_tracking.services.telegram) without
+# crashing other Celery jobs.
 TELEGRAM_BOT_TOKEN = env('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_GROUP_CHAT_ID = env('TELEGRAM_GROUP_CHAT_ID', '')
-# Daily employee work-session report (sessions_tracking app, 19:30 IST) — a
-# separate chat from TELEGRAM_GROUP_CHAT_ID's new-order notifications.
-# Blank => the report logs an error and skips sending (see
-# sessions_tracking.services.telegram) without crashing other Celery jobs.
-TELEGRAM_CHAT_ID = env('TELEGRAM_CHAT_ID', '')
 
 WHATSAPP_BUSINESS_NUMBER = env('WHATSAPP_BUSINESS_NUMBER', '919400557445')
 
