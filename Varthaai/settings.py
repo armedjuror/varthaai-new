@@ -74,6 +74,7 @@ LOCAL_APPS = [
     'debugger',
     'content',
     'bizmcp',
+    'sessions_tracking',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -237,6 +238,11 @@ RECAPTCHA_SECRET = env('RECAPTCHA_SECRET', '')
 # Telegram new-order notifications. Blank token => notifications are skipped.
 TELEGRAM_BOT_TOKEN = env('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_GROUP_CHAT_ID = env('TELEGRAM_GROUP_CHAT_ID', '')
+# Daily employee work-session report (sessions_tracking app, 19:30 IST) — a
+# separate chat from TELEGRAM_GROUP_CHAT_ID's new-order notifications.
+# Blank => the report logs an error and skips sending (see
+# sessions_tracking.services.telegram) without crashing other Celery jobs.
+TELEGRAM_CHAT_ID = env('TELEGRAM_CHAT_ID', '')
 
 WHATSAPP_BUSINESS_NUMBER = env('WHATSAPP_BUSINESS_NUMBER', '919400557445')
 
@@ -266,6 +272,12 @@ CELERY_BEAT_SCHEDULE = {
     'poll-open-prs': {
         'task': 'debugger.tasks.poll_open_prs',
         'schedule': DEBUGGER_PR_POLL_SECONDS,
+    },
+    # Auto-close open work sessions, then send the employee daily report.
+    # crontab() is interpreted in CELERY_TIMEZONE (Asia/Kolkata by default).
+    'sessions-daily-report': {
+        'task': 'sessions_tracking.tasks.run_daily_job',
+        'schedule': crontab(hour=19, minute=30),
     },
 }
 

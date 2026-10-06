@@ -1,0 +1,197 @@
+{% extends 'admin/sessions/_employee_base.html' %}
+{% load static %}
+
+{% block title %}My Day — Varthaai{% endblock %}
+
+{% block content %}
+
+<!-- Day status (off / leave banner) -->
+<div id="dayStatusBanner" class="alert alert-info d-none" role="alert"></div>
+
+<!-- Current session card -->
+<div class="data-card">
+  <div class="data-card-header">
+    <h3>Current Session</h3>
+  </div>
+  <div class="data-card-body" id="sessionCard">
+    <p class="text-muted">Loading…</p>
+  </div>
+</div>
+
+<!-- Start session picker (shown only when nothing is open) -->
+<div class="data-card d-none" id="startCard">
+  <div class="data-card-header"><h3>Start a Session</h3></div>
+  <div class="data-card-body d-flex flex-column gap-2">
+    <button class="btn btn-primary big-btn" onclick="startSession('sales')"><i class="fas fa-route me-2"></i>Start Sales Day</button>
+    <button class="btn btn-outline-primary big-btn" onclick="startSession('packing')"><i class="fas fa-box me-2"></i>Start Packing</button>
+  </div>
+</div>
+
+<!-- Visit logging (sales sessions only) -->
+<div class="data-card d-none" id="visitCard">
+  <div class="data-card-header">
+    <h3>Visits Today (<span id="visitCount">0</span>)</h3>
+    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#visitModal"><i class="fas fa-plus me-1"></i>Log Visit</button>
+  </div>
+  <div class="data-card-body">
+    <ul class="list-group list-group-flush" id="visitList"></ul>
+  </div>
+</div>
+
+<!-- Today's numbers -->
+<div class="data-card">
+  <div class="data-card-header"><h3>Today's Numbers</h3></div>
+  <div class="data-card-body">
+    <div class="row g-2" id="todayStats"></div>
+  </div>
+</div>
+
+<!-- Weekly off & leave -->
+<div class="data-card">
+  <div class="data-card-header">
+    <h3>Weekly Off &amp; Leave</h3>
+  </div>
+  <div class="data-card-body">
+    <p class="mb-2">Current weekly off: <strong id="weeklyOffLabel">—</strong>
+      <button class="btn btn-sm btn-link p-0 ms-2" data-bs-toggle="modal" data-bs-target="#weeklyOffModal">change</button>
+    </p>
+    <p class="mb-2">Leave balance: <strong id="leaveBalanceLabel">—</strong>
+      <button class="btn btn-sm btn-link p-0 ms-2" data-bs-toggle="modal" data-bs-target="#leaveModal">manage</button>
+    </p>
+  </div>
+</div>
+
+<!-- ── Modals ── -->
+
+<!-- Break reason -->
+<div class="modal fade" id="breakModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Take a Break</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="d-grid gap-2">
+        <button class="btn btn-outline-secondary" onclick="breakSession('lunch_break')">Lunch Break</button>
+        <button class="btn btn-outline-secondary" onclick="breakSession('evening_break')">Evening Break</button>
+      </div>
+    </div>
+  </div></div>
+</div>
+
+<!-- Visit modal -->
+<div class="modal fade" id="visitModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Log a Visit</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="mb-2">
+        <label class="form-label">Company</label>
+        <input type="text" class="form-control" id="visitCompanySearch" placeholder="Search company…">
+        <div id="visitCompanyResults" class="list-group mt-1"></div>
+        <input type="hidden" id="visitCompanyId">
+        <div class="form-text" id="visitCompanySelected"></div>
+      </div>
+      <div class="mb-2 d-none" id="newCompanyFields">
+        <label class="form-label">New lead — company name</label>
+        <input type="text" class="form-control mb-1" id="newCompanyName" placeholder="Company name">
+        <input type="text" class="form-control" id="newCompanyCity" placeholder="City (optional)">
+      </div>
+      <button class="btn btn-sm btn-link px-0" type="button" onclick="toggleNewCompany()">+ Not listed? Add a new lead</button>
+
+      <div class="mb-2 mt-2">
+        <label class="form-label">Purpose</label>
+        <select class="form-select" id="visitPurpose">
+          <option value="new_lead">New Lead</option>
+          <option value="retarget">Retarget</option>
+          <option value="delivery">Delivery</option>
+          <option value="collection">Collection</option>
+          <option value="audit">Audit</option>
+          <option value="reorder_push">Reorder Push</option>
+        </select>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Outcome</label>
+        <select class="form-select" id="visitOutcome">
+          <option value="none">None</option>
+          <option value="order">Order</option>
+          <option value="follow_up">Follow Up</option>
+          <option value="rejected">Rejected</option>
+        </select>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Notes</label>
+        <textarea class="form-control" id="visitNotes" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary w-100" onclick="submitVisit()">Save Visit</button>
+    </div>
+  </div></div>
+</div>
+
+<!-- Packing end modal -->
+<div class="modal fade" id="packingEndModal" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Packs Packed Today</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div id="packingRows"></div>
+      <button class="btn btn-sm btn-outline-secondary mt-2" onclick="addPackingRow()"><i class="fas fa-plus me-1"></i>Add flavour</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-success w-100" onclick="submitPackingEnd()">End Packing Session</button>
+    </div>
+  </div></div>
+</div>
+
+<!-- Weekly off modal -->
+<div class="modal fade" id="weeklyOffModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Change Weekly Off</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <p class="text-muted small">Takes effect from next Monday — this week's off day can't be changed.</p>
+      <select class="form-select" id="weeklyOffSelect">
+        <option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option>
+        <option value="3">Thursday</option><option value="4">Friday</option><option value="5">Saturday</option>
+        <option value="6">Sunday</option>
+      </select>
+    </div>
+    <div class="modal-footer"><button class="btn btn-primary w-100" onclick="submitWeeklyOff()">Save</button></div>
+  </div></div>
+</div>
+
+<!-- Leave modal -->
+<div class="modal fade" id="leaveModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Leave Days</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <p id="leaveBalanceDetail" class="text-muted small"></p>
+      <div class="d-flex gap-2 mb-3">
+        <input type="date" class="form-control" id="leaveDateInput">
+        <button class="btn btn-primary" onclick="addLeave()">Add</button>
+      </div>
+      <ul class="list-group" id="leaveList"></ul>
+    </div>
+  </div></div>
+</div>
+
+<!-- Edit end time modal -->
+<div class="modal fade" id="editEndTimeModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Edit End Time</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <input type="hidden" id="editSessionId">
+      <div class="mb-2">
+        <label class="form-label">Corrected end time</label>
+        <input type="datetime-local" class="form-control" id="editEndedAt">
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Note (required)</label>
+        <textarea class="form-control" id="editEndNote" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-primary w-100" onclick="submitEditEndTime()">Save</button></div>
+  </div></div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/admin/sessions-employee.js' %}"></script>
+{% endblock %}

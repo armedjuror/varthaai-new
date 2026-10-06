@@ -1,0 +1,99 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Employee Performance — Daily{% endblock %}
+
+{% block page_title %}
+<div class="page-header">
+  <div>
+    <h1>Employee Performance</h1>
+    <p>Daily report for one employee.</p>
+  </div>
+  <div class="page-header-actions">
+    <a href="{% url 'sessions_tracking:performance_period' %}" class="btn btn-sm btn-outline-secondary">Period</a>
+    <a href="{% url 'sessions_tracking:performance_overall' %}" class="btn btn-sm btn-outline-secondary">Overall</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<div class="filter-bar mb-3">
+  <div class="row g-3 align-items-end">
+    <div class="col-md-5">
+      <label class="form-label">Employee</label>
+      <select class="form-select" id="employeeSelect"></select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Date</label>
+      <div class="d-flex gap-1">
+        <button class="btn btn-outline-secondary" id="prevDayBtn"><i class="fas fa-chevron-left"></i></button>
+        <input type="date" class="form-control" id="dateInput">
+        <button class="btn btn-outline-secondary" id="nextDayBtn"><i class="fas fa-chevron-right"></i></button>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <button class="btn btn-primary w-100" id="loadBtn"><i class="fas fa-rotate me-1"></i>Refresh</button>
+    </div>
+  </div>
+</div>
+
+<div id="dayStatusBanner" class="alert alert-info d-none"></div>
+
+<div class="row g-3 mb-3" id="statCards"></div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="data-card">
+      <div class="data-card-header"><h3>Session Timeline</h3></div>
+      <div class="data-card-body" id="timelineBody"><p class="text-muted">—</p></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="data-card">
+      <div class="data-card-header"><h3>Packing</h3></div>
+      <div class="data-card-body" id="packingBody"><p class="text-muted">—</p></div>
+    </div>
+  </div>
+</div>
+
+<div class="data-card">
+  <div class="data-card-header"><h3>Visits</h3></div>
+  <div class="data-card-body p-0">
+    <table class="table mb-0">
+      <thead><tr><th>Time</th><th>Company</th><th>Purpose</th><th>Outcome</th><th>Notes</th></tr></thead>
+      <tbody id="visitsBody"><tr><td colspan="5" class="text-center text-muted">—</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="data-card" id="flagsCard" style="display:none">
+  <div class="data-card-header"><h3>Flags</h3></div>
+  <div class="data-card-body" id="flagsBody"></div>
+</div>
+
+<!-- Edit end time -->
+<div class="modal fade" id="editEndTimeModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Correct Session End Time</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <input type="hidden" id="editSessionId">
+      <div class="mb-2">
+        <label class="form-label">Corrected end time</label>
+        <input type="datetime-local" class="form-control" id="editEndedAt">
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Note (required)</label>
+        <textarea class="form-control" id="editEndNote" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-primary w-100" onclick="submitEditEndTime()">Save</button></div>
+  </div></div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/admin/sessions-performance.js' %}"></script>
+<script>$(function () { initDailyPage(); });</script>
+{% endblock %}

@@ -704,7 +704,11 @@ class B2BOrdersAPI(APIView):
             self._revert_order_stock(order, request.user)
 
         order.status = target
-        order.save(update_fields=['status', 'stock_deducted', 'updated_at'])
+        update_fields = ['status', 'stock_deducted', 'updated_at']
+        if target == 'delivered' and order.delivered_at is None:
+            order.delivered_at = timezone.now()
+            update_fields.append('delivered_at')
+        order.save(update_fields=update_fields)
         sync_b2b_order_income(order)
         return ok(None, f'Order status updated to {target}.')
 

@@ -27,7 +27,7 @@ from marketing.models import Review
 from orders.models import Coupon, Order
 from products.models import Flavor
 
-VALID_ROLES = ('admin', 'staff', 'super_admin')
+VALID_ROLES = ('admin', 'staff', 'super_admin', 'employee')
 
 
 @require_module('settings')

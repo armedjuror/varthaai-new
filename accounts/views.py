@@ -14,7 +14,7 @@ from core.auth import establish_admin_session
 @ensure_csrf_cookie
 def login_view(request):
     if request.user.is_authenticated:
-        return redirect('core:dashboard')
+        return redirect('sessions_tracking:my_day' if request.user.is_employee else 'core:dashboard')
 
     if request.method == 'POST':
         username = (request.POST.get('username') or '').strip()
@@ -26,6 +26,11 @@ def login_view(request):
                 'username': username,
             })
         login(request, user)
+        if user.is_employee:
+            # Employees have no brand/module access at all — they never go
+            # through establish_admin_session's brand gate, just straight to
+            # their own mobile session-tracking page.
+            return redirect('sessions_tracking:my_day')
         if establish_admin_session(request, user) is None:
             logout(request)
             return render(request, 'admin/login.html', {

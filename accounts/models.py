@@ -41,6 +41,7 @@ class AdminUser(AbstractBaseUser, PermissionsMixin):
         SUPER_ADMIN = 'super_admin', 'Super Admin'
         ADMIN = 'admin', 'Admin'
         STAFF = 'staff', 'Staff'
+        EMPLOYEE = 'employee', 'Employee'
 
     username = models.CharField(max_length=150, unique=True)
     name = models.CharField(max_length=255, blank=True)
@@ -68,6 +69,12 @@ class AdminUser(AbstractBaseUser, PermissionsMixin):
     @property
     def is_super_admin(self):
         return self.role == self.Role.SUPER_ADMIN
+
+    @property
+    def is_employee(self):
+        """Field-sales/packing role — no brand/module admin access (see
+        sessions_tracking.permissions). Separate from the admin `STAFF` role."""
+        return self.role == self.Role.EMPLOYEE
 
 
 class User(models.Model):

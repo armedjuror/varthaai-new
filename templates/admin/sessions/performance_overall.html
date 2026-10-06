@@ -1,0 +1,69 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Employee Performance — Overall{% endblock %}
+
+{% block page_title %}
+<div class="page-header">
+  <div>
+    <h1>Employee Performance</h1>
+    <p>Compare employees over a period. Raw numbers only — no composite score.</p>
+  </div>
+  <div class="page-header-actions">
+    <a href="{% url 'sessions_tracking:performance' %}" class="btn btn-sm btn-outline-secondary">Daily</a>
+    <a href="{% url 'sessions_tracking:performance_period' %}" class="btn btn-sm btn-outline-secondary">Period</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<div class="filter-bar mb-3">
+  <div class="row g-3 align-items-end">
+    <div class="col-md-3"><label class="form-label">From</label><input type="date" class="form-control" id="startInput"></div>
+    <div class="col-md-3"><label class="form-label">To</label><input type="date" class="form-control" id="endInput"></div>
+    <div class="col-md-2">
+      <button class="btn btn-primary w-100" id="loadBtn"><i class="fas fa-rotate me-1"></i>Load</button>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3" id="conversionCards"></div>
+
+<div class="data-card">
+  <div class="data-card-header">
+    <h3>Ranking</h3>
+    <span class="text-muted small" title="Days with a session recorded ÷ expected working days (total days minus weekly-off and leave days)">
+      consistency = worked ÷ expected <i class="fas fa-circle-info"></i>
+    </span>
+  </div>
+  <div class="data-card-body p-0" style="overflow-x:auto">
+    <table class="table mb-0">
+      <thead>
+        <tr>
+          <th>Employee</th><th>Collection</th><th>Orders</th><th>Packs</th><th>Visits</th>
+          <th>New Leads</th><th>Retargeted</th><th>Active Hrs</th><th>Consistency</th><th>Off/Leave Days</th>
+        </tr>
+      </thead>
+      <tbody id="rankingBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-4"><div class="data-card"><div class="data-card-header"><h3>Collection / week</h3></div>
+    <div class="data-card-body"><canvas id="collectionChart" height="200"></canvas></div></div></div>
+  <div class="col-lg-4"><div class="data-card"><div class="data-card-header"><h3>Visits &amp; Conversion / week</h3>
+    <span class="text-muted small" title="Visits with outcome=order ÷ total visits that week">conversion <i class="fas fa-circle-info"></i></span></div>
+    <div class="data-card-body"><canvas id="visitsChart" height="200"></canvas></div></div></div>
+  <div class="col-lg-4"><div class="data-card"><div class="data-card-header"><h3>Minutes / Pack / week</h3></div>
+    <div class="data-card-body"><canvas id="packingChart" height="200"></canvas></div></div></div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="{% static 'js/admin/sessions-performance.js' %}"></script>
+<script>$(function () { initOverallPage(); });</script>
+{% endblock %}

@@ -182,8 +182,8 @@ function renderSystemStats(s) {
 }
 
 /* ── Admin Users table ── */
-var roleColors = { super_admin: '#dc2626', admin: '#2563eb', staff: '#f59e0b' };
-var roleLabels = { super_admin: 'Super Admin', admin: 'Admin', staff: 'Staff' };
+var roleColors = { super_admin: '#dc2626', admin: '#2563eb', staff: '#f59e0b', employee: '#16a34a' };
+var roleLabels = { super_admin: 'Super Admin', admin: 'Admin', staff: 'Staff', employee: 'Employee' };
 
 function renderAdminsTable(admins) {
   var $tbody = $('#adminsTableBody');
@@ -215,6 +215,9 @@ function renderAdminsTable(admins) {
 }
 
 function renderBrandPermsBadges(role, bp) {
+  if (role === 'employee') {
+    return '<span class="badge badge-secondary">No admin access (employee)</span>';
+  }
   if (role === 'super_admin' || !bp || !Object.keys(bp).length) {
     return '<span class="badge badge-success">All Brands — Full Access</span>';
   }
@@ -314,7 +317,7 @@ function setBrandPerms(prefix, bp) {
 function toggleBrandPermsSection(prefix) {
   var role = $('#' + (prefix === 'create' ? 'newAdminRole' : 'editAdminRole')).val();
   var $section = $('#' + prefix + 'BrandPermsSection');
-  role === 'super_admin' ? $section.hide() : $section.show();
+  (role === 'super_admin' || role === 'employee') ? $section.hide() : $section.show();
 }
 
 function openEditAdmin(id) {

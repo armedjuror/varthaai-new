@@ -166,6 +166,9 @@ class B2BOrder(models.Model):
         null=True, blank=True, related_name='+',
     )
     order_date = models.DateTimeField(default=timezone.now)
+    # Set once, in code, the first time status transitions to 'delivered'
+    # (see orders.views_b2b.B2BOrdersAPI._update_status). Never set manually.
+    delivered_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
