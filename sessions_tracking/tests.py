@@ -10,7 +10,7 @@ from django.urls import reverse
 
 from accounts.models import AdminUser
 from core.api import BRAND_SESSION_KEY
-from core.models import Brand
+from core.models import Brand, Setting
 from crm.models import B2BActivity, B2BCompany
 from orders.models import B2BOrder, B2BOrderItem, B2BPayment
 from products.models import Flavor
@@ -521,6 +521,33 @@ class TelegramMissingConfigTests(BaseFixtures):
         mock_post.assert_not_called()
 
 
+@override_settings(TELEGRAM_BOT_TOKEN='test-token', TELEGRAM_GROUP_CHAT_ID='12345')
+class TelegramSettingsToggleTests(BaseFixtures):
+    @patch('sessions_tracking.services.telegram.requests.post')
+    def test_disabled_in_settings_skips_without_sending(self, mock_post):
+        Setting.objects.create(setting_key='employee_telegram_report_enabled', setting_value='false')
+        status, detail = send_daily_report(date(2026, 6, 1))
+        self.assertEqual(status, TelegramReportLog.Status.SKIPPED)
+        self.assertIn('disabled', detail)
+        mock_post.assert_not_called()
+        self.assertEqual(TelegramReportLog.objects.filter(report_date=date(2026, 6, 1)).count(), 0)
+
+    @patch('sessions_tracking.services.telegram.requests.post')
+    def test_unset_setting_defaults_to_enabled(self, mock_post):
+        mock_post.return_value.raise_for_status.return_value = None
+        status, _ = send_daily_report(date(2026, 6, 1))
+        self.assertEqual(status, TelegramReportLog.Status.SENT)
+        mock_post.assert_called()
+
+    @patch('sessions_tracking.services.telegram.requests.post')
+    def test_force_bypasses_disabled_setting(self, mock_post):
+        mock_post.return_value.raise_for_status.return_value = None
+        Setting.objects.create(setting_key='employee_telegram_report_enabled', setting_value='false')
+        status, _ = send_daily_report(date(2026, 6, 1), force=True)
+        self.assertEqual(status, TelegramReportLog.Status.SENT)
+        mock_post.assert_called()
+
+
 class SendDailyReportCommandTests(BaseFixtures):
     def test_dry_run_management_command(self):
         call_command('send_daily_report', '--date', '2026-06-01', '--dry-run')
@@ -528,6 +555,73 @@ class SendDailyReportCommandTests(BaseFixtures):
 
 
 # ───────────────────────────────── delivered_at hook ─────────────────────────────────
+
+class OrderManagementTests(BaseFixtures):
+    """My Day's order management reuses orders.views_b2b.B2BOrdersAPI's own
+    handlers — these tests exercise that integration, not duplicate the
+    stock/income logic already covered in the orders app."""
+
+    def setUp(self):
+        super().setUp()
+        self.b2b_employee = AdminUser.objects.create_user(
+            username='b2b_saad', password='pw123456', name='B2B Saad', role=AdminUser.Role.STAFF,
+            brand_permissions={str(self.brand.id): ['field_employee', 'b2b']},
+        )
+        self.order = B2BOrder.objects.create(
+            id='VO_mgmt1', brand=self.brand, company=self.company,
+            status=B2BOrder.Status.CONFIRMED, created_by=self.b2b_employee,
+            stock_deducted=True, total_amount=1000, paid_amount=0,
+        )
+        login_with_brand(self.client, 'b2b_saad', 'pw123456', self.brand.id)
+
+    def test_list_own_orders(self):
+        resp = self.client.get(reverse('sessions_tracking:my_orders_api'), {'status': 'open'})
+        self.assertEqual(resp.status_code, 200)
+        ids = {row['id'] for row in resp.json()['data']}
+        self.assertIn(self.order.id, ids)
+
+    def test_without_b2b_permission_gets_403(self):
+        login_with_brand(self.client, 'saad', 'pw123456', self.brand.id)  # field_employee only
+        resp = self.client.get(reverse('sessions_tracking:my_orders_api'))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_mark_delivered_sets_delivered_at_and_feeds_todays_numbers(self):
+        resp = self.client.post(
+            reverse('sessions_tracking:my_order_status_api'),
+            data=json.dumps({'order_id': self.order.id, 'status': 'delivered'}),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.order.refresh_from_db()
+        self.assertIsNotNone(self.order.delivered_at)
+        self.assertEqual(self.order.status, 'delivered')
+
+    def test_cannot_act_on_someone_elses_order(self):
+        other_order = B2BOrder.objects.create(
+            id='VO_mgmt2', brand=self.brand, company=self.company,
+            status=B2BOrder.Status.CONFIRMED, created_by=self.employee1, stock_deducted=True,
+        )
+        resp = self.client.post(
+            reverse('sessions_tracking:my_order_status_api'),
+            data=json.dumps({'order_id': other_order.id, 'status': 'delivered'}),
+            content_type='application/json',
+        )
+        self.assertFalse(resp.json()['success'])
+        other_order.refresh_from_db()
+        self.assertIsNone(other_order.delivered_at)
+
+    def test_record_payment_updates_balance(self):
+        resp = self.client.post(
+            reverse('sessions_tracking:my_order_payment_api'),
+            data=json.dumps({'order_id': self.order.id, 'amount': 400, 'payment_method': 'cash'}),
+            content_type='application/json',
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.paid_amount, 400)
+        self.assertEqual(self.order.payment_status, 'partial')
+        self.assertTrue(B2BPayment.objects.filter(b2b_order=self.order, amount=400).exists())
+
 
 class DeliveredAtHookTests(BaseFixtures):
     def setUp(self):
@@ -671,6 +765,17 @@ class AdminDashboardPermissionTests(BaseFixtures):
         login_with_brand(self.client, 'root', 'pw123456', self.brand.id)
         resp = self.client.get(reverse('sessions_tracking:performance_employees_api'))
         self.assertEqual(resp.status_code, 200)
+
+    def test_employee_list_includes_every_admin_user_not_just_field_employees(self):
+        login_with_brand(self.client, 'admin1', 'pw123456', self.brand.id)
+        resp = self.client.get(reverse('sessions_tracking:performance_employees_api'))
+        ids = {row['id'] for row in resp.json()['data']}
+        # admin_without_perm holds no 'field_employee' grant anywhere, and
+        # super_admin isn't a field employee either — both must still show
+        # up in the selector.
+        self.assertIn(self.super_admin.id, ids)
+        self.assertIn(self.admin_without_perm.id, ids)
+        self.assertIn(self.employee1.id, ids)
 
     @patch('sessions_tracking.services.sessions.ist_now')
     def test_admin_can_view_daily_report_for_any_employee(self, mock_now):

@@ -30,6 +30,19 @@ $(function () {
       .always(hideLoader);
   });
 
+  /* ── Employee Reports form ── */
+  $('#employeeReportsForm').on('submit', function (e) {
+    e.preventDefault();
+    var data = {
+      employee_telegram_report_enabled: $('#employee_telegram_report_enabled').is(':checked') ? 'true' : 'false'
+    };
+    showLoader('Saving…');
+    apiPost('/admin/api/settings/', { action: 'update_settings', data: data })
+      .done(function (res) { showAlertModal(res.message, res.success ? 'success' : 'danger'); })
+      .fail(function ()    { showAlertModal('Request failed.', 'danger'); })
+      .always(hideLoader);
+  });
+
   /* ── Loyalty form ── */
   $('#loyaltyForm').on('submit', function (e) {
     e.preventDefault();
@@ -155,6 +168,9 @@ function populateSettings(s) {
   fields.forEach(function (k) {
     if (s[k] !== undefined) $('#' + k).val(s[k]);
   });
+  if (s.employee_telegram_report_enabled !== undefined) {
+    $('#employee_telegram_report_enabled').prop('checked', s.employee_telegram_report_enabled === 'true');
+  }
 }
 
 function renderSystemStats(s) {

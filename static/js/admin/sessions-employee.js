@@ -15,6 +15,9 @@ var API = {
   visits: '/admin/api/sessions/visits/',
   weeklyOff: '/admin/api/sessions/weekly-off/',
   leave: '/admin/api/sessions/leave/',
+  orders: '/admin/api/sessions/orders/',
+  orderStatus: '/admin/api/sessions/orders/status/',
+  orderPayment: '/admin/api/sessions/orders/payment/',
 };
 
 var FLAVORS = [];
@@ -24,6 +27,7 @@ $(function () {
   loadState();
   loadWeeklyOff();
   loadLeave();
+  loadMyOrders();
   apiGet(API.flavors).done(function (res) { if (res.success) FLAVORS = res.data; });
 
   $('#visitCompanySearch').on('input', function () {
@@ -79,6 +83,10 @@ function render(data) {
       html += '<button class="btn btn-danger big-btn" onclick="endSession(\'' + open.type + '\')"><i class="fas fa-flag-checkered me-2"></i>End ' + typeLabel + '</button>';
     } else if (open.status === 'on_break') {
       html += '<button class="btn btn-success big-btn" onclick="resumeSession()"><i class="fas fa-play me-2"></i>Resume</button>';
+      // Ending while on break is allowed — the backend closes the open
+      // break (auto-resume) at the same instant before recording the end,
+      // so break time stays well-defined. Don't force a Resume tap first.
+      html += '<button class="btn btn-danger big-btn" onclick="endSession(\'' + open.type + '\')"><i class="fas fa-flag-checkered me-2"></i>End ' + typeLabel + '</button>';
     }
     html += '</div>';
     $card.html(html);
@@ -333,5 +341,106 @@ function submitEditEndTime() {
     if (!res.success) return fail(res.message);
     $('#editEndTimeModal').modal('hide');
     loadState();
+  }).fail(fail);
+}
+
+/* ── My Orders (requires 'b2b' module permission — card hides itself on 403) ── */
+
+var ORDER_STATUS_BADGES = {
+  draft: 'secondary', confirmed: 'primary', dispatched: 'info',
+  delivered: 'success', cancelled: 'danger',
+};
+var _myOrdersFirstLoad = true;
+
+function loadMyOrders() {
+  var status = $('#myOrdersFilter').val() || 'open';
+  apiGet(API.orders, { status: status }).done(function (res) {
+    if (!res.success) { $('#myOrdersCard').addClass('d-none'); return; }
+    $('#myOrdersCard').removeClass('d-none');
+    renderMyOrders(res.data);
+  }).fail(function (xhr) {
+    // No 'b2b' permission (403) or similar — this card just isn't for this
+    // account; fail silently rather than alerting on every page load.
+    if (_myOrdersFirstLoad) $('#myOrdersCard').addClass('d-none');
+  });
+  _myOrdersFirstLoad = false;
+}
+
+function renderMyOrders(orders) {
+  if (!orders.length) {
+    $('#myOrdersList').html('<li class="list-group-item text-muted">No orders.</li>');
+    return;
+  }
+  $('#myOrdersList').html(orders.map(function (o) {
+    var badge = ORDER_STATUS_BADGES[o.status] || 'secondary';
+    var actions = '';
+    if (o.status === 'draft') {
+      actions += '<button class="btn btn-sm btn-outline-primary me-1" onclick="updateOrderStatus(\'' + o.id + '\', \'confirmed\')">Confirm</button>';
+    }
+    if (o.status === 'confirmed') {
+      actions += '<button class="btn btn-sm btn-outline-info me-1" onclick="updateOrderStatus(\'' + o.id + '\', \'dispatched\')">Dispatch</button>';
+    }
+    if (o.status === 'confirmed' || o.status === 'dispatched') {
+      actions += '<button class="btn btn-sm btn-outline-success me-1" onclick="updateOrderStatus(\'' + o.id + '\', \'delivered\')">Deliver</button>';
+    }
+    if (['draft', 'confirmed', 'dispatched'].indexOf(o.status) !== -1) {
+      actions += '<button class="btn btn-sm btn-outline-danger me-1" onclick="cancelOrder(\'' + o.id + '\')">Cancel</button>';
+    }
+    if (o.balance > 0) {
+      actions += '<button class="btn btn-sm btn-outline-secondary" onclick="openPaymentModal(\'' + o.id + '\', \'' +
+        escHtml(o.company_name).replace(/'/g, "\\'") + '\')"><i class="fas fa-indian-rupee-sign me-1"></i>Payment</button>';
+    }
+    return '<li class="list-group-item">' +
+      '<div class="d-flex justify-content-between align-items-start">' +
+        '<div><strong>' + escHtml(o.company_name) + '</strong> ' +
+          '<span class="badge bg-' + badge + '">' + o.status + '</span>' +
+          '<div class="small text-muted">' + formatDate(o.order_date) + ' · Balance: ' + formatCurrency(o.balance) + '</div>' +
+        '</div>' +
+      '</div>' +
+      (actions ? '<div class="mt-2">' + actions + '</div>' : '') +
+      '</li>';
+  }).join(''));
+}
+
+function updateOrderStatus(orderId, status) {
+  confirmThen('Mark this order as ' + status + '?', function () {
+    apiPost(API.orderStatus, { order_id: orderId, status: status }).done(function (res) {
+      if (!res.success) return fail(res.message);
+      loadMyOrders();
+      loadState();  // delivering updates today's packs/orders/collection numbers
+    }).fail(fail);
+  });
+}
+
+function cancelOrder(orderId) {
+  confirmThen('Cancel this order?', function () {
+    apiPost(API.orderStatus, { order_id: orderId, status: 'cancelled' }).done(function (res) {
+      if (!res.success) return fail(res.message);
+      loadMyOrders();
+    }).fail(fail);
+  });
+}
+
+function openPaymentModal(orderId, companyName) {
+  $('#paymentOrderId').val(orderId);
+  $('#paymentOrderLabel').text(companyName + ' — Order ' + orderId);
+  $('#paymentAmount,#paymentReference,#paymentNotes').val('');
+  new bootstrap.Modal(document.getElementById('orderPaymentModal')).show();
+}
+
+function submitOrderPayment() {
+  var amount = $('#paymentAmount').val();
+  if (!amount || Number(amount) <= 0) return fail('Enter a valid amount.');
+  apiPost(API.orderPayment, {
+    order_id: $('#paymentOrderId').val(),
+    amount: amount,
+    payment_method: $('#paymentMethod').val(),
+    reference_number: $('#paymentReference').val(),
+    notes: $('#paymentNotes').val(),
+  }).done(function (res) {
+    if (!res.success) return fail(res.message);
+    $('#orderPaymentModal').modal('hide');
+    loadMyOrders();
+    loadState();  // collection feeds today's numbers
   }).fail(fail);
 }

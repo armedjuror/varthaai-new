@@ -38,6 +38,22 @@
   </div>
 </div>
 
+<!-- My Orders (requires B2B access — hidden if the employee doesn't have it) -->
+<div class="data-card d-none" id="myOrdersCard">
+  <div class="data-card-header">
+    <h3>My Orders</h3>
+    <select class="form-select form-select-sm w-auto" id="myOrdersFilter" onchange="loadMyOrders()">
+      <option value="open" selected>Open</option>
+      <option value="all">All</option>
+      <option value="delivered">Delivered</option>
+      <option value="cancelled">Cancelled</option>
+    </select>
+  </div>
+  <div class="data-card-body p-0">
+    <ul class="list-group list-group-flush" id="myOrdersList"></ul>
+  </div>
+</div>
+
 <!-- Today's numbers -->
 <div class="data-card">
   <div class="data-card-header"><h3>Today's Numbers</h3></div>
@@ -168,6 +184,39 @@
       </div>
       <ul class="list-group" id="leaveList"></ul>
     </div>
+  </div></div>
+</div>
+
+<!-- Record payment modal -->
+<div class="modal fade" id="orderPaymentModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Record Payment</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <input type="hidden" id="paymentOrderId">
+      <p class="mb-2" id="paymentOrderLabel"></p>
+      <div class="mb-2">
+        <label class="form-label">Amount (₹)</label>
+        <input type="number" min="0.01" step="0.01" class="form-control" id="paymentAmount">
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Method</label>
+        <select class="form-select" id="paymentMethod">
+          <option value="cash">Cash</option>
+          <option value="upi">UPI</option>
+          <option value="bank_transfer">Bank Transfer</option>
+          <option value="cheque">Cheque</option>
+        </select>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Reference (optional)</label>
+        <input type="text" class="form-control" id="paymentReference">
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Notes (optional)</label>
+        <textarea class="form-control" id="paymentNotes" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-primary w-100" onclick="submitOrderPayment()">Save Payment</button></div>
   </div></div>
 </div>
 

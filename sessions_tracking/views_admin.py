@@ -3,10 +3,17 @@ Admin-only Employee Performance dashboard — selector, daily report, period
 report (+ CSV export), overall performance. Gated by the project's existing
 module-permission mechanism (`permission_module = 'employee_performance'`),
 exactly like any other admin screen — so a brand admin can be scoped out
-the same way. Field-employee status is itself just a permission
-('field_employee', see sessions_tracking.permissions.is_field_employee),
-not a separate role, so this list can include ordinary admin/staff accounts
-that also do field work.
+the same way.
+
+The selector lists every AdminUser (admin/staff/super_admin alike) — not
+just accounts holding the 'field_employee' permission. Anyone could
+conceivably have started a session before the permission existed, or be
+worth comparing against; the report functions already handle "no session
+ever" honestly (counts as 0 days worked, averages show "—"), so there's no
+need to pre-filter who's even offered. (The Telegram report's recipient
+list is a separate, narrower question — see
+sessions_tracking.services.telegram, which still uses
+sessions_tracking.permissions.is_field_employee.)
 
 All metric computation is delegated to services.reporting /
 services.overall — nothing here recomputes a number.
@@ -23,7 +30,6 @@ from accounts.models import AdminUser
 from core.api import HasModulePermission, err, ok
 from core.auth import require_module
 from sessions_tracking.models import Session
-from sessions_tracking.permissions import is_field_employee
 from sessions_tracking.services import sessions as session_service
 from sessions_tracking.services.overall import build_ranking, conversion_summary, weekly_trend
 from sessions_tracking.services.reporting import (
@@ -36,9 +42,7 @@ from sessions_tracking.views_common import catch_validation, parse_ist_datetime,
 
 
 def _employees_qs():
-    employees = [u for u in AdminUser.objects.all() if is_field_employee(u)]
-    employees.sort(key=lambda u: (u.name or u.username))
-    return employees
+    return list(AdminUser.objects.order_by('name', 'username'))
 
 
 def resolve_employee(user_id):
@@ -46,8 +50,7 @@ def resolve_employee(user_id):
         user_id = int(user_id)
     except (TypeError, ValueError):
         return None
-    user = AdminUser.objects.filter(id=user_id).first()
-    return user if user and is_field_employee(user) else None
+    return AdminUser.objects.filter(id=user_id).first()
 
 
 # ── Pages ───────────────────────────────────────────────────────────────
@@ -104,8 +107,8 @@ class EditSessionEndTimeAdminAPI(APIView):
     @catch_validation
     def post(self, request):
         session_id = request.data.get('session_id')
-        session = Session.objects.filter(id=session_id).select_related('user').first()
-        if not session or not is_field_employee(session.user):
+        session = Session.objects.filter(id=session_id).first()
+        if not session:
             return err('Session not found.', status=404)
         new_ended_at = parse_ist_datetime(request.data.get('ended_at'))
         session_service.edit_session_end_time(session, new_ended_at, request.data.get('note'))

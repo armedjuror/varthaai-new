@@ -142,10 +142,24 @@ def build_combined_report_text(date):
     return '\n\n'.join(reports) if reports else 'No employees configured.'
 
 
+def _reports_enabled_in_settings():
+    """Settings > Business > Employee Reports toggle. Enabled by default if
+    the setting row has never been saved (so existing installs don't go
+    silent just because no one has touched this checkbox yet)."""
+    from core.models import Setting
+
+    value = Setting.objects.filter(
+        setting_key='employee_telegram_report_enabled',
+    ).values_list('setting_value', flat=True).first()
+    return value is None or value.lower() == 'true'
+
+
 def send_daily_report(date, dry_run=False, force=False):
     """
     Build + send the combined daily report for `date`. Idempotent per date:
     if a SENT log already exists and force is not set, this is a no-op.
+    The Settings > Employee Reports toggle only gates the automatic send —
+    `force=True` (an explicit admin resend) always goes through regardless.
     Returns (status, text) — status is one of TelegramReportLog.Status.
     """
     already_sent = TelegramReportLog.objects.filter(
@@ -157,6 +171,9 @@ def send_daily_report(date, dry_run=False, force=False):
     text = build_combined_report_text(date)
     if dry_run:
         return TelegramReportLog.Status.SKIPPED, text
+
+    if not force and not _reports_enabled_in_settings():
+        return TelegramReportLog.Status.SKIPPED, 'Daily report sending is disabled in Settings > Employee Reports.'
 
     all_ok = bool(text)
     for chunk in _chunk_message(text):

@@ -22,6 +22,15 @@ urlpatterns = [
     path('api/sessions/visits/', views_employee.VisitCreateAPI.as_view(), name='visit_create_api'),
     path('api/sessions/weekly-off/', views_employee.WeeklyOffAPI.as_view(), name='weekly_off_api'),
     path('api/sessions/leave/', views_employee.LeaveAPI.as_view(), name='leave_api'),
+    path('api/sessions/orders/', views_employee.MyOrdersAPI.as_view(), name='my_orders_api'),
+    path(
+        'api/sessions/orders/status/', views_employee.MyOrderUpdateStatusAPI.as_view(),
+        name='my_order_status_api',
+    ),
+    path(
+        'api/sessions/orders/payment/', views_employee.MyOrderPaymentAPI.as_view(),
+        name='my_order_payment_api',
+    ),
 
     # Admin — Employee Performance dashboard
     path('performance/', views_admin.performance_daily_page, name='performance'),
