@@ -519,7 +519,7 @@ class B2BOrdersAPI(APIView):
         )
         self._save_items(order, valid)
         B2BActivity.objects.create(
-            company=company, admin_user=request.user,
+            company=company, admin_user=request.user, order=order,
             type=B2BActivity.Type.ORDER,
             subject=f'Order {order_id} created',
             description=f'Total: {total:.2f}',
@@ -798,7 +798,7 @@ class B2BOrdersAPI(APIView):
             sync_b2b_order_income(order)
 
         B2BActivity.objects.create(
-            company=company, admin_user=request.user,
+            company=company, admin_user=request.user, order=order,
             type=B2BActivity.Type.PAYMENT,
             subject=f'{pay_type.capitalize()} of {amount:.2f} via {method}',
             description=f'Against order {order_id}' if order_id else 'General payment',
@@ -907,7 +907,7 @@ class B2BOrdersAPI(APIView):
         )
         summary = ', '.join(f"{line['item'].flavor_name} x{line['quantity']}" for line in lines)
         B2BActivity.objects.create(
-            company=order.company, admin_user=request.user,
+            company=order.company, admin_user=request.user, order=order,
             type=B2BActivity.Type.RETURN,
             subject=f'Return of {return_amount:.2f} on order {order.id}',
             description=(

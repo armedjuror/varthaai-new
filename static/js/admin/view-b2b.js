@@ -10,6 +10,7 @@ var typeIcons = {
   email:        { icon: 'fa-envelope',       bg: '#06b6d4' },
   whatsapp:     { icon: 'fa-comment-dots',   bg: '#25d366' },
   note:         { icon: 'fa-sticky-note',    bg: '#6b7280' },
+  visit:        { icon: 'fa-route',          bg: '#85AA4E' },
   stage_change: { icon: 'fa-arrow-right',    bg: '#f59e0b' },
   order:        { icon: 'fa-bag-shopping',   bg: '#16a34a' },
   payment:      { icon: 'fa-indian-rupee-sign', bg: '#16a34a' },
@@ -291,13 +292,18 @@ function renderTimeline(activities) {
       }
     }
 
+    var subjectHtml = escHtml(a.subject || capitalize(a.type));
+    if (a.order_id) {
+      subjectHtml = '<a href="#" onclick="viewOrderFromTimeline(\'' + escHtml(a.order_id) + '\');return false">' + subjectHtml + '</a>';
+    }
+
     html += '<div class="timeline-item">' +
       '<div class="timeline-dot timeline-dot-' + a.type + '"></div>' +
       '<div style="display:flex;align-items:flex-start;gap:10px">' +
         '<div class="type-icon" style="background:' + ti.bg + ';margin-top:2px"><i class="fas ' + ti.icon + '"></i></div>' +
         '<div style="flex:1;min-width:0">' +
           '<div style="display:flex;justify-content:space-between;align-items:center">' +
-            '<div style="font-weight:600;font-size:0.85rem">' + escHtml(a.subject || capitalize(a.type)) + '</div>' +
+            '<div style="font-weight:600;font-size:0.85rem">' + subjectHtml + '</div>' +
             '<span style="font-size:0.72rem;color:var(--gray-400);flex-shrink:0;margin-left:8px">' + formatDateTime(a.created_at) + '</span>' +
           '</div>' +
           (a.description ? '<div style="font-size:0.82rem;color:var(--gray-500);margin-top:2px;white-space:pre-wrap">' + escHtml(a.description) + '</div>' : '') +
@@ -312,6 +318,10 @@ function renderTimeline(activities) {
     '</div>';
   });
   $('#timelineBody').html(html);
+}
+
+function viewOrderFromTimeline(orderId) {
+  window.location.href = '/admin/b2b-orders/?order=' + encodeURIComponent(orderId);
 }
 
 function markFollowUpDone(id) {
@@ -405,14 +415,14 @@ function loadCompanyOrders() {
         '<th>Order ID</th><th>Total</th><th>Balance</th><th>Status</th><th>Payment</th><th>Date</th><th></th>' +
         '</tr></thead><tbody>';
       orders.forEach(function (o) {
-        html += '<tr>' +
+        html += '<tr style="cursor:pointer" onclick="viewOrderFromTimeline(\'' + escHtml(o.id) + '\')">' +
           '<td style="font-weight:600">' + escHtml(o.id) + '</td>' +
           '<td>' + formatCurrency(o.total_amount) + '</td>' +
           '<td style="' + (parseFloat(o.balance_amount) > 0 ? 'color:#dc2626;font-weight:600' : '') + '">' + formatCurrency(o.balance_amount) + '</td>' +
           '<td><span class="stage-badge stage-badge-' + (o.status === 'delivered' || o.status === 'confirmed' ? 'converted' : (o.status === 'cancelled' ? 'lost' : 'lead')) + '">' + capitalize(o.status) + '</span></td>' +
           '<td><span class="stage-badge stage-badge-' + (o.payment_status === 'paid' ? 'converted' : (o.payment_status === 'partial' ? 'negotiation' : 'lead')) + '">' + capitalize(o.payment_status) + '</span></td>' +
           '<td>' + formatDate(o.order_date) + '</td>' +
-          '<td>' +
+          '<td onclick="event.stopPropagation()">' +
             (o.status === 'delivered' ? '<a href="/admin/b2b-orders/create/?repeat=' + encodeURIComponent(o.id) + '" class="btn btn-sm btn-outline-primary" style="font-size:0.72rem;padding:1px 8px"><i class="fas fa-redo me-1"></i>Repeat</a>' : '') +
           '</td>' +
         '</tr>';

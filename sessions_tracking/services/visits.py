@@ -2,14 +2,33 @@
 Visit logging — always tied to the user's own *open sales* session, and
 lead creation exposes only the minimum B2BCompany fields an employee needs
 (never full B2B records: no credit limit, discounts, GST, notes, etc).
+
+Every visit is mirrored into the B2B CRM as a `B2BActivity` (type='visit'),
+so it shows up on that company's Timeline tab exactly like a manually
+logged call/meeting — the field-tracking and CRM-pipeline views of a
+company's history are kept in sync, not two disconnected records of the
+same event. A visit that isn't the one that created the lead also nudges
+the company from `lead` to `contacted` (never further — anything already
+past `lead` stays wherever an admin or an order has put it), recorded as
+its own `stage_change` activity, identical to how the admin UI logs one.
 """
 from django.core.exceptions import ValidationError
+from django.db import transaction
 
 from core.models import Brand
-from crm.models import B2BCompany
+from crm.models import B2BActivity, B2BCompany
 from sessions_tracking.models import Session, Visit
 from sessions_tracking.services.sessions import get_open_session
 from sessions_tracking.timeutil import ist_now
+
+_PURPOSE_LABELS = {
+    Visit.Purpose.NEW_LEAD: 'New Lead',
+    Visit.Purpose.RETARGET: 'Retarget',
+    Visit.Purpose.DELIVERY: 'Delivery',
+    Visit.Purpose.COLLECTION: 'Collection',
+    Visit.Purpose.AUDIT: 'Audit',
+    Visit.Purpose.REORDER_PUSH: 'Reorder Push',
+}
 
 
 def _default_brand():
@@ -51,6 +70,32 @@ def _resolve_company(data):
     return company, None
 
 
+def _log_visit_activity(company, user, visit):
+    label = _PURPOSE_LABELS.get(visit.purpose, visit.purpose)
+    subject = f'Field visit — {label}'
+    if visit.outcome != Visit.Outcome.NONE:
+        subject += f' ({visit.outcome.replace("_", " ")})'
+    B2BActivity.objects.create(
+        company=company, admin_user=user, type=B2BActivity.Type.VISIT,
+        subject=subject, description=visit.notes,
+    )
+
+    # A visit means contact was made. Bump a still-untouched lead forward —
+    # but never on the very visit that just created it, and never move a
+    # company that's already past "lead" (an admin or a real order already
+    # decided its stage; a field visit shouldn't walk that back or skip it).
+    if visit.purpose != Visit.Purpose.NEW_LEAD and company.stage == B2BCompany.Stage.LEAD:
+        old_stage = company.stage
+        company.stage = B2BCompany.Stage.CONTACTED
+        company.save(update_fields=['stage', 'updated_at'])
+        B2BActivity.objects.create(
+            company=company, admin_user=user, type=B2BActivity.Type.STAGE_CHANGE,
+            subject=f'Stage changed from {old_stage} to {company.stage}',
+            old_stage=old_stage, new_stage=company.stage,
+        )
+
+
+@transaction.atomic
 def create_visit(user, data):
     session = get_open_session(user)
     if not session or session.type != Session.Type.SALES:
@@ -68,7 +113,7 @@ def create_visit(user, data):
     if error:
         raise error
 
-    return Visit.objects.create(
+    visit = Visit.objects.create(
         session=session,
         company=company,
         user=user,
@@ -77,6 +122,8 @@ def create_visit(user, data):
         outcome=outcome,
         notes=(data.get('notes') or '').strip(),
     )
+    _log_visit_activity(company, user, visit)
+    return visit
 
 
 def company_picker_results(query):

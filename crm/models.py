@@ -87,6 +87,7 @@ class B2BActivity(models.Model):
         EMAIL = 'email', 'Email'
         WHATSAPP = 'whatsapp', 'WhatsApp'
         NOTE = 'note', 'Note'
+        VISIT = 'visit', 'Field Visit'
         STAGE_CHANGE = 'stage_change', 'Stage Change'
         ORDER = 'order', 'Order'
         PAYMENT = 'payment', 'Payment'
@@ -94,6 +95,9 @@ class B2BActivity(models.Model):
 
     company = models.ForeignKey(B2BCompany, on_delete=models.CASCADE, related_name='activities')
     contact = models.ForeignKey(B2BContact, on_delete=models.SET_NULL, null=True, blank=True, related_name='activities')
+    order = models.ForeignKey(
+        'orders.B2BOrder', on_delete=models.SET_NULL, null=True, blank=True, related_name='activities',
+    )
     admin_user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='+',
     )

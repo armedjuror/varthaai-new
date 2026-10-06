@@ -6,6 +6,9 @@ var searchTimer  = null;
 $(function () {
   loadOrders();
 
+  var deepLinkOrderId = new URLSearchParams(window.location.search).get('order');
+  if (deepLinkOrderId) viewOrder(deepLinkOrderId);
+
   $('#filterSearch').on('input', function () {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(function () { currentPage = 1; loadOrders(); }, 300);

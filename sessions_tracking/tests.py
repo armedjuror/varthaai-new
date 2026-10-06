@@ -11,7 +11,7 @@ from django.urls import reverse
 from accounts.models import AdminUser
 from core.api import BRAND_SESSION_KEY
 from core.models import Brand
-from crm.models import B2BCompany
+from crm.models import B2BActivity, B2BCompany
 from orders.models import B2BOrder, B2BOrderItem, B2BPayment
 from products.models import Flavor
 from sessions_tracking.models import (
@@ -390,6 +390,75 @@ class ReportingTests(BaseFixtures):
             delivered_at=ist_dt(2026, 5, 15, 10, 0), total_amount=100, paid_amount=100,
         )
         return order
+
+
+class VisitCrmSyncTests(BaseFixtures):
+    """A field visit must be visible on the CRM side too — mirrored as a
+    B2BActivity, with a conservative lead -> contacted stage bump."""
+
+    @patch('sessions_tracking.services.sessions.ist_now')
+    def test_visit_creates_crm_activity(self, mock_now):
+        mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
+        session_service.start_session(self.employee1, Session.Type.SALES)
+
+        visit = visit_service.create_visit(self.employee1, {
+            'company_id': self.company.id, 'purpose': 'retarget', 'outcome': 'follow_up', 'notes': 'left pamphlet',
+        })
+
+        activity = B2BActivity.objects.filter(company=self.company, type=B2BActivity.Type.VISIT).first()
+        self.assertIsNotNone(activity)
+        self.assertEqual(activity.admin_user_id, self.employee1.id)
+        self.assertIn('Retarget', activity.subject)
+        self.assertEqual(activity.description, 'left pamphlet')
+        self.assertEqual(activity.company_id, visit.company_id)
+
+    @patch('sessions_tracking.services.sessions.ist_now')
+    def test_retarget_visit_bumps_lead_to_contacted(self, mock_now):
+        mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
+        session_service.start_session(self.employee1, Session.Type.SALES)
+        self.assertEqual(self.company.stage, B2BCompany.Stage.LEAD)
+
+        visit_service.create_visit(self.employee1, {
+            'company_id': self.company.id, 'purpose': 'retarget', 'outcome': 'none', 'notes': '',
+        })
+
+        self.company.refresh_from_db()
+        self.assertEqual(self.company.stage, B2BCompany.Stage.CONTACTED)
+        stage_activity = B2BActivity.objects.filter(
+            company=self.company, type=B2BActivity.Type.STAGE_CHANGE,
+        ).first()
+        self.assertIsNotNone(stage_activity)
+        self.assertEqual(stage_activity.old_stage, 'lead')
+        self.assertEqual(stage_activity.new_stage, 'contacted')
+
+    @patch('sessions_tracking.services.sessions.ist_now')
+    def test_new_lead_visit_does_not_bump_its_own_company(self, mock_now):
+        mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
+        session_service.start_session(self.employee1, Session.Type.SALES)
+
+        visit = visit_service.create_visit(self.employee1, {
+            'new_company': {'company_name': 'Brand New Mart'}, 'purpose': 'new_lead', 'outcome': 'none', 'notes': '',
+        })
+
+        visit.company.refresh_from_db()
+        self.assertEqual(visit.company.stage, B2BCompany.Stage.LEAD)
+        self.assertFalse(
+            B2BActivity.objects.filter(company=visit.company, type=B2BActivity.Type.STAGE_CHANGE).exists(),
+        )
+
+    @patch('sessions_tracking.services.sessions.ist_now')
+    def test_visit_does_not_regress_a_later_stage(self, mock_now):
+        mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
+        session_service.start_session(self.employee1, Session.Type.SALES)
+        self.company.stage = B2BCompany.Stage.NEGOTIATION
+        self.company.save(update_fields=['stage'])
+
+        visit_service.create_visit(self.employee1, {
+            'company_id': self.company.id, 'purpose': 'retarget', 'outcome': 'none', 'notes': '',
+        })
+
+        self.company.refresh_from_db()
+        self.assertEqual(self.company.stage, B2BCompany.Stage.NEGOTIATION)
 
 
 class PeriodReportTests(BaseFixtures):

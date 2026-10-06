@@ -101,6 +101,7 @@ def _activity_row(a):
     return {
         'id': a.id,
         'company_id': a.company_id,
+        'order_id': a.order_id,
         'type': a.type,
         'subject': a.subject,
         'description': a.description,
