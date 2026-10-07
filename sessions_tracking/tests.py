@@ -329,11 +329,22 @@ class WeeklyOffTests(BaseFixtures):
 # ───────────────────────────────── Reporting ─────────────────────────────────
 
 class ReportingTests(BaseFixtures):
-    def _deliver_order(self, user, delivered_at, packs=4, amount=Decimal('500')):
+    def _deliver_order(self, user, delivered_at, packs=4, amount=Decimal('500'), order_date=None):
         order = B2BOrder.objects.create(
             id=f'VO_{delivered_at.isoformat()}', brand=self.brand, company=self.company,
             status=B2BOrder.Status.DELIVERED, created_by=user, delivered_at=delivered_at,
-            total_amount=amount, paid_amount=amount,
+            order_date=order_date or delivered_at, total_amount=amount, paid_amount=amount,
+        )
+        B2BOrderItem.objects.create(
+            b2b_order=order, flavor=self.flavor, quantity=packs, weight_grams=150,
+            total_weight_grams=150 * packs, selling_price=Decimal('100'), flavor_name=self.flavor.name,
+        )
+        return order
+
+    def _create_order(self, user, order_date, status, packs=4, amount=Decimal('500')):
+        order = B2BOrder.objects.create(
+            id=f'VO_{status}_{order_date.isoformat()}', brand=self.brand, company=self.company,
+            status=status, created_by=user, order_date=order_date, total_amount=amount,
         )
         B2BOrderItem.objects.create(
             b2b_order=order, flavor=self.flavor, quantity=packs, weight_grams=150,
@@ -353,6 +364,17 @@ class ReportingTests(BaseFixtures):
         self.assertEqual(report['packs'], 6)
         self.assertEqual(report['collection'], Decimal('250'))
         self.assertEqual(report['first_delivery_time'], ist_dt(2026, 6, 1, 14, 0))
+
+    def test_orders_packs_count_draft_orders_created_today(self):
+        # Draft orders stay in 'draft' until stock is confirmed on delivery —
+        # they must still count as today's orders/packs, not just delivered ones.
+        self._create_order(self.employee1, ist_dt(2026, 6, 1, 10, 0), B2BOrder.Status.DRAFT, packs=5)
+        self._create_order(self.employee1, ist_dt(2026, 6, 1, 11, 0), B2BOrder.Status.CANCELLED, packs=9)  # excluded
+        self._create_order(self.employee2, ist_dt(2026, 6, 1, 12, 0), B2BOrder.Status.DRAFT, packs=3)  # other employee
+
+        report = build_daily_report(self.employee1, date(2026, 6, 1))
+        self.assertEqual(report['orders'], 1)
+        self.assertEqual(report['packs'], 5)
 
     def _log_visit_at(self, user, company, purpose, at, outcome='none'):
         activity = crm_services.log_visit(user, company, purpose, outcome, notes='')

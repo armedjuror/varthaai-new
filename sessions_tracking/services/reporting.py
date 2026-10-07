@@ -150,10 +150,19 @@ def build_daily_report(user, date):
             delivered_at__gte=start, delivered_at__lt=end,
         ),
     )
-    orders_count = len(delivered_orders)
     first_delivery_time = min((o.delivered_at for o in delivered_orders), default=None)
+
+    # "Orders" and "packs" count orders CREATED today, not just delivered
+    # today — draft orders stay in 'draft' until stock is confirmed on
+    # delivery, so counting only delivered orders hid same-day work.
+    created_orders = list(
+        B2BOrder.objects.filter(
+            created_by=user, order_date__gte=start, order_date__lt=end,
+        ).exclude(status=B2BOrder.Status.CANCELLED),
+    )
+    orders_count = len(created_orders)
     packs = B2BOrderItem.objects.filter(
-        b2b_order__in=[o.id for o in delivered_orders],
+        b2b_order__in=[o.id for o in created_orders],
     ).aggregate(total=Sum('quantity'))['total'] or 0
 
     collection = B2BPayment.objects.filter(created_by=user, payment_date=date).aggregate(
