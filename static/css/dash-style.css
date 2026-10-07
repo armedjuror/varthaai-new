@@ -878,22 +878,14 @@ body {
   .status-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
-/* ── Field Mode toggle (topbar) — links to/from the employee My Day page ── */
-.field-mode-toggle {
-  display: flex; align-items: center; gap: 7px; text-decoration: none;
-  font-size: 0.8rem; font-weight: 600; color: var(--gray-500, #6b7280);
-  padding: 4px 8px; border-radius: 20px; transition: background 0.15s;
+/* ── Session widget (topbar) — start/break/resume/end for field employees ── */
+.session-widget { display: flex; align-items: center; gap: 8px; }
+.session-widget .session-status-label {
+  font-size: 0.78rem; font-weight: 600; color: var(--gray-500, #6b7280);
+  display: flex; align-items: center; gap: 6px; white-space: nowrap;
 }
-.field-mode-toggle:hover { background: var(--gray-100, #f3f4f6); color: inherit; }
-.field-mode-track {
-  width: 34px; height: 18px; border-radius: 10px; background: var(--gray-300, #d1d5db);
-  position: relative; transition: background 0.15s; flex-shrink: 0;
+.session-widget .session-status-dot {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--gray-300, #d1d5db); flex-shrink: 0;
 }
-.field-mode-thumb {
-  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
-  background: #fff; transition: left 0.15s; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-}
-.field-mode-toggle.is-on { color: #fff; }
-.field-mode-toggle.is-on:hover { background: rgba(255, 255, 255, 0.08); }
-.field-mode-toggle.is-on .field-mode-track { background: var(--green, #85AA4E); }
-.field-mode-toggle.is-on .field-mode-thumb { left: 18px; }
+.session-widget .session-status-dot.is-active { background: var(--green, #85AA4E); }
+.session-widget .session-status-dot.is-break { background: #f59e0b; }

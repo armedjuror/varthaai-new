@@ -156,6 +156,13 @@
       </a>
     {% endif %}
 
+    {% if 'field_employee' in nav_perms %}
+      <a href="{% url 'sessions_tracking:my_performance' %}" class="nav-item{% if url_name == 'my_performance' %} active{% endif %}">
+        <i class="fas fa-chart-line"></i>
+        <span>My Performance</span>
+      </a>
+    {% endif %}
+
     {% if is_super_admin %}
       <a href="{% url 'debugger:page' %}" class="nav-item{% if url_name == 'page' %} active{% endif %}">
         <i class="fas fa-bug"></i>
@@ -203,10 +210,7 @@
 
     <div class="topbar-right">
       {% if 'field_employee' in nav_perms %}
-      <a href="{% url 'sessions_tracking:my_day' %}" class="field-mode-toggle" title="Switch to Field Mode">
-        <span class="field-mode-track"><span class="field-mode-thumb"></span></span>
-        <span class="field-mode-label">Field Mode</span>
-      </a>
+      <div id="sessionWidget" class="session-widget"></div>
       {% endif %}
 
       <!-- Brand switcher -->
@@ -258,6 +262,54 @@
     </div>
   </header>
 
+  {% if 'field_employee' in nav_perms %}
+  <!-- Session widget modals — markup lives here (not in session-widget.js)
+       so Bootstrap's modal JS can find them in the DOM on every admin page;
+       static/js/admin/session-widget.js only drives behaviour. -->
+  <div class="modal fade" id="sessionStartModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Start a Session</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-2">
+          <label class="form-label">Session type</label>
+          <select class="form-select" id="sessionStartType">
+            <option value="sales">Sales</option>
+            <option value="packing">Packing</option>
+          </select>
+        </div>
+        <div class="mb-2" id="sessionStartAreaWrap">
+          <label class="form-label">Area</label>
+          <input type="text" class="form-control" id="sessionStartArea" placeholder="e.g. Kochi, Ernakulam north…">
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary w-100" id="sessionStartSubmitBtn">Start Session</button></div>
+    </div></div>
+  </div>
+
+  <div class="modal fade" id="sessionBreakModal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Take a Break</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="d-grid gap-2">
+          <button class="btn btn-outline-secondary" id="sessionBreakLunchBtn">Lunch Break</button>
+          <button class="btn btn-outline-secondary" id="sessionBreakEveningBtn">Evening Break</button>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="modal fade" id="sessionPackingEndModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Packs Packed Today</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div id="sessionPackingRows"></div>
+        <button class="btn btn-sm btn-outline-secondary mt-2" id="sessionAddPackingRowBtn"><i class="fas fa-plus me-1"></i>Add flavour</button>
+      </div>
+      <div class="modal-footer"><button class="btn btn-success w-100" id="sessionPackingEndSubmitBtn">End Packing Session</button></div>
+    </div></div>
+  </div>
+  {% endif %}
+
   <div class="page-body">
     {% block page_title %}{% endblock %}
     {% block content %}{% endblock %}
@@ -274,6 +326,9 @@
 <script src="{% static 'js/admin/utils.js' %}"></script>
 <script src="{% static 'js/admin/csrf.js' %}"></script>
 <script src="{% static 'js/admin.js' %}"></script>
+{% if 'field_employee' in nav_perms %}
+<script src="{% static 'js/admin/session-widget.js' %}"></script>
+{% endif %}
 
 <script>
   // Brand switcher — POST to Django endpoint; CSRF header added globally by csrf.js

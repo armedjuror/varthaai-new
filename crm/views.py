@@ -18,6 +18,7 @@ from rest_framework.views import APIView
 
 from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
+from crm import services as crm_services
 from crm.models import B2BActivity, B2BCategory, B2BCompany, B2BContact
 
 AdminUser = get_user_model()
@@ -425,7 +426,22 @@ class B2BAPI(APIView):
             id=_int_or_none(body.get('company_id')), brand_id=brand_id,
         ).first()
         act_type = body.get('type') or ''
-        if not company or act_type not in VALID_ACTIVITY_TYPES:
+        if not company:
+            return err('Invalid activity type.')
+
+        if act_type == B2BActivity.Type.VISIT:
+            purpose = body.get('visit_purpose') or ''
+            if purpose not in B2BActivity.VisitPurpose.values:
+                return err('Pick a visit purpose.')
+            outcome = body.get('visit_outcome') or B2BActivity.VisitOutcome.NONE
+            if outcome not in B2BActivity.VisitOutcome.values:
+                return err('Invalid visit outcome.')
+            activity = crm_services.log_visit(
+                request.user, company, purpose, outcome, notes=(body.get('description') or '').strip(),
+            )
+            return ok({'id': activity.id}, 'Visit logged!')
+
+        if act_type not in VALID_ACTIVITY_TYPES:
             return err('Invalid activity type.')
         activity = B2BActivity.objects.create(
             company=company,

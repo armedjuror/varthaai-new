@@ -110,43 +110,6 @@ class PackingItem(models.Model):
         return f'{self.session_id}:{self.flavor_id}x{self.packs}'
 
 
-class Visit(models.Model):
-    class Purpose(models.TextChoices):
-        NEW_LEAD = 'new_lead', 'New Lead'
-        RETARGET = 'retarget', 'Retarget'
-        DELIVERY = 'delivery', 'Delivery'
-        COLLECTION = 'collection', 'Collection'
-        AUDIT = 'audit', 'Audit'
-        REORDER_PUSH = 'reorder_push', 'Reorder Push'
-
-    class Outcome(models.TextChoices):
-        ORDER = 'order', 'Order'
-        FOLLOW_UP = 'follow_up', 'Follow Up'
-        REJECTED = 'rejected', 'Rejected'
-        NONE = 'none', 'None'
-
-    # Always a `sales` session — enforced in sessions_tracking.services.visits.
-    session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name='visits')
-    company = models.ForeignKey('crm.B2BCompany', on_delete=models.PROTECT, related_name='+')
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='visits',
-    )
-    visited_at = models.DateTimeField()
-    purpose = models.CharField(max_length=20, choices=Purpose.choices)
-    outcome = models.CharField(max_length=20, choices=Outcome.choices, default=Outcome.NONE)
-    notes = models.TextField(blank=True)
-
-    class Meta:
-        db_table = 'work_session_visits'
-        indexes = [
-            models.Index(fields=['user', 'visited_at'], name='worksession_visit_user_at_idx'),
-        ]
-        ordering = ['visited_at']
-
-    def __str__(self):
-        return f'{self.user_id}@{self.company_id}:{self.purpose}'
-
-
 class UserSetting(models.Model):
     """Per-employee settings. `weekly_off_weekday` is the *current* default —
     always resolve the *effective* weekday for a given date via

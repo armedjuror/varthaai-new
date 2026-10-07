@@ -93,6 +93,20 @@ class B2BActivity(models.Model):
         PAYMENT = 'payment', 'Payment'
         RETURN = 'return', 'Return'
 
+    class VisitPurpose(models.TextChoices):
+        NEW_LEAD = 'new_lead', 'New Lead'
+        RETARGET = 'retarget', 'Retarget'
+        DELIVERY = 'delivery', 'Delivery'
+        COLLECTION = 'collection', 'Collection'
+        AUDIT = 'audit', 'Audit'
+        REORDER_PUSH = 'reorder_push', 'Reorder Push'
+
+    class VisitOutcome(models.TextChoices):
+        ORDER = 'order', 'Order'
+        FOLLOW_UP = 'follow_up', 'Follow Up'
+        REJECTED = 'rejected', 'Rejected'
+        NONE = 'none', 'None'
+
     company = models.ForeignKey(B2BCompany, on_delete=models.CASCADE, related_name='activities')
     contact = models.ForeignKey(B2BContact, on_delete=models.SET_NULL, null=True, blank=True, related_name='activities')
     order = models.ForeignKey(
@@ -106,6 +120,9 @@ class B2BActivity(models.Model):
     description = models.TextField(blank=True)
     old_stage = models.CharField(max_length=20, blank=True)
     new_stage = models.CharField(max_length=20, blank=True)
+    # Only set (and only valid) when type == VISIT.
+    visit_purpose = models.CharField(max_length=20, choices=VisitPurpose.choices, blank=True)
+    visit_outcome = models.CharField(max_length=20, choices=VisitOutcome.choices, blank=True)
     follow_up_date = models.DateField(null=True, blank=True)
     is_follow_up_done = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)

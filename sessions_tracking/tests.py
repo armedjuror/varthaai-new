@@ -11,15 +11,15 @@ from django.urls import reverse
 from accounts.models import AdminUser
 from core.api import BRAND_SESSION_KEY
 from core.models import Brand, Setting
+from crm import services as crm_services
 from crm.models import B2BActivity, B2BCompany
 from orders.models import B2BOrder, B2BOrderItem, B2BPayment
 from products.models import Flavor
 from sessions_tracking.models import (
-    Leave, PackingItem, Session, SessionEvent, TelegramReportLog, UserSetting, Visit, WeeklyOffChange,
+    Leave, PackingItem, Session, SessionEvent, TelegramReportLog, UserSetting, WeeklyOffChange,
 )
 from sessions_tracking.services import leave as leave_service
 from sessions_tracking.services import sessions as session_service
-from sessions_tracking.services import visits as visit_service
 from sessions_tracking.services.autoclose import autoclose_open_sessions
 from sessions_tracking.services.reporting import build_daily_report, build_period_report
 from sessions_tracking.services.telegram import send_daily_report
@@ -354,29 +354,26 @@ class ReportingTests(BaseFixtures):
         self.assertEqual(report['collection'], Decimal('250'))
         self.assertEqual(report['first_delivery_time'], ist_dt(2026, 6, 1, 14, 0))
 
-    @patch('sessions_tracking.services.visits.ist_now')
+    def _log_visit_at(self, user, company, purpose, at, outcome='none'):
+        activity = crm_services.log_visit(user, company, purpose, outcome, notes='')
+        B2BActivity.objects.filter(id=activity.id).update(created_at=at)
+        return activity
+
     @patch('sessions_tracking.services.sessions.ist_now')
-    def test_new_leads_and_last_meeting(self, mock_now, mock_visit_now):
+    def test_new_leads_and_last_meeting(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
         session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
-        mock_visit_now.return_value = ist_dt(2026, 6, 1, 11, 0)
-        visit_service.create_visit(self.employee1, {
-            'company_id': self.company.id, 'purpose': 'new_lead', 'outcome': 'none', 'notes': '',
-        })
-        mock_visit_now.return_value = ist_dt(2026, 6, 1, 16, 0)
+        self._log_visit_at(self.employee1, self.company, 'new_lead', ist_dt(2026, 6, 1, 11, 0))
         other = B2BCompany.objects.create(brand=self.brand, company_name='Later Visit Co')
-        visit_service.create_visit(self.employee1, {
-            'company_id': other.id, 'purpose': 'audit', 'outcome': 'none', 'notes': '',
-        })
+        self._log_visit_at(self.employee1, other, 'audit', ist_dt(2026, 6, 1, 16, 0))
 
         report = build_daily_report(self.employee1, date(2026, 6, 1))
         self.assertEqual(report['new_leads'], 1)
         self.assertEqual(report['last_meeting_time'], ist_dt(2026, 6, 1, 16, 0))
         self.assertEqual(report['visits_count'], 2)
 
-    @patch('sessions_tracking.services.visits.ist_now')
     @patch('sessions_tracking.services.sessions.ist_now')
-    def test_retargeted_excludes_existing_customer_and_same_day_company(self, mock_now, mock_visit_now):
+    def test_retargeted_excludes_existing_customer_and_same_day_company(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
         session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
 
@@ -390,14 +387,10 @@ class ReportingTests(BaseFixtures):
         # self.company already has a delivered order (existing customer) -> must NOT count.
         self._existing_customer_order()
 
-        mock_visit_now.return_value = ist_dt(2026, 6, 1, 11, 0)
-        visit_service.create_visit(self.employee1, {'company_id': old_lead.id, 'purpose': 'retarget', 'outcome': 'none', 'notes': ''})
-        mock_visit_now.return_value = ist_dt(2026, 6, 1, 12, 0)
-        visit_service.create_visit(self.employee1, {'company_id': today_lead.id, 'purpose': 'retarget', 'outcome': 'none', 'notes': ''})
-        mock_visit_now.return_value = ist_dt(2026, 6, 1, 13, 0)
-        visit_service.create_visit(self.employee1, {'company_id': self.company.id, 'purpose': 'retarget', 'outcome': 'none', 'notes': ''})
-        mock_visit_now.return_value = ist_dt(2026, 6, 1, 14, 0)
-        visit_service.create_visit(self.employee1, {'company_id': self.company.id, 'purpose': 'reorder_push', 'outcome': 'none', 'notes': ''})
+        self._log_visit_at(self.employee1, old_lead, 'retarget', ist_dt(2026, 6, 1, 11, 0))
+        self._log_visit_at(self.employee1, today_lead, 'retarget', ist_dt(2026, 6, 1, 12, 0))
+        self._log_visit_at(self.employee1, self.company, 'retarget', ist_dt(2026, 6, 1, 13, 0))
+        self._log_visit_at(self.employee1, self.company, 'reorder_push', ist_dt(2026, 6, 1, 14, 0))
 
         report = build_daily_report(self.employee1, date(2026, 6, 1))
         self.assertEqual(report['retargeted_leads'], 1)
@@ -409,75 +402,6 @@ class ReportingTests(BaseFixtures):
             delivered_at=ist_dt(2026, 5, 15, 10, 0), total_amount=100, paid_amount=100,
         )
         return order
-
-
-class VisitCrmSyncTests(BaseFixtures):
-    """A field visit must be visible on the CRM side too — mirrored as a
-    B2BActivity, with a conservative lead -> contacted stage bump."""
-
-    @patch('sessions_tracking.services.sessions.ist_now')
-    def test_visit_creates_crm_activity(self, mock_now):
-        mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
-
-        visit = visit_service.create_visit(self.employee1, {
-            'company_id': self.company.id, 'purpose': 'retarget', 'outcome': 'follow_up', 'notes': 'left pamphlet',
-        })
-
-        activity = B2BActivity.objects.filter(company=self.company, type=B2BActivity.Type.VISIT).first()
-        self.assertIsNotNone(activity)
-        self.assertEqual(activity.admin_user_id, self.employee1.id)
-        self.assertIn('Retarget', activity.subject)
-        self.assertEqual(activity.description, 'left pamphlet')
-        self.assertEqual(activity.company_id, visit.company_id)
-
-    @patch('sessions_tracking.services.sessions.ist_now')
-    def test_retarget_visit_bumps_lead_to_contacted(self, mock_now):
-        mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
-        self.assertEqual(self.company.stage, B2BCompany.Stage.LEAD)
-
-        visit_service.create_visit(self.employee1, {
-            'company_id': self.company.id, 'purpose': 'retarget', 'outcome': 'none', 'notes': '',
-        })
-
-        self.company.refresh_from_db()
-        self.assertEqual(self.company.stage, B2BCompany.Stage.CONTACTED)
-        stage_activity = B2BActivity.objects.filter(
-            company=self.company, type=B2BActivity.Type.STAGE_CHANGE,
-        ).first()
-        self.assertIsNotNone(stage_activity)
-        self.assertEqual(stage_activity.old_stage, 'lead')
-        self.assertEqual(stage_activity.new_stage, 'contacted')
-
-    @patch('sessions_tracking.services.sessions.ist_now')
-    def test_new_lead_visit_does_not_bump_its_own_company(self, mock_now):
-        mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
-
-        visit = visit_service.create_visit(self.employee1, {
-            'new_company': {'company_name': 'Brand New Mart'}, 'purpose': 'new_lead', 'outcome': 'none', 'notes': '',
-        })
-
-        visit.company.refresh_from_db()
-        self.assertEqual(visit.company.stage, B2BCompany.Stage.LEAD)
-        self.assertFalse(
-            B2BActivity.objects.filter(company=visit.company, type=B2BActivity.Type.STAGE_CHANGE).exists(),
-        )
-
-    @patch('sessions_tracking.services.sessions.ist_now')
-    def test_visit_does_not_regress_a_later_stage(self, mock_now):
-        mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
-        self.company.stage = B2BCompany.Stage.NEGOTIATION
-        self.company.save(update_fields=['stage'])
-
-        visit_service.create_visit(self.employee1, {
-            'company_id': self.company.id, 'purpose': 'retarget', 'outcome': 'none', 'notes': '',
-        })
-
-        self.company.refresh_from_db()
-        self.assertEqual(self.company.stage, B2BCompany.Stage.NEGOTIATION)
 
 
 class PeriodReportTests(BaseFixtures):
@@ -619,16 +543,16 @@ class EmployeeIsolationTests(BaseFixtures):
         super().setUp()
         login_with_brand(self.client, 'saad', 'pw123456', self.brand.id)
 
-    def test_employee_login_redirects_to_my_day(self):
+    def test_employee_login_redirects_to_my_performance(self):
         # saad has no 'dashboard' permission, only 'field_employee' — a
         # fresh login (not the already-authenticated branch) must land him
-        # on My Day, not 403 on the dashboard.
+        # on My Performance, not 403 on the dashboard.
         self.client.logout()
         resp = self.client.post(reverse('accounts:login'), {'username': 'saad', 'password': 'pw123456'})
-        self.assertRedirects(resp, reverse('sessions_tracking:my_day'))
+        self.assertRedirects(resp, reverse('sessions_tracking:my_performance'))
 
-    def test_my_day_page_loads_for_employee(self):
-        resp = self.client.get(reverse('sessions_tracking:my_day'))
+    def test_my_performance_page_loads_for_employee(self):
+        resp = self.client.get(reverse('sessions_tracking:my_performance'))
         self.assertEqual(resp.status_code, 200)
 
     def test_employee_cannot_reach_admin_dashboard_page(self):
@@ -684,9 +608,9 @@ class DualCapabilityTests(BaseFixtures):
         resp = self.client.post(reverse('accounts:login'), {'username': 'dual', 'password': 'pw123456'})
         self.assertRedirects(resp, reverse('core:dashboard'))
 
-    def test_can_still_reach_my_day(self):
+    def test_can_still_reach_my_performance(self):
         login_with_brand(self.client, 'dual', 'pw123456', self.brand.id)
-        resp = self.client.get(reverse('sessions_tracking:my_day'))
+        resp = self.client.get(reverse('sessions_tracking:my_performance'))
         self.assertEqual(resp.status_code, 200)
 
     @patch('sessions_tracking.services.sessions.ist_now')

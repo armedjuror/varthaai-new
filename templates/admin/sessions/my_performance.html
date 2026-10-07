@@ -1,0 +1,196 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}My Performance — Varthaai Admin{% endblock %}
+
+{% block page_title %}
+<div class="page-header">
+  <div>
+    <h1>My Performance</h1>
+    <p>Your sessions, numbers, and leave — start/break/end from the topbar.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<ul class="nav nav-tabs mb-3" role="tablist">
+  <li class="nav-item">
+    <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabDaily">Daily</button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabPeriod" onclick="initMyPeriodTabOnce()">Period</button>
+  </li>
+</ul>
+
+<div class="tab-content">
+
+  <!-- Daily tab -->
+  <div class="tab-pane fade show active" id="tabDaily">
+
+    <div class="filter-bar mb-3">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-6">
+          <label class="form-label">Date</label>
+          <div class="d-flex gap-1">
+            <button class="btn btn-outline-secondary" id="myPrevDayBtn"><i class="fas fa-chevron-left"></i></button>
+            <input type="date" class="form-control" id="myDateInput">
+            <button class="btn btn-outline-secondary" id="myNextDayBtn"><i class="fas fa-chevron-right"></i></button>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <button class="btn btn-primary w-100" id="myLoadBtn"><i class="fas fa-rotate me-1"></i>Refresh</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="dayStatusBanner" class="alert alert-info d-none"></div>
+
+    <div class="row g-3 mb-3" id="statCards"></div>
+
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <div class="data-card">
+          <div class="data-card-header"><h3>Session Timeline</h3></div>
+          <div class="data-card-body" id="timelineBody"><p class="text-muted">—</p></div>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="data-card">
+          <div class="data-card-header"><h3>Packing</h3></div>
+          <div class="data-card-body" id="packingBody"><p class="text-muted">—</p></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="data-card">
+      <div class="data-card-header"><h3>Visits</h3></div>
+      <div class="data-card-body p-0">
+        <table class="table mb-0">
+          <thead><tr><th>Time</th><th>Company</th><th>Purpose</th><th>Outcome</th><th>Notes</th></tr></thead>
+          <tbody id="visitsBody"><tr><td colspan="5" class="text-center text-muted">—</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="data-card" id="flagsCard" style="display:none">
+      <div class="data-card-header"><h3>Flags</h3></div>
+      <div class="data-card-body" id="flagsBody"></div>
+    </div>
+
+  </div>
+
+  <!-- Period tab -->
+  <div class="tab-pane fade" id="tabPeriod">
+
+    <div class="filter-bar mb-3">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label">Preset</label>
+          <select class="form-select" id="myRangePreset">
+            <option value="this_week">This week</option>
+            <option value="last_week">Last week</option>
+            <option value="this_month">This month</option>
+            <option value="last_month">Last month</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div class="col-md-3"><label class="form-label">From</label><input type="date" class="form-control" id="myStartInput" disabled></div>
+        <div class="col-md-3"><label class="form-label">To</label><input type="date" class="form-control" id="myEndInput" disabled></div>
+        <div class="col-md-2">
+          <button class="btn btn-primary w-100" id="myPeriodLoadBtn"><i class="fas fa-rotate me-1"></i>Load</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-3" id="totalsCards"></div>
+    <div class="row g-3 mb-3" id="averagesCards"></div>
+
+    <div class="data-card">
+      <div class="data-card-header"><h3>Packing by Flavour</h3></div>
+      <div class="data-card-body" id="packingByFlavor"><p class="text-muted">—</p></div>
+    </div>
+
+    <div class="data-card">
+      <div class="data-card-header"><h3>Day by Day</h3></div>
+      <div class="data-card-body p-0" style="overflow-x:auto">
+        <table class="table mb-0" id="dayTable">
+          <thead><tr id="dayTableHead"></tr></thead>
+          <tbody id="dayTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- Weekly off & leave -->
+<div class="data-card">
+  <div class="data-card-header"><h3>Weekly Off &amp; Leave</h3></div>
+  <div class="data-card-body">
+    <p class="mb-2">Current weekly off: <strong id="weeklyOffLabel">—</strong>
+      <button class="btn btn-sm btn-link p-0 ms-2" data-bs-toggle="modal" data-bs-target="#weeklyOffModal">change</button>
+    </p>
+    <p class="mb-2">Leave balance: <strong id="leaveBalanceLabel">—</strong>
+      <button class="btn btn-sm btn-link p-0 ms-2" data-bs-toggle="modal" data-bs-target="#leaveModal">manage</button>
+    </p>
+  </div>
+</div>
+
+<!-- Edit end time -->
+<div class="modal fade" id="editEndTimeModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Correct Session End Time</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <input type="hidden" id="editSessionId">
+      <div class="mb-2">
+        <label class="form-label">Corrected end time</label>
+        <input type="datetime-local" class="form-control" id="editEndedAt">
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Note (required)</label>
+        <textarea class="form-control" id="editEndNote" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-primary w-100" onclick="submitEditEndTime()">Save</button></div>
+  </div></div>
+</div>
+
+<!-- Weekly off modal -->
+<div class="modal fade" id="weeklyOffModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Change Weekly Off</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <p class="text-muted small">Takes effect from next Monday — this week's off day can't be changed.</p>
+      <select class="form-select" id="weeklyOffSelect">
+        <option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option>
+        <option value="3">Thursday</option><option value="4">Friday</option><option value="5">Saturday</option>
+        <option value="6">Sunday</option>
+      </select>
+    </div>
+    <div class="modal-footer"><button class="btn btn-primary w-100" onclick="submitWeeklyOff()">Save</button></div>
+  </div></div>
+</div>
+
+<!-- Leave modal -->
+<div class="modal fade" id="leaveModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Leave Days</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <p id="leaveBalanceDetail" class="text-muted small"></p>
+      <div class="d-flex gap-2 mb-3">
+        <input type="date" class="form-control" id="leaveDateInput">
+        <button class="btn btn-primary" onclick="addLeave()">Add</button>
+      </div>
+      <ul class="list-group" id="leaveList"></ul>
+    </div>
+  </div></div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/admin/sessions-performance.js' %}"></script>
+<script>$(function () { initMyPerformancePage(); });</script>
+{% endblock %}

@@ -25,6 +25,7 @@
   .timeline-dot-email       { background:#06b6d4; }
   .timeline-dot-whatsapp    { background:#25d366; }
   .timeline-dot-note        { background:#6b7280; }
+  .timeline-dot-visit       { background:#85AA4E; }
   .timeline-dot-stage_change { background:#f59e0b; }
   .timeline-dot-order       { background:#16a34a; }
   .timeline-dot-payment     { background:#16a34a; }
@@ -114,24 +115,43 @@
             <div style="background:var(--gray-50);border-radius:8px;padding:14px;margin-bottom:20px">
               <div class="row g-2">
                 <div class="col-md-3">
-                  <select class="form-select form-select-sm" id="activityType">
+                  <select class="form-select form-select-sm" id="activityType" onchange="onActivityTypeChange()">
                     <option value="call">Call</option>
                     <option value="meeting">Meeting</option>
                     <option value="email">Email</option>
                     <option value="whatsapp">WhatsApp</option>
                     <option value="note" selected>Note</option>
+                    <option value="visit">Field Visit</option>
                   </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-3" id="activityContactWrap">
                   <select class="form-select form-select-sm" id="activityContact">
                     <option value="">No contact</option>
                   </select>
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-3" id="activitySubjectWrap">
                   <input type="text" class="form-control form-control-sm" id="activitySubject" placeholder="Subject">
                 </div>
-                <div class="col-md-3">
+                <div class="col-md-3" id="activityFollowUpWrap">
                   <input type="date" class="form-control form-control-sm" id="activityFollowUp" title="Follow-up date (optional)">
+                </div>
+                <div class="col-md-3 d-none" id="activityVisitPurposeWrap">
+                  <select class="form-select form-select-sm" id="activityVisitPurpose">
+                    <option value="new_lead">New Lead</option>
+                    <option value="retarget">Retarget</option>
+                    <option value="delivery">Delivery</option>
+                    <option value="collection">Collection</option>
+                    <option value="audit">Audit</option>
+                    <option value="reorder_push">Reorder Push</option>
+                  </select>
+                </div>
+                <div class="col-md-3 d-none" id="activityVisitOutcomeWrap">
+                  <select class="form-select form-select-sm" id="activityVisitOutcome">
+                    <option value="none">No outcome</option>
+                    <option value="order">Order</option>
+                    <option value="follow_up">Follow Up</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
                 </div>
                 <div class="col-12">
                   <textarea class="form-control form-control-sm" id="activityDesc" rows="2" placeholder="Description / notes…"></textarea>

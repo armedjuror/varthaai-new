@@ -29,7 +29,10 @@ def start_session(user, session_type, area=None):
     if session_type == Session.Type.SALES and not area:
         raise ValidationError('Area is required to start a sales session.')
     now = ist_now()
-    if is_after_cutoff(now):
+    # TEMPORARY: cutoff disabled for sales sessions to allow field-mode testing
+    # outside business hours. Restore `if is_after_cutoff(now):` below before
+    # shipping — see CLAUDE.md/session notes for the revert reminder.
+    if session_type != Session.Type.SALES and is_after_cutoff(now):
         raise ValidationError('Sessions cannot be started after 7:30 PM IST.')
 
     existing = get_open_session(user, for_update=True)

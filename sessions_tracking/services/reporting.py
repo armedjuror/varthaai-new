@@ -16,8 +16,9 @@ from decimal import Decimal
 
 from django.db.models import Sum
 
+from crm.models import B2BActivity
 from orders.models import B2BOrder, B2BOrderItem, B2BPayment
-from sessions_tracking.models import PackingItem, Session, SessionEvent, Visit
+from sessions_tracking.models import PackingItem, Session, SessionEvent
 from sessions_tracking.services.leave import day_status, effective_weekly_off_weekday, leave_balance
 from sessions_tracking.timeutil import ist_day_bounds, ist_now, to_ist
 
@@ -131,13 +132,17 @@ def build_daily_report(user, date):
         }
 
     visits_qs = list(
-        Visit.objects.filter(user=user, visited_at__gte=start, visited_at__lt=end)
+        B2BActivity.objects.filter(
+            type=B2BActivity.Type.VISIT, admin_user=user, created_at__gte=start, created_at__lt=end,
+        )
         .select_related('company')
-        .order_by('visited_at'),
+        .order_by('created_at'),
     )
-    last_meeting_time = visits_qs[-1].visited_at if visits_qs else None
-    new_leads = sum(1 for v in visits_qs if v.purpose == Visit.Purpose.NEW_LEAD)
-    retargeted_leads = sum(1 for v in visits_qs if v.purpose == Visit.Purpose.RETARGET and _is_retargeted(v, date))
+    last_meeting_time = visits_qs[-1].created_at if visits_qs else None
+    new_leads = sum(1 for v in visits_qs if v.visit_purpose == B2BActivity.VisitPurpose.NEW_LEAD)
+    retargeted_leads = sum(
+        1 for v in visits_qs if v.visit_purpose == B2BActivity.VisitPurpose.RETARGET and _is_retargeted(v, date)
+    )
 
     delivered_orders = list(
         B2BOrder.objects.filter(
@@ -183,9 +188,9 @@ def build_daily_report(user, date):
         'visits_count': len(visits_qs),
         'visits': [
             {
-                'visited_at': v.visited_at, 'company_id': v.company_id,
-                'company_name': v.company.company_name, 'purpose': v.purpose,
-                'outcome': v.outcome, 'notes': v.notes,
+                'visited_at': v.created_at, 'company_id': v.company_id,
+                'company_name': v.company.company_name, 'purpose': v.visit_purpose,
+                'outcome': v.visit_outcome, 'notes': v.description,
             }
             for v in visits_qs
         ],

@@ -1,5 +1,5 @@
 """
-Employee-facing API + the mobile "My Day" page.
+Employee-facing API + the "My Performance" self-service page.
 
 Field-employee access is a per-brand module permission ('field_employee'),
 not a separate AdminUser role — any super_admin/admin/staff account can be
@@ -12,6 +12,13 @@ user's id — which rules out IDOR for this half of the API by construction
 (the one exception, SessionEditEndTimeAPI, still re-filters by
 `user=request.user` so a foreign session id 404s rather than trusting a
 client-supplied owner).
+
+Session start/break/resume/end is driven from the persistent topbar widget
+(static/js/admin/session-widget.js, included on every admin page) rather
+than a dedicated page — see admin/base.html. "My Performance" is this
+app's only page here: the employee's own daily/period report, session
+logs, and leave/week-off self-service (the admin-wide equivalent,
+Employee Performance, lives in views_admin.py).
 """
 from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -23,16 +30,17 @@ from products.models import Flavor
 from sessions_tracking.models import Leave, Session
 from sessions_tracking.services import leave as leave_service
 from sessions_tracking.services import sessions as session_service
-from sessions_tracking.services import visits as visit_service
-from sessions_tracking.services.reporting import build_daily_report
+from sessions_tracking.services.reporting import build_daily_report, build_period_report
 from sessions_tracking.timeutil import ist_today
-from sessions_tracking.views_common import catch_validation, parse_iso_date, parse_ist_datetime
+from sessions_tracking.views_common import (
+    catch_validation, parse_iso_date, parse_ist_datetime, resolve_date_range,
+)
 
 
 @require_module('field_employee')
 @ensure_csrf_cookie
-def my_day_page(request):
-    return render(request, 'admin/sessions/my_day.html')
+def my_performance_page(request):
+    return render(request, 'admin/sessions/my_performance.html')
 
 
 def _serialize_open_session(session):
@@ -138,24 +146,16 @@ class FlavorPickerAPI(APIView):
         return ok(list(Flavor.objects.filter(is_active=True).order_by('name').values('id', 'name')))
 
 
-class CompanyPickerAPI(APIView):
-    """Minimal company fields for the visit-logging picker — never a full
-    B2B record (see sessions_tracking.services.visits.company_picker_results)."""
-    permission_classes = [HasModulePermission]
-    permission_module = 'field_employee'
-
-    def get(self, request):
-        return ok(visit_service.company_picker_results(request.query_params.get('q', '')))
-
-
-class VisitCreateAPI(APIView):
+class PeriodReportAPI(APIView):
+    """The employee's own period totals/averages — same metrics as the admin
+    Employee Performance period view, scoped to request.user only."""
     permission_classes = [HasModulePermission]
     permission_module = 'field_employee'
 
     @catch_validation
-    def post(self, request):
-        visit = visit_service.create_visit(request.user, request.data)
-        return ok({'id': visit.id, 'company_id': visit.company_id}, 'Visit logged.')
+    def get(self, request):
+        start, end = resolve_date_range(request)
+        return ok(build_period_report(request.user, start, end))
 
 
 class WeeklyOffAPI(APIView):

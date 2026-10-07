@@ -228,17 +228,27 @@ function deleteContact(id) {
 }
 
 /* ── Activity logging ── */
+function onActivityTypeChange() {
+  var isVisit = $('#activityType').val() === 'visit';
+  $('#activityVisitPurposeWrap, #activityVisitOutcomeWrap').toggleClass('d-none', !isVisit);
+  $('#activitySubjectWrap, #activityContactWrap, #activityFollowUpWrap').toggleClass('d-none', isVisit);
+}
+
 function logActivity() {
+  var type = $('#activityType').val();
   var data = {
     action:       'add_activity',
     company_id:   COMPANY_ID,
-    type:         $('#activityType').val(),
+    type:         type,
     contact_id:   $('#activityContact').val(),
     subject:      $('#activitySubject').val(),
     description:  $('#activityDesc').val(),
     follow_up_date: $('#activityFollowUp').val()
   };
-  if (!data.subject && !data.description) {
+  if (type === 'visit') {
+    data.visit_purpose = $('#activityVisitPurpose').val();
+    data.visit_outcome = $('#activityVisitOutcome').val();
+  } else if (!data.subject && !data.description) {
     showAlertModal('Please enter a subject or description.', 'warning');
     return;
   }
@@ -247,9 +257,7 @@ function logActivity() {
     .done(function (res) {
       showAlertModal(res.message, res.success ? 'success' : 'danger');
       if (res.success) {
-        $('#activitySubject').val('');
-        $('#activityDesc').val('');
-        $('#activityFollowUp').val('');
+        $('#activitySubject, #activityDesc, #activityFollowUp').val('');
         loadCompany();
       }
     })

@@ -19,9 +19,7 @@ All metric computation is delegated to services.reporting /
 services.overall — nothing here recomputes a number.
 """
 import csv
-import datetime
 
-from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.shortcuts import render
 from rest_framework.views import APIView
@@ -38,7 +36,9 @@ from sessions_tracking.services.reporting import (
     build_period_report_for_users,
 )
 from sessions_tracking.timeutil import ist_today
-from sessions_tracking.views_common import catch_validation, parse_ist_datetime, parse_iso_date
+from sessions_tracking.views_common import (
+    catch_validation, parse_ist_datetime, parse_iso_date, resolve_date_range,
+)
 
 
 def _employees_qs():
@@ -115,36 +115,13 @@ class EditSessionEndTimeAdminAPI(APIView):
         return ok(None, 'End time updated.')
 
 
-def _resolve_range(request):
-    preset = request.query_params.get('range')
-    today = ist_today()
-    if preset == 'this_week':
-        start = today - datetime.timedelta(days=today.weekday())
-        return start, today
-    if preset == 'last_week':
-        this_week_start = today - datetime.timedelta(days=today.weekday())
-        start = this_week_start - datetime.timedelta(days=7)
-        return start, this_week_start - datetime.timedelta(days=1)
-    if preset == 'this_month':
-        return today.replace(day=1), today
-    if preset == 'last_month':
-        first_of_this_month = today.replace(day=1)
-        last_month_end = first_of_this_month - datetime.timedelta(days=1)
-        return last_month_end.replace(day=1), last_month_end
-    start = parse_iso_date(request.query_params.get('start'), default=today - datetime.timedelta(days=29))
-    end = parse_iso_date(request.query_params.get('end'), default=today)
-    if start > end:
-        raise ValidationError('start must be on or before end.')
-    return start, end
-
-
 class PeriodReportAdminAPI(APIView):
     permission_classes = [HasModulePermission]
     permission_module = 'employee_performance'
 
     @catch_validation
     def get(self, request):
-        start, end = _resolve_range(request)
+        start, end = resolve_date_range(request)
         user_id = request.query_params.get('user_id')
         if user_id == 'all':
             report = build_period_report_for_users(_employees_qs(), start, end)
@@ -162,7 +139,7 @@ class PeriodReportCSVAPI(APIView):
 
     @catch_validation
     def get(self, request):
-        start, end = _resolve_range(request)
+        start, end = resolve_date_range(request)
         user_id = request.query_params.get('user_id')
 
         response = HttpResponse(content_type='text/csv')
@@ -203,7 +180,7 @@ class OverallPerformanceAdminAPI(APIView):
 
     @catch_validation
     def get(self, request):
-        start, end = _resolve_range(request)
+        start, end = resolve_date_range(request)
         employees = list(_employees_qs())
         return ok({
             'start_date': start,

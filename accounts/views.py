@@ -16,14 +16,18 @@ def _post_login_redirect_target(user, brand_id):
     Where to land after login. Most accounts have 'dashboard' permission and
     go there; an account whose ONLY module is 'field_employee' (a pure field
     employee — see sessions_tracking.permissions) has no dashboard access and
-    goes straight to their own session-tracking page instead. Field-employee
-    is just a permission, not a role, so an account can have both and still
-    lands on the dashboard — "My Day" is one click away in the sidebar.
+    goes straight to their own My Performance page instead — the session
+    start/break/end controls live in the shared topbar (admin/base.html), not
+    a dedicated page, so My Performance (gated on 'field_employee', same as
+    the topbar widget) is the only page such an account can reach. Field-
+    employee is just a permission, not a role, so an account can have both
+    and still lands on the dashboard — My Performance is one click away in
+    the sidebar.
     """
     if has_module_permission(user, brand_id, 'dashboard'):
         return 'core:dashboard'
     if has_module_permission(user, brand_id, 'field_employee'):
-        return 'sessions_tracking:my_day'
+        return 'sessions_tracking:my_performance'
     return 'core:dashboard'
 
 

@@ -12,6 +12,21 @@ var PERF_API = {
   overall: '/admin/api/performance/overall/',
 };
 
+/* Self-service ("My Performance") endpoints — same report builders, scoped
+   to request.user server-side, no employee_id param. */
+var MY_PERF_API = {
+  daily: '/admin/api/sessions/report/',
+  editEnd: '/admin/api/sessions/edit-end-time/',
+  period: '/admin/api/sessions/period/',
+  weeklyOff: '/admin/api/sessions/weekly-off/',
+  leave: '/admin/api/sessions/leave/',
+};
+
+/* openEditEndTime()/submitEditEndTime() are shared between the admin
+   Employee Performance pages and the self-service My Performance page —
+   this flag routes the save + refresh to the right endpoint. */
+var EDIT_END_CONTEXT = 'admin';
+
 function fail(xhrOrMsg) {
   var msg = (typeof xhrOrMsg === 'string') ? xhrOrMsg
     : (xhrOrMsg && xhrOrMsg.responseJSON && xhrOrMsg.responseJSON.message) || 'Something went wrong.';
@@ -176,12 +191,13 @@ function openEditEndTime(sessionId, currentEndedAt) {
 function submitEditEndTime() {
   var note = $('#editEndNote').val();
   if (!note) return fail('A note is required.');
-  apiPost(PERF_API.editEnd, {
+  var api = EDIT_END_CONTEXT === 'self' ? MY_PERF_API.editEnd : PERF_API.editEnd;
+  apiPost(api, {
     session_id: $('#editSessionId').val(), ended_at: $('#editEndedAt').val(), note: note,
   }).done(function (res) {
     if (!res.success) return fail(res.message);
     $('#editEndTimeModal').modal('hide');
-    fetchDaily();
+    if (EDIT_END_CONTEXT === 'self') fetchMyDaily(); else fetchDaily();
   }).fail(fail);
 }
 
@@ -383,5 +399,145 @@ function renderChart(canvasId, labels, datasets, dualAxis) {
   }
   _charts[canvasId] = new Chart(document.getElementById(canvasId).getContext('2d'), {
     type: 'line', data: { labels: labels, datasets: datasets }, options: options,
+  });
+}
+
+/* ════════════════════ MY PERFORMANCE (self-service) ════════════════════ */
+
+function initMyPerformancePage() {
+  EDIT_END_CONTEXT = 'self';
+  var params = qsParams();
+  $('#myDateInput').val(params.get('date') || todayISO());
+  fetchMyDaily();
+
+  $('#myDateInput').on('change', fetchMyDaily);
+  $('#myLoadBtn').on('click', fetchMyDaily);
+  $('#myPrevDayBtn').on('click', function () { shiftMyDate(-1); });
+  $('#myNextDayBtn').on('click', function () { shiftMyDate(1); });
+
+  loadWeeklyOff();
+  loadLeave();
+}
+
+function shiftMyDate(delta) {
+  var d = new Date($('#myDateInput').val() + 'T00:00:00');
+  d.setDate(d.getDate() + delta);
+  $('#myDateInput').val(d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2));
+  fetchMyDaily();
+}
+
+function fetchMyDaily() {
+  var date = $('#myDateInput').val();
+  if (!date) return;
+  setQueryParams({ date: date });
+  showLoader('Loading…');
+  apiGet(MY_PERF_API.daily, { date: date }).done(function (res) {
+    hideLoader();
+    if (!res.success) return fail(res.message);
+    renderDaily(res.data);
+  }).fail(function (xhr) { hideLoader(); fail(xhr); });
+}
+
+var _myPeriodInitialized = false;
+
+function initMyPeriodTabOnce() {
+  if (_myPeriodInitialized) return;
+  _myPeriodInitialized = true;
+
+  var params = qsParams();
+  var preset = params.get('range') || 'this_week';
+  $('#myRangePreset').val(preset);
+  applyMyPreset(preset, params);
+  fetchMyPeriod();
+
+  $('#myRangePreset').on('change', function () { applyMyPreset($(this).val(), null); fetchMyPeriod(); });
+  $('#myStartInput, #myEndInput').on('change', fetchMyPeriod);
+  $('#myPeriodLoadBtn').on('click', fetchMyPeriod);
+}
+
+function applyMyPreset(preset, params) {
+  if (preset === 'custom') {
+    $('#myStartInput, #myEndInput').prop('disabled', false);
+    if (params) { $('#myStartInput').val(params.get('start') || todayISO()); $('#myEndInput').val(params.get('end') || todayISO()); }
+  } else {
+    $('#myStartInput, #myEndInput').prop('disabled', true);
+    var range = presetRange(preset);
+    if (range) { $('#myStartInput').val(toISO(range[0])); $('#myEndInput').val(toISO(range[1])); }
+  }
+}
+
+function fetchMyPeriod() {
+  var preset = $('#myRangePreset').val();
+  var query = {};
+  if (preset === 'custom') { query.start = $('#myStartInput').val(); query.end = $('#myEndInput').val(); }
+  else { query.range = preset; }
+  setQueryParams(Object.assign({ range: preset }, preset === 'custom' ? { start: query.start, end: query.end } : {}));
+
+  showLoader('Loading…');
+  apiGet(MY_PERF_API.period, query).done(function (res) {
+    hideLoader();
+    if (!res.success) return fail(res.message);
+    renderPeriod(res.data, false);
+  }).fail(function (xhr) { hideLoader(); fail(xhr); });
+}
+
+/* ── Weekly off ── */
+
+function loadWeeklyOff() {
+  var days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  apiGet(MY_PERF_API.weeklyOff).done(function (res) {
+    if (!res.success) return;
+    $('#weeklyOffLabel').text(days[res.data.effective_weekday]);
+    $('#weeklyOffSelect').val(res.data.effective_weekday);
+  });
+}
+
+function submitWeeklyOff() {
+  showLoader('Saving…');
+  apiPost(MY_PERF_API.weeklyOff, { weekday: $('#weeklyOffSelect').val() }).done(function (res) {
+    if (!res.success) return fail(res.message);
+    $('#weeklyOffModal').modal('hide');
+    showAlertModal(res.message, 'success');
+    loadWeeklyOff();
+  }).fail(fail).always(hideLoader);
+}
+
+/* ── Leave ── */
+
+function loadLeave() {
+  apiGet(MY_PERF_API.leave).done(function (res) {
+    if (!res.success) return;
+    var b = res.data.balance;
+    $('#leaveBalanceLabel').text(b.remaining + ' of ' + b.allowance + ' remaining');
+    $('#leaveBalanceDetail').text(b.used + ' used, ' + b.remaining + ' remaining of ' + b.allowance + ' for ' + b.year + '.');
+    $('#leaveList').html((res.data.days || []).map(function (d) {
+      return '<li class="list-group-item d-flex justify-content-between align-items-center">' +
+        formatDate(d.date) + (d.note ? ' — ' + escHtml(d.note) : '') +
+        '<button class="btn btn-sm btn-outline-danger" onclick="removeLeave(\'' + d.date + '\')"><i class="fas fa-times"></i></button></li>';
+    }).join('') || '<li class="list-group-item text-muted">No leave recorded this year.</li>');
+  });
+}
+
+function addLeave() {
+  var date = $('#leaveDateInput').val();
+  if (!date) return fail('Pick a date.');
+  showLoader('Saving…');
+  apiPost(MY_PERF_API.leave, { date: date }).done(function (res) {
+    if (!res.success) return fail(res.message);
+    $('#leaveDateInput').val('');
+    loadLeave();
+  }).fail(fail).always(hideLoader);
+}
+
+function removeLeave(date) {
+  confirmThen('Remove leave on ' + date + '?', function () {
+    showLoader('Removing…');
+    $.ajax({
+      url: MY_PERF_API.leave + '?date=' + encodeURIComponent(date), type: 'DELETE', dataType: 'json',
+      statusCode: { 401: function () { window.location.href = '/admin/'; } },
+    }).done(function (res) {
+      if (!res.success) return fail(res.message);
+      loadLeave();
+    }).fail(fail).always(hideLoader);
   });
 }
