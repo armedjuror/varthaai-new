@@ -99,6 +99,7 @@ def build_daily_report(user, date):
         reached_home_time = sales.ended_at if reached_home_recorded else None
         sales_block = {
             'id': sales.id,
+            'area': sales.area,
             'started_at': sales.started_at,
             'ended_at': sales.ended_at,
             'status': sales.status,

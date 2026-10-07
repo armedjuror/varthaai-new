@@ -37,9 +37,12 @@
 
 <header class="employee-topbar">
   <span class="name"><i class="fas fa-user me-2"></i>{{ request.user.name|default:request.user.username }}</span>
-  <span>
+  <span class="d-flex align-items-center">
     {% if 'dashboard' in nav_perms %}
-      <a href="{% url 'core:dashboard' %}" title="Dashboard" class="me-3"><i class="fas fa-gauge-high"></i></a>
+      <a href="{% url 'core:dashboard' %}" class="field-mode-toggle is-on me-3" title="Switch back to Dashboard">
+        <span class="field-mode-track"><span class="field-mode-thumb"></span></span>
+        <span class="field-mode-label">Field Mode</span>
+      </a>
     {% endif %}
     <a href="{% url 'accounts:logout' %}" title="Logout"><i class="fas fa-arrow-right-from-bracket"></i></a>
   </span>

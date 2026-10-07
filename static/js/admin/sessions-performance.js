@@ -119,7 +119,8 @@ function renderTimeline(r) {
   var rows = sales.events.map(function (e) {
     return '<tr><td>' + e.event + (e.reason ? ' (' + e.reason + ')' : '') + '</td><td>' + formatDateTime(e.at).split(' ').slice(-1)[0] + '</td></tr>';
   }).join('');
-  var html = '<table class="table table-sm mb-2"><tbody>' + rows + '</tbody></table>' +
+  var html = (sales.area ? '<p class="mb-1"><strong>Area:</strong> ' + escHtml(sales.area) + '</p>' : '') +
+    '<table class="table table-sm mb-2"><tbody>' + rows + '</tbody></table>' +
     '<p class="mb-1">Total ' + sales.total_minutes + 'm | Active ' + sales.active_minutes + 'm | Break ' + sales.break_minutes +
     'm (lunch ' + sales.break_minutes_lunch + 'm, evening ' + sales.break_minutes_evening + 'm)</p>';
   if (sales.ended_at) {

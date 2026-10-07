@@ -17,12 +17,11 @@ from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.views import APIView
 
-from core.api import HasModulePermission, current_brand_id, err, ok
+from core.api import HasModulePermission, err, ok
 from core.auth import require_module
 from products.models import Flavor
 from sessions_tracking.models import Leave, Session
 from sessions_tracking.services import leave as leave_service
-from sessions_tracking.services import orders as order_service
 from sessions_tracking.services import sessions as session_service
 from sessions_tracking.services import visits as visit_service
 from sessions_tracking.services.reporting import build_daily_report
@@ -41,7 +40,7 @@ def _serialize_open_session(session):
         return None
     return {
         'id': session.id, 'type': session.type, 'status': session.status,
-        'started_at': session.started_at,
+        'area': session.area, 'started_at': session.started_at,
     }
 
 
@@ -65,8 +64,13 @@ class SessionStartAPI(APIView):
 
     @catch_validation
     def post(self, request):
-        session = session_service.start_session(request.user, request.data.get('type'))
-        return ok({'id': session.id, 'type': session.type, 'status': session.status}, 'Session started.')
+        session = session_service.start_session(
+            request.user, request.data.get('type'), area=request.data.get('area'),
+        )
+        return ok(
+            {'id': session.id, 'type': session.type, 'status': session.status, 'area': session.area},
+            'Session started.',
+        )
 
 
 class SessionBreakAPI(APIView):
@@ -198,58 +202,3 @@ class LeaveAPI(APIView):
         return ok(None, 'Leave removed.')
 
 
-def _order_row(o):
-    """Balance is always total_amount - paid_amount, never the stored
-    balance_amount column (project-wide rule, see orders/views_b2b.py)."""
-    return {
-        'id': o.id,
-        'company_id': o.company_id,
-        'company_name': o.company.company_name,
-        'status': o.status,
-        'payment_status': o.payment_status,
-        'total_amount': float(o.total_amount),
-        'paid_amount': float(o.paid_amount),
-        'balance': float(o.total_amount - o.paid_amount),
-        'order_date': o.order_date,
-        'due_date': o.due_date,
-    }
-
-
-class MyOrdersAPI(APIView):
-    """The employee's own B2B orders — reuses orders.views_b2b.B2BOrdersAPI's
-    status-update/payment handlers rather than re-implementing stock
-    deduction or income sync (see sessions_tracking.services.orders).
-    Requires 'b2b' module access, same as the desktop B2B Orders screen —
-    'field_employee' alone only grants session tracking, not order data."""
-    permission_classes = [HasModulePermission]
-    permission_module = 'b2b'
-
-    def get(self, request):
-        brand_id = current_brand_id(request)
-        status = request.query_params.get('status', 'open')
-        orders = order_service.my_orders(request.user, brand_id, status=status)
-        return ok([_order_row(o) for o in orders])
-
-
-class MyOrderUpdateStatusAPI(APIView):
-    permission_classes = [HasModulePermission]
-    permission_module = 'b2b'
-
-    @catch_validation
-    def post(self, request):
-        brand_id = current_brand_id(request)
-        order_service.update_order_status(
-            request, brand_id, request.data.get('order_id'), request.data.get('status'),
-        )
-        return ok(None, 'Order status updated.')
-
-
-class MyOrderPaymentAPI(APIView):
-    permission_classes = [HasModulePermission]
-    permission_module = 'b2b'
-
-    @catch_validation
-    def post(self, request):
-        brand_id = current_brand_id(request)
-        order_service.record_order_payment(request, brand_id, request.data.get('order_id'), request.data)
-        return ok(None, 'Payment recorded.')

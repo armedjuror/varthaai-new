@@ -3,6 +3,26 @@
 
 {% block title %}My Day — Varthaai{% endblock %}
 
+{% if 'b2b' in nav_perms %}
+{% block extra_css %}
+<style>
+  /* Copied from templates/admin/b2b-orders.html — same status/payment badge styling. */
+  .b2b-status { font-size:0.72rem; font-weight:600; padding:2px 10px; border-radius:20px; display:inline-block; }
+  .b2b-status-draft      { background:#f3f4f6; color:#6b7280; }
+  .b2b-status-confirmed  { background:#eff6ff; color:#3b82f6; }
+  .b2b-status-dispatched { background:#f0fdf4; color:#16a34a; }
+  .b2b-status-delivered  { background:#ecfdf5; color:#059669; }
+  .b2b-status-cancelled  { background:#fef2f2; color:#dc2626; }
+  select.b2b-status { border:none; cursor:pointer; outline:none; -webkit-appearance:auto; appearance:auto; }
+  select.b2b-status:disabled { cursor:default; opacity:0.85; }
+  .pay-status { font-size:0.72rem; font-weight:600; padding:2px 10px; border-radius:20px; display:inline-block; }
+  .pay-status-pending { background:#fffbeb; color:#b45309; }
+  .pay-status-partial { background:#fef3c7; color:#92400e; }
+  .pay-status-paid    { background:#f0fdf4; color:#16a34a; }
+</style>
+{% endblock %}
+{% endif %}
+
 {% block content %}
 
 <!-- Day status (off / leave banner) -->
@@ -22,6 +42,10 @@
 <div class="data-card d-none" id="startCard">
   <div class="data-card-header"><h3>Start a Session</h3></div>
   <div class="data-card-body d-flex flex-column gap-2">
+    <div>
+      <label class="form-label">Area (required for Sales Day)</label>
+      <input type="text" class="form-control" id="startAreaInput" placeholder="e.g. Kochi, Ernakulam north…">
+    </div>
     <button class="btn btn-primary big-btn" onclick="startSession('sales')"><i class="fas fa-route me-2"></i>Start Sales Day</button>
     <button class="btn btn-outline-primary big-btn" onclick="startSession('packing')"><i class="fas fa-box me-2"></i>Start Packing</button>
   </div>
@@ -38,21 +62,62 @@
   </div>
 </div>
 
-<!-- My Orders (requires B2B access — hidden if the employee doesn't have it) -->
-<div class="data-card d-none" id="myOrdersCard">
+{% if 'b2b' in nav_perms %}
+<!-- B2B Orders — the exact same table/filters/modals as templates/admin/b2b-orders.html,
+     driven by the unmodified static/js/admin/b2b-orders.js against the same
+     /admin/api/b2b-orders/ endpoint. Gated server-side on the 'b2b' module
+     permission so this never even renders (let alone calls the API) for an
+     employee who only has 'field_employee'. Also only shown while a sales
+     session is active — see render() in sessions-employee.js. -->
+<div class="data-card d-none" id="b2bOrdersCard">
   <div class="data-card-header">
-    <h3>My Orders</h3>
-    <select class="form-select form-select-sm w-auto" id="myOrdersFilter" onchange="loadMyOrders()">
-      <option value="open" selected>Open</option>
-      <option value="all">All</option>
-      <option value="delivered">Delivered</option>
-      <option value="cancelled">Cancelled</option>
-    </select>
+    <h3>B2B Orders (<span id="ordersCount">…</span>)</h3>
+    <button class="btn btn-sm btn-primary" onclick="openNewOrderModal()"><i class="fas fa-plus me-1"></i>New</button>
   </div>
   <div class="data-card-body p-0">
-    <ul class="list-group list-group-flush" id="myOrdersList"></ul>
+    <div class="filter-bar p-2">
+      <div class="row g-2">
+        <div class="col-6"><input type="text" class="form-control form-control-sm" id="filterSearch" placeholder="Order ID or company…"></div>
+        <div class="col-3">
+          <select class="form-select form-select-sm" id="filterStatus">
+            <option value="">All Status</option>
+            <option value="draft">Draft</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="dispatched">Dispatched</option>
+            <option value="delivered">Delivered</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+        <div class="col-3">
+          <select class="form-select form-select-sm" id="filterPayment">
+            <option value="">All Payment</option>
+            <option value="pending">Pending</option>
+            <option value="partial">Partial</option>
+            <option value="paid">Paid</option>
+          </select>
+        </div>
+        <input type="hidden" id="filterPerPage" value="25">
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Order ID</th><th>Company</th><th>Flavors</th><th>Items</th><th>Total</th>
+            <th>Paid</th><th>Balance</th><th>Status</th><th>Payment</th><th>Date</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="ordersTableBody">
+          <tr><td colspan="11" class="text-center" style="padding:40px;color:var(--gray-400)">
+            <div class="admin-loader-spinner" style="margin:0 auto 10px"></div>Loading…
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div id="ordersPagination" style="padding:12px 16px"></div>
   </div>
 </div>
+{% endif %}
 
 <!-- Today's numbers -->
 <div class="data-card">
@@ -104,12 +169,7 @@
         <input type="hidden" id="visitCompanyId">
         <div class="form-text" id="visitCompanySelected"></div>
       </div>
-      <div class="mb-2 d-none" id="newCompanyFields">
-        <label class="form-label">New lead — company name</label>
-        <input type="text" class="form-control mb-1" id="newCompanyName" placeholder="Company name">
-        <input type="text" class="form-control" id="newCompanyCity" placeholder="City (optional)">
-      </div>
-      <button class="btn btn-sm btn-link px-0" type="button" onclick="toggleNewCompany()">+ Not listed? Add a new lead</button>
+      <button class="btn btn-sm btn-link px-0" type="button" onclick="openAddCompanyModal('visit')">+ Not listed? Add a new lead</button>
 
       <div class="mb-2 mt-2">
         <label class="form-label">Purpose</label>
@@ -138,6 +198,196 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-primary w-100" onclick="submitVisit()">Save Visit</button>
+    </div>
+  </div></div>
+</div>
+
+<!-- Add Company / Lead modal — copied from templates/admin/b2b.html so it
+     stays identical to the B2B pipeline's own "Add Lead" modal and posts to
+     the exact same endpoint/action (no new backend API). -->
+<div class="modal fade" id="addCompanyModal" tabindex="-1">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header">
+      <h5 class="modal-title"><i class="fas fa-plus me-2"></i>Add New Lead</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <form id="addCompanyForm">
+      <div class="modal-body">
+        <h6 class="mb-3" style="font-size:0.82rem;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px">Company Details</h6>
+        <div class="row g-3">
+          <div class="col-md-6" style="position:relative">
+            <label class="form-label">Company Name <span class="text-danger">*</span></label>
+            <input type="text" class="form-control" id="addCompanyName" required autocomplete="off">
+            <div id="companyNameMatches" style="display:none;position:absolute;z-index:20;top:100%;left:0;right:0;background:#fff;border:1px solid var(--gray-200);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.08);max-height:220px;overflow-y:auto;margin-top:2px"></div>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Category</label>
+            <select class="form-select" id="addCategory"><option value="">Select…</option></select>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Source</label>
+            <select class="form-select" id="addSource">
+              <option value="">Select…</option>
+              <option value="referral">Referral</option>
+              <option value="cold_call">Cold Call</option>
+              <option value="walk_in">Walk In</option>
+              <option value="online">Online</option>
+              <option value="event">Event</option>
+            </select>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Address</label>
+            <textarea class="form-control" id="addAddress" rows="2"></textarea>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">City</label>
+            <input type="text" class="form-control" id="addCity">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">State</label>
+            <input type="text" class="form-control" id="addState">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Pincode</label>
+            <input type="text" class="form-control" id="addPincode">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">GST Number</label>
+            <input type="text" class="form-control" id="addGst">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Assigned To</label>
+            <select class="form-select" id="addAssignedTo"><option value="">Select…</option></select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Created Date</label>
+            <input type="date" class="form-control" id="addCreatedDate" max="{% now 'Y-m-d' %}">
+            <div class="form-text">Leave blank to use today.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Location URL</label>
+            <input type="url" class="form-control" id="addLocationUrl" placeholder="https://maps.google.com/…">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Photo</label>
+            <input type="file" class="form-control" id="addPhoto" accept="image/*">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Notes</label>
+            <textarea class="form-control" id="addNotes" rows="2" placeholder="Initial notes about this lead…"></textarea>
+          </div>
+        </div>
+
+        <hr class="my-3">
+        <h6 class="mb-3" style="font-size:0.82rem;color:var(--gray-400);text-transform:uppercase;letter-spacing:.5px">Primary Contact (optional)</h6>
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Contact Name</label>
+            <input type="text" class="form-control" id="addContactName">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Phone</label>
+            <input type="text" class="form-control" id="addContactPhone">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Designation</label>
+            <input type="text" class="form-control" id="addContactDesignation">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-plus me-1"></i>Add Lead</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<!-- New order modal — ports the company/items/discount/payment logic of
+     templates/admin/b2b-order-create.html into a modal (that page is
+     desktop-only/full-page); same endpoint, same action, same field
+     contract (POST /admin/api/b2b-orders/, action=create_order). Offers
+     auto-apply and the batch/company-balance panels from the desktop page
+     are left out to keep this usable on a phone. -->
+<div class="modal fade" id="newOrderModal" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">New Order</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="mb-2">
+        <label class="form-label">Company</label>
+        <select class="form-select" id="orderCompany" onchange="onOrderCompanyChange()"><option value="">Select…</option></select>
+        <button class="btn btn-sm btn-link px-0" type="button" onclick="openAddCompanyModal('order')">+ Not listed? Add a new lead</button>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Contact (optional)</label>
+        <select class="form-select" id="orderContact"><option value="">No contact</option></select>
+      </div>
+
+      <label class="form-label mt-2">Items</label>
+      <div class="row g-2 mb-1">
+        <div class="col-5"><select class="form-select form-select-sm" id="itemFlavor"><option value="">Flavour…</option></select></div>
+        <div class="col-4"><select class="form-select form-select-sm" id="itemPack"><option value="">Pack…</option></select></div>
+        <div class="col-2"><input type="number" min="1" class="form-control form-control-sm" id="itemQty" placeholder="Qty" value="1"></div>
+        <div class="col-1"><button type="button" class="btn btn-sm btn-outline-primary w-100" onclick="addOrderItem()"><i class="fas fa-plus"></i></button></div>
+      </div>
+      <ul class="list-group list-group-flush mb-2" id="orderItemsList"></ul>
+
+      <div class="row g-2">
+        <div class="col-6">
+          <label class="form-label">Discount Type</label>
+          <select class="form-select form-select-sm" id="discountType" onchange="recalcOrderTotals()">
+            <option value="">None</option>
+            <option value="percentage">Percentage</option>
+            <option value="amount">Amount</option>
+          </select>
+        </div>
+        <div class="col-6">
+          <label class="form-label">Discount Value</label>
+          <input type="number" min="0" step="0.01" class="form-control form-control-sm" id="discountValue" oninput="recalcOrderTotals()">
+        </div>
+      </div>
+      <div class="mb-2 mt-2">
+        <label class="form-label">Due Date (optional)</label>
+        <input type="date" class="form-control" id="orderDueDate">
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Status</label>
+        <select class="form-select" id="orderStatus">
+          <option value="draft">Draft</option>
+          <option value="confirmed" selected>Confirmed (deduct stock now)</option>
+        </select>
+      </div>
+      <div class="mb-2">
+        <label class="form-label">Notes</label>
+        <textarea class="form-control" id="orderNotes" rows="2"></textarea>
+      </div>
+
+      <hr>
+      <div class="form-check form-switch mb-2">
+        <input class="form-check-input" type="checkbox" role="switch" id="recordPaymentNow" onchange="$('#orderPaymentFields').toggleClass('d-none', !this.checked)">
+        <label class="form-check-label" for="recordPaymentNow">Record a payment now</label>
+      </div>
+      <div class="d-none" id="orderPaymentFields">
+        <div class="row g-2">
+          <div class="col-6"><input type="number" min="0.01" step="0.01" class="form-control" id="orderPayAmount" placeholder="Amount"></div>
+          <div class="col-6">
+            <select class="form-select" id="orderPayMethod">
+              <option value="cash">Cash</option>
+              <option value="upi">UPI</option>
+              <option value="bank_transfer">Bank Transfer</option>
+              <option value="cheque">Cheque</option>
+            </select>
+          </div>
+        </div>
+        <input type="text" class="form-control mt-2" id="orderPayRef" placeholder="Reference (optional)">
+      </div>
+
+      <p class="text-end fw-semibold mt-3 mb-0">Subtotal: <span id="summSubtotal">₹0</span></p>
+      <p class="text-end mb-0 d-none" id="summDiscRow">Discount: <span id="summDiscount">₹0</span></p>
+      <p class="text-end fw-bold mb-0">Total: <span id="summTotal">₹0</span></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary w-100" onclick="submitNewOrder()">Create Order</button>
     </div>
   </div></div>
 </div>
@@ -187,38 +437,108 @@
   </div></div>
 </div>
 
-<!-- Record payment modal -->
-<div class="modal fade" id="orderPaymentModal" tabindex="-1">
-  <div class="modal-dialog"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title">Record Payment</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-    <div class="modal-body">
-      <input type="hidden" id="paymentOrderId">
-      <p class="mb-2" id="paymentOrderLabel"></p>
-      <div class="mb-2">
-        <label class="form-label">Amount (₹)</label>
-        <input type="number" min="0.01" step="0.01" class="form-control" id="paymentAmount">
-      </div>
-      <div class="mb-2">
-        <label class="form-label">Method</label>
-        <select class="form-select" id="paymentMethod">
-          <option value="cash">Cash</option>
-          <option value="upi">UPI</option>
-          <option value="bank_transfer">Bank Transfer</option>
-          <option value="cheque">Cheque</option>
-        </select>
-      </div>
-      <div class="mb-2">
-        <label class="form-label">Reference (optional)</label>
-        <input type="text" class="form-control" id="paymentReference">
-      </div>
-      <div class="mb-2">
-        <label class="form-label">Notes (optional)</label>
-        <textarea class="form-control" id="paymentNotes" rows="2"></textarea>
-      </div>
+{% if 'b2b' in nav_perms %}
+<!-- Order Detail / Payment / Return modals — copied verbatim from
+     templates/admin/b2b-orders.html, driven by the unmodified
+     static/js/admin/b2b-orders.js (same endpoint/actions, no new backend API). -->
+<div class="modal fade" id="orderDetailModal" tabindex="-1">
+  <div class="modal-dialog modal-xl"><div class="modal-content">
+    <div class="modal-header">
+      <h5 class="modal-title"><i class="fas fa-bag-shopping me-2"></i>Order <span id="detailOrderId"></span></h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
     </div>
-    <div class="modal-footer"><button class="btn btn-primary w-100" onclick="submitOrderPayment()">Save Payment</button></div>
+    <div class="modal-body" id="orderDetailBody">Loading…</div>
   </div></div>
 </div>
+
+<div class="modal fade" id="paymentModal" tabindex="-1">
+  <div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header">
+      <h5 class="modal-title"><i class="fas fa-indian-rupee-sign me-2"></i>Record Payment</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <form id="paymentForm">
+      <input type="hidden" id="payCompanyId">
+      <input type="hidden" id="payOrderId">
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Amount (₹) <span class="text-danger">*</span></label>
+            <input type="number" class="form-control" id="payAmount" step="0.01" min="0.01" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Payment Method <span class="text-danger">*</span></label>
+            <select class="form-select" id="payMethod" required>
+              <option value="cash">Cash</option>
+              <option value="upi">UPI</option>
+              <option value="bank_transfer">Bank Transfer</option>
+              <option value="cheque">Cheque</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Date</label>
+            <input type="date" class="form-control" id="payDate">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Reference #</label>
+            <input type="text" class="form-control" id="payRef" placeholder="UPI/Cheque ref…">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Notes</label>
+            <textarea class="form-control" id="payNotes" rows="2"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Record</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="returnModal" tabindex="-1">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header">
+      <h5 class="modal-title"><i class="fas fa-rotate-left me-2"></i>Return Items — <span id="returnOrderId"></span></h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+    </div>
+    <form id="returnForm">
+      <div class="modal-body">
+        <div class="table-responsive">
+          <table class="table table-sm" style="font-size:0.85rem">
+            <thead><tr><th>Flavor</th><th>Pack</th><th>Remaining</th><th style="width:110px">Return Qty</th><th>Amount</th></tr></thead>
+            <tbody id="returnItemsBody"></tbody>
+          </table>
+        </div>
+        <div class="row g-3 mt-1">
+          <div class="col-md-6">
+            <label class="form-label">Refund Method <span class="text-muted" style="font-weight:400">(used only if a refund is due)</span></label>
+            <select class="form-select" id="returnRefundMethod">
+              <option value="cash">Cash</option>
+              <option value="upi">UPI</option>
+              <option value="bank_transfer">Bank Transfer</option>
+              <option value="cheque">Cheque</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Return Amount</label>
+            <div class="form-control" id="returnTotalAmount" style="background:var(--gray-50);font-weight:600">₹0.00</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Notes</label>
+            <textarea class="form-control" id="returnNotes" rows="2"></textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-rotate-left me-1"></i>Process Return</button>
+      </div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
 
 <!-- Edit end time modal -->
 <div class="modal fade" id="editEndTimeModal" tabindex="-1">
@@ -242,5 +562,8 @@
 {% endblock %}
 
 {% block extra_js %}
+{% if 'b2b' in nav_perms %}
+<script src="{% static 'js/admin/b2b-orders.js' %}"></script>
+{% endif %}
 <script src="{% static 'js/admin/sessions-employee.js' %}"></script>
 {% endblock %}

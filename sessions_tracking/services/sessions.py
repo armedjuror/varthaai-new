@@ -22,9 +22,12 @@ def get_open_session(user, for_update=False):
 
 
 @transaction.atomic
-def start_session(user, session_type):
+def start_session(user, session_type, area=None):
     if session_type not in Session.Type.values:
         raise ValidationError('Invalid session type.')
+    area = (area or '').strip()
+    if session_type == Session.Type.SALES and not area:
+        raise ValidationError('Area is required to start a sales session.')
     now = ist_now()
     if is_after_cutoff(now):
         raise ValidationError('Sessions cannot be started after 7:30 PM IST.')
@@ -33,7 +36,9 @@ def start_session(user, session_type):
     if existing:
         raise ValidationError(f'End your {existing.type} session first.')
 
-    session = Session.objects.create(user=user, type=session_type, started_at=now, status=Session.Status.ACTIVE)
+    session = Session.objects.create(
+        user=user, type=session_type, area=area, started_at=now, status=Session.Status.ACTIVE,
+    )
     SessionEvent.objects.create(session=session, event=SessionEvent.Event.START, at=now)
     return session
 

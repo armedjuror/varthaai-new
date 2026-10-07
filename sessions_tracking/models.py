@@ -33,6 +33,9 @@ class Session(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='work_sessions',
     )
     type = models.CharField(max_length=10, choices=Type.choices)
+    # Free-text locality/zone for a sales day (e.g. "Kochi", "Ernakulam
+    # north") — required when starting a sales session, unused for packing.
+    area = models.CharField(max_length=255, blank=True)
     started_at = models.DateTimeField()
     ended_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
