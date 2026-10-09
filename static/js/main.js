@@ -1064,6 +1064,9 @@ $('#track-order-submit-btn').on('click', function(e) {
 });
 
 // reCAPTCHA initialization
+// Values are grecaptcha widget IDs, which start at 0 for the first widget
+// rendered on the page — always check `=== undefined` / `!== undefined`
+// below, never plain truthiness, or widget 0 reads as "not registered".
 let recaptchaWidgets = {};
 let recaptchaReady = false;
 
@@ -1080,7 +1083,7 @@ function initializeRecaptcha() {
 
     // Render reCAPTCHA when modals are shown
     $('#deliveryModal').on('shown.bs.modal', function() {
-        if (!recaptchaWidgets['confirm-order-btn']) {
+        if (recaptchaWidgets['confirm-order-btn'] === undefined) {
             try {
                 recaptchaWidgets['confirm-order-btn'] = grecaptcha.render('confirm-order-btn', {
                     'sitekey': '6Le6wbcrAAAAACAS_jUK2UM_vaNbbk2g2Xf5kvdC',
@@ -1094,7 +1097,7 @@ function initializeRecaptcha() {
     });
 
     $('#trackOrderModal').on('shown.bs.modal', function() {
-        if (!recaptchaWidgets['track-order-submit-btn']) {
+        if (recaptchaWidgets['track-order-submit-btn'] === undefined) {
             try {
                 recaptchaWidgets['track-order-submit-btn'] = grecaptcha.render('track-order-submit-btn', {
                     'sitekey': '6Le6wbcrAAAAACAS_jUK2UM_vaNbbk2g2Xf5kvdC',
@@ -1108,7 +1111,7 @@ function initializeRecaptcha() {
     });
 
     $('#loginModal').on('shown.bs.modal', function() {
-        if (!recaptchaWidgets['send-otp-btn']) {
+        if (recaptchaWidgets['send-otp-btn'] === undefined) {
             try {
                 recaptchaWidgets['send-otp-btn'] = grecaptcha.render('send-otp-btn', {
                     'sitekey': '6Le6wbcrAAAAACAS_jUK2UM_vaNbbk2g2Xf5kvdC',
@@ -1119,7 +1122,7 @@ function initializeRecaptcha() {
                 console.error('Error rendering reCAPTCHA for resend-otp:', e);
             }
         }
-        if (!recaptchaWidgets['resend-otp']) {
+        if (recaptchaWidgets['resend-otp'] === undefined) {
           try {
             recaptchaWidgets['resend-otp'] = grecaptcha.render('resend-otp', {
               'sitekey': '6Le6wbcrAAAAACAS_jUK2UM_vaNbbk2g2Xf5kvdC',
@@ -1133,7 +1136,7 @@ function initializeRecaptcha() {
     });
 
     $('#reviewModal').on('shown.bs.modal', function() {
-        if (!recaptchaWidgets['submit-review-btn']) {
+        if (recaptchaWidgets['submit-review-btn'] === undefined) {
             try {
                 recaptchaWidgets['submit-review-btn'] = grecaptcha.render('submit-review-btn', {
                     'sitekey': '6Le6wbcrAAAAACAS_jUK2UM_vaNbbk2g2Xf5kvdC',
@@ -1146,19 +1149,24 @@ function initializeRecaptcha() {
         }
     });
 
-    $('#leadPopupModal').on('shown.bs.modal', function() {
-        if (!recaptchaWidgets['lead-popup-submit-btn'] && typeof submitLeadPopup === 'function') {
-            try {
-                recaptchaWidgets['lead-popup-submit-btn'] = grecaptcha.render('lead-popup-submit-btn', {
-                    'sitekey': '6Le6wbcrAAAAACAS_jUK2UM_vaNbbk2g2Xf5kvdC',
-                    'callback': submitLeadPopup,
-                    'size': 'invisible'
-                });
-            } catch(e) {
-                console.error('Error rendering reCAPTCHA for lead-popup-submit-btn:', e);
-            }
+    // Rendered eagerly (not on 'shown.bs.modal' like the other modals above) —
+    // this popup auto-opens on a timer independent of page interaction, so
+    // waiting for it to open first risks a race: if it fires before grecaptcha
+    // has loaded, the widget never gets attached and every submit afterwards
+    // falls back to an empty token, which the server correctly rejects. The
+    // button already exists in the DOM at page load, so it doesn't need the
+    // modal to be visible to register.
+    if (recaptchaWidgets['lead-popup-submit-btn'] === undefined && $('#lead-popup-submit-btn').length && typeof submitLeadPopup === 'function') {
+        try {
+            recaptchaWidgets['lead-popup-submit-btn'] = grecaptcha.render('lead-popup-submit-btn', {
+                'sitekey': '6Le6wbcrAAAAACAS_jUK2UM_vaNbbk2g2Xf5kvdC',
+                'callback': submitLeadPopup,
+                'size': 'invisible'
+            });
+        } catch(e) {
+            console.error('Error rendering reCAPTCHA for lead-popup-submit-btn:', e);
         }
-    });
+    }
 
 }
 
@@ -1176,7 +1184,7 @@ $('#confirm-order-btn').on('click', function(e) {
         e.preventDefault();
         return false;
     }
-    if (recaptchaWidgets['confirm-order-btn']) {
+    if (recaptchaWidgets['confirm-order-btn'] !== undefined) {
         grecaptcha.execute(recaptchaWidgets['confirm-order-btn']);
     }
 });
@@ -1187,7 +1195,7 @@ $('#track-order-submit-btn').on('click', function(e) {
         e.stopPropagation();
         return false;
     }
-    if (recaptchaWidgets['track-order-submit-btn']) {
+    if (recaptchaWidgets['track-order-submit-btn'] !== undefined) {
         grecaptcha.execute(recaptchaWidgets['track-order-submit-btn']);
     }
 });
@@ -1199,7 +1207,7 @@ $('#send-otp-btn').on('click', function(e) {
         e.preventDefault();
         return false;
     }
-    if (recaptchaWidgets['send-otp-btn']) {
+    if (recaptchaWidgets['send-otp-btn'] !== undefined) {
         grecaptcha.execute(recaptchaWidgets['send-otp-btn']);
     }
 });
@@ -1209,7 +1217,7 @@ $('#submit-review-btn').on('click', function(e) {
         e.preventDefault();
         return false;
     }
-    if (recaptchaWidgets['submit-review-btn']) {
+    if (recaptchaWidgets['submit-review-btn'] !== undefined) {
         grecaptcha.execute(recaptchaWidgets['submit-review-btn']);
     }
 });
@@ -1219,7 +1227,7 @@ $('#lead-popup-submit-btn').on('click', function(e) {
         e.preventDefault();
         return false;
     }
-    if (recaptchaWidgets['lead-popup-submit-btn']) {
+    if (recaptchaWidgets['lead-popup-submit-btn'] !== undefined) {
         grecaptcha.execute(recaptchaWidgets['lead-popup-submit-btn']);
     } else if (typeof submitLeadPopup === 'function') {
         submitLeadPopup(''); // reCAPTCHA not configured/loaded — backend skips verification when secret is unset

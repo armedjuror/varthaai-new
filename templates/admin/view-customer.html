@@ -57,7 +57,9 @@
           </div>
           <div>
             <div style="font-weight:700;font-size:1rem">{{ customer.name|default:'—' }}</div>
-            <div style="font-size:0.8rem;color:var(--gray-400)">{{ customer.mobile }}</div>
+            <div style="font-size:0.8rem;color:var(--gray-400)">
+              {{ customer.mobile|default:'—' }}{% if customer.email %} &middot; {{ customer.email }}{% endif %}
+            </div>
           </div>
         </div>
         <span style="background:{{ tier.bg }};color:{{ tier.color }};padding:3px 12px;border-radius:20px;font-size:0.75rem;font-weight:700">{{ tier.label }}</span>
@@ -75,6 +77,12 @@
             <code id="refCode" style="cursor:pointer;background:var(--gray-50);padding:2px 8px;border-radius:4px;font-size:0.8rem" title="Click to copy">{{ customer.referral_code|default:'—' }}</code>
           </span>
         </div>
+        {% if customer.email %}
+        <div class="info-row">
+          <span class="info-label">Email</span>
+          <span class="info-val">{{ customer.email }}</span>
+        </div>
+        {% endif %}
         {% if customer.designation %}
         <div class="info-row">
           <span class="info-label">Label</span>
