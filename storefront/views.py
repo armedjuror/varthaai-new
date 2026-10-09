@@ -31,9 +31,20 @@ _H1_OPEN_RE = re.compile(r'<h1(\s[^>]*)?>', re.IGNORECASE)
 _H1_CLOSE_RE = re.compile(r'</h1>', re.IGNORECASE)
 
 
+def _gtm_container_id():
+    return (
+        Setting.objects.filter(setting_key='gtm_container_id')
+        .values_list('setting_value', flat=True).first() or ''
+    )
+
+
 def _ctx(request, **extra):
     user = services.current_user(request)
-    ctx = {'storefront_user': user, 'is_loggedin': user is not None}
+    ctx = {
+        'storefront_user': user,
+        'is_loggedin': user is not None,
+        'gtm_container_id': _gtm_container_id(),
+    }
     ctx.update(extra)
     return ctx
 

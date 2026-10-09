@@ -59,12 +59,48 @@ $(function () {
       lead_popup_collect_phone:    $('#lead_popup_collect_phone').is(':checked') ? 'true' : 'false',
       lead_popup_require_email:    $('#lead_popup_require_email').is(':checked') ? 'true' : 'false',
       lead_popup_require_phone:    $('#lead_popup_require_phone').is(':checked') ? 'true' : 'false',
-      lead_popup_extra_fields:     $('#lead_popup_extra_fields').val()
+      lead_popup_extra_fields:     $('#lead_popup_extra_fields').val(),
+      lead_popup_theme:            $('#lead_popup_theme').val(),
+      lead_popup_badge_text:       $('#lead_popup_badge_text').val(),
+      lead_popup_crunch_enabled:   $('#lead_popup_crunch_enabled').is(':checked') ? 'true' : 'false'
     };
     showLoader('Saving…');
     apiPost('/admin/api/settings/', { action: 'update_settings', data: data })
       .done(function (res) { showAlertModal(res.message, res.success ? 'success' : 'danger'); })
       .fail(function ()    { showAlertModal('Request failed.', 'danger'); })
+      .always(hideLoader);
+  });
+
+  /* ── Tracking form ── */
+  $('#trackingForm').on('submit', function (e) {
+    e.preventDefault();
+    var data = {
+      gtm_container_id: $('#gtm_container_id').val().trim()
+    };
+    showLoader('Saving…');
+    apiPost('/admin/api/settings/', { action: 'update_settings', data: data })
+      .done(function (res) { showAlertModal(res.message, res.success ? 'success' : 'danger'); })
+      .fail(function ()    { showAlertModal('Request failed.', 'danger'); })
+      .always(hideLoader);
+  });
+
+  /* ── Crunch sound upload ── */
+  $('#uploadCrunchAudioBtn').on('click', function () {
+    var file = $('#crunch_audio_file')[0].files[0];
+    if (!file) { showAlertModal('Choose a sound file first.', 'warning'); return; }
+    var formData = new FormData();
+    formData.append('audio', file);
+    showLoader('Uploading…');
+    apiPostForm('/admin/api/settings/upload-crunch-audio/', formData)
+      .done(function (res) {
+        showAlertModal(res.message, res.success ? 'success' : 'danger');
+        if (res.success) {
+          $('#crunchAudioPreview').attr('src', res.url).show();
+          $('#crunchAudioEmpty').hide();
+          $('#crunch_audio_file').val('');
+        }
+      })
+      .fail(function () { showAlertModal('Upload failed.', 'danger'); })
       .always(hideLoader);
   });
 
@@ -191,7 +227,7 @@ function populateSettings(s) {
     'points_per_rupee', 'review_points', 'referral_points', 'signup_bonus',
     'lead_popup_headline', 'lead_popup_body', 'lead_popup_button_text',
     'lead_popup_success_message', 'lead_popup_coupon_code', 'lead_popup_delay_seconds',
-    'lead_popup_extra_fields'
+    'lead_popup_extra_fields', 'gtm_container_id', 'lead_popup_theme', 'lead_popup_badge_text'
   ];
   fields.forEach(function (k) {
     if (s[k] !== undefined) $('#' + k).val(s[k]);
@@ -206,6 +242,16 @@ function populateSettings(s) {
   leadCheckboxes.forEach(function (k) {
     if (s[k] !== undefined) $('#' + k).prop('checked', s[k] === 'true');
   });
+  // Crunch toggle defaults to ON when never set, matching the storefront API's default.
+  $('#lead_popup_crunch_enabled').prop('checked', s.lead_popup_crunch_enabled !== 'false');
+
+  if (s.lead_popup_crunch_audio_url) {
+    $('#crunchAudioPreview').attr('src', s.lead_popup_crunch_audio_url).show();
+    $('#crunchAudioEmpty').hide();
+  } else {
+    $('#crunchAudioPreview').hide();
+    $('#crunchAudioEmpty').show();
+  }
 }
 
 function renderSystemStats(s) {
