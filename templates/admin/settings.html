@@ -30,6 +30,9 @@
           <button class="nav-link text-start" data-bs-toggle="pill" data-bs-target="#tabLeadPopup" type="button">
             <i class="fas fa-envelope-open-text me-2"></i>Lead Popup
           </button>
+          <button class="nav-link text-start" data-bs-toggle="pill" data-bs-target="#tabTracking" type="button">
+            <i class="fas fa-chart-line me-2"></i>Tracking
+          </button>
           <button class="nav-link text-start" data-bs-toggle="pill" data-bs-target="#tabSecurity" type="button">
             <i class="fas fa-key me-2"></i>Security
           </button>
@@ -232,9 +235,81 @@
                 </div>
               </div>
 
+              <hr class="my-4">
+              <h6 class="mb-3">Look &amp; Feel</h6>
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">Theme</label>
+                  <select class="form-select" id="lead_popup_theme">
+                    <option value="regular">Regular</option>
+                    <option value="festive">Festive (Onam / Diwali / New Year)</option>
+                    <option value="product_release">Product Release</option>
+                  </select>
+                  <div class="form-text">Swap this before a festival or a new flavour launch, then back to Regular after. Same form and coupon logic underneath — only the colours/badge change.</div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Badge Text (festive/product release only)</label>
+                  <input type="text" class="form-control" id="lead_popup_badge_text" placeholder="e.g. Onam Special or New Flavour Dropped">
+                </div>
+              </div>
+
+              <hr class="my-4">
+              <h6 class="mb-3">Crunch Sound</h6>
+              <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" role="switch" id="lead_popup_crunch_enabled">
+                <label class="form-check-label" for="lead_popup_crunch_enabled">Show the mascot + "tap for a crunch" button</label>
+              </div>
+              <div class="row g-3 align-items-end">
+                <div class="col-md-6">
+                  <label class="form-label">Upload Crunch Sound (mp3/wav/ogg/m4a, max 2MB)</label>
+                  <input type="file" class="form-control" id="crunch_audio_file" accept="audio/*">
+                </div>
+                <div class="col-md-3">
+                  <button type="button" class="btn btn-outline-primary btn-sm" id="uploadCrunchAudioBtn">
+                    <i class="fas fa-upload me-1"></i>Upload
+                  </button>
+                </div>
+                <div class="col-md-3">
+                  <audio id="crunchAudioPreview" controls style="width:100%;height:36px;display:none"></audio>
+                  <span id="crunchAudioEmpty" class="form-text">No file uploaded — using a synthesized crunch sound.</span>
+                </div>
+              </div>
+
               <div class="mt-4">
                 <button type="submit" class="btn btn-primary btn-sm">
                   <i class="fas fa-save me-1"></i>Save Lead Popup Settings
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Tracking -->
+        <div class="tab-pane fade" id="tabTracking" role="tabpanel">
+          <div class="data-card">
+            <div class="data-card-header">
+              <h3><i class="fas fa-chart-line me-2" style="color:var(--primary-color)"></i>Google Tag Manager</h3>
+            </div>
+            <form id="trackingForm" style="padding:20px">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">GTM Container ID</label>
+                  <input type="text" class="form-control" id="gtm_container_id" placeholder="GTM-XXXXXXX">
+                  <div class="form-text">
+                    From <a href="https://tagmanager.google.com" target="_blank" rel="noopener">tagmanager.google.com</a> &mdash;
+                    create a container, copy its ID (starts with <code>GTM-</code>), paste it here.
+                    Add/configure GA4, Google Ads and Meta Pixel tags inside GTM itself &mdash; no further deploy needed once this ID is set.
+                  </div>
+                </div>
+              </div>
+              <div class="mt-3" style="font-size:0.85rem;color:var(--gray-500)">
+                <strong>Events already wired for you:</strong> <code>purchase</code> fires on a successful order
+                (with order value + items), and <code>generate_lead</code> fires when someone submits the homepage
+                lead popup. Build GA4/Ads/Meta tags off these inside GTM's trigger &amp; variable setup.
+              </div>
+              <div class="mt-4">
+                <button type="submit" class="btn btn-primary btn-sm">
+                  <i class="fas fa-save me-1"></i>Save Tracking Settings
                 </button>
               </div>
             </form>

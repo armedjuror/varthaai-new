@@ -32,8 +32,10 @@ LEAD_POPUP_SETTING_KEYS = (
     'lead_popup_button_text', 'lead_popup_success_message', 'lead_popup_coupon_code',
     'lead_popup_delay_seconds', 'lead_popup_collect_name', 'lead_popup_collect_email',
     'lead_popup_collect_phone', 'lead_popup_require_email', 'lead_popup_require_phone',
-    'lead_popup_extra_fields',
+    'lead_popup_extra_fields', 'lead_popup_theme', 'lead_popup_badge_text',
+    'lead_popup_crunch_enabled', 'lead_popup_crunch_audio_url',
 )
+LEAD_POPUP_THEMES = {'regular', 'festive', 'product_release'}
 
 
 class FlavorsAPI(StorefrontAPIView):
@@ -250,6 +252,10 @@ class LeadPopupConfigAPI(StorefrontAPIView):
         except ValueError:
             delay_seconds = 8
 
+        theme = s.get('lead_popup_theme') or 'regular'
+        if theme not in LEAD_POPUP_THEMES:
+            theme = 'regular'
+
         return Response({
             'success': True,
             'enabled': True,
@@ -259,6 +265,10 @@ class LeadPopupConfigAPI(StorefrontAPIView):
             'success_message': s.get('lead_popup_success_message') or "Thanks! Here's your code:",
             'coupon_code': s.get('lead_popup_coupon_code') or '',
             'delay_seconds': delay_seconds,
+            'theme': theme,
+            'badge_text': s.get('lead_popup_badge_text') or '',
+            'crunch_enabled': s.get('lead_popup_crunch_enabled', 'true') != 'false',
+            'crunch_audio_url': s.get('lead_popup_crunch_audio_url') or '',
             'collect_name': s.get('lead_popup_collect_name', 'true') != 'false',
             'collect_email': s.get('lead_popup_collect_email', 'true') != 'false',
             'collect_phone': s.get('lead_popup_collect_phone', 'true') != 'false',

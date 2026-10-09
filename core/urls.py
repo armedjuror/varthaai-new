@@ -11,6 +11,11 @@ urlpatterns = [
     # Settings slice
     path('settings/', settings_views.settings_page, name='settings'),
     path('api/settings/', settings_views.SettingsAPI.as_view(), name='settings_api'),
+    path(
+        'api/settings/upload-crunch-audio/',
+        settings_views.UploadCrunchAudioAPI.as_view(),
+        name='upload_crunch_audio',
+    ),
 
     # Brands slice (super_admin only)
     path('brands/', brands_views.brands_page, name='brands'),

@@ -557,7 +557,26 @@ async function handlePaymentFailure(response, orderData) {
   }
 }
 
+function pushPurchaseEvent(orderData) {
+  if (typeof window.dataLayer === 'undefined') return;
+  var details = orderData.order_details || {};
+  var items = (details.items || []).map(function (it) {
+    return { item_id: it.flavor_id, item_name: it.flavor_name, quantity: it.quantity, price: it.salePrice };
+  });
+  window.dataLayer.push({
+    event: 'purchase',
+    ecommerce: {
+      transaction_id: orderData.order_id,
+      value: orderData.amount,
+      currency: 'INR',
+      items: items
+    }
+  });
+}
+
 function showPaymentSuccessModal(verificationResponse, orderData) {
+  pushPurchaseEvent(orderData);
+
   // Update order ID
   $('#success-order-id').text(verificationResponse.order_id);
 

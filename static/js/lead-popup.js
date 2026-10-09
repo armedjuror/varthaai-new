@@ -5,6 +5,69 @@
 
 var LEAD_POPUP_DISMISSED_KEY = 'varthaai_lead_popup_dismissed';
 var LEAD_POPUP_FIELD_DEFS = []; // [{key, label, type, required, extra}] built from config
+var _crunchAudioCtx = null;
+var _crunchAudioUrl = ''; // real uploaded sound, set from config — falls back to synthesized
+
+/* Real uploaded sound if the admin has set one; else a synthesized crunch. */
+function playCrunchSound() {
+  if (_crunchAudioUrl) {
+    var el = document.getElementById('lead-popup-crunch-audio');
+    if (el) {
+      try {
+        el.currentTime = 0;
+        el.play();
+        return;
+      } catch (e) {
+        // fall through to synthesized sound
+      }
+    }
+  }
+  playSynthesizedCrunch();
+}
+
+/* Synthesized crunch — filtered noise bursts, no audio file/licensing needed. */
+function playSynthesizedCrunch() {
+  try {
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    if (!_crunchAudioCtx) _crunchAudioCtx = new Ctx();
+    var ctx = _crunchAudioCtx;
+    if (ctx.state === 'suspended') ctx.resume();
+
+    var duration = 1.0;
+    var bufferSize = Math.floor(ctx.sampleRate * duration);
+    var buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+    var data = buffer.getChannelData(0);
+
+    var pulseCount = 6;
+    for (var p = 0; p < pulseCount; p++) {
+      var start = Math.floor((p / pulseCount) * bufferSize + Math.random() * 1500);
+      var pulseLen = Math.floor(ctx.sampleRate * 0.05);
+      for (var i = 0; i < pulseLen && start + i < bufferSize; i++) {
+        var decay = Math.exp(-i / (pulseLen * 0.25));
+        data[start + i] += (Math.random() * 2 - 1) * decay;
+      }
+    }
+
+    var source = ctx.createBufferSource();
+    source.buffer = buffer;
+
+    var filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.value = 3200;
+    filter.Q.value = 0.6;
+
+    var gain = ctx.createGain();
+    gain.gain.value = 0.9;
+
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    source.start();
+  } catch (e) {
+    // Web Audio unavailable/blocked — silently skip, this is a delight-only feature.
+  }
+}
 
 function leadPopupAlreadyHandled() {
   try {
@@ -110,11 +173,14 @@ function submitLeadPopup(recaptchaToken) {
     success: function (response) {
       if (response.success) {
         markLeadPopupHandled();
+        if (typeof window.dataLayer !== 'undefined') {
+          window.dataLayer.push({ event: 'generate_lead' });
+        }
         $('#lead-popup-form').addClass('d-none');
-        $('.modal-footer', '#leadPopupModal').addClass('d-none');
         $('#lead-popup-success-message').text(response.message || "Thanks! Here's your code:");
         if (response.coupon_code) {
-          $('#lead-popup-coupon-code').text(response.coupon_code).show();
+          $('#lead-popup-coupon-code').text(response.coupon_code);
+          $('#lead-popup-voucher').removeClass('d-none');
         }
         $('#lead-popup-success').removeClass('d-none');
       } else {
@@ -128,6 +194,30 @@ function submitLeadPopup(recaptchaToken) {
 }
 
 $(function () {
+  $('#crunch-btn').on('click', function () {
+    playCrunchSound();
+    $('#lead-popup-mascot').removeClass('crunching');
+    // force reflow so the animation re-triggers on repeated taps
+    void $('#lead-popup-mascot')[0].offsetWidth;
+    $('#lead-popup-mascot').addClass('crunching');
+    if (typeof window.dataLayer !== 'undefined') {
+      window.dataLayer.push({ event: 'crunch_sound_played' });
+    }
+  });
+
+  $('#lead-popup-copy-btn').on('click', function () {
+    var code = $('#lead-popup-coupon-code').text();
+    if (!code) return;
+    var done = function () {
+      var $btn = $('#lead-popup-copy-btn');
+      $btn.html('<i class="fas fa-check"></i>');
+      setTimeout(function () { $btn.html('<i class="fas fa-copy"></i>'); }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(code).then(done).catch(function () {});
+    }
+  });
+
   if (STOREFRONT_LOGGED_IN || leadPopupAlreadyHandled()) return;
 
   $.ajax({
@@ -142,6 +232,18 @@ $(function () {
       $('#lead-popup-headline').text(config.headline);
       $('#lead-popup-body').text(config.body || '');
       $('#lead-popup-submit-btn').text(config.button_text || 'Get My Code');
+      $('#leadPopupModal').attr('data-popup-theme', config.theme || 'regular');
+
+      if (config.badge_text) {
+        $('#lead-popup-badge-text').text(config.badge_text).removeClass('d-none');
+      }
+
+      if (config.crunch_enabled === false) {
+        $('.lead-popup-mascot-wrap, #lead-popup-crunch-hint').addClass('d-none');
+      } else if (config.crunch_audio_url) {
+        _crunchAudioUrl = config.crunch_audio_url;
+        $('#lead-popup-crunch-audio').attr('src', config.crunch_audio_url).attr('preload', 'auto');
+      }
 
       var delayMs = Math.max(0, (config.delay_seconds || 8)) * 1000;
       setTimeout(function () {

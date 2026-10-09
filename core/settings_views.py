@@ -12,10 +12,12 @@ logic failures return HTTP 200 with {success:false, message} so the jQuery
 """
 import platform
 
+from django.core.files.storage import default_storage
 from django.db import IntegrityError
 from django.shortcuts import render
 from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -27,6 +29,9 @@ from core.permissions import MODULE_PERMISSIONS
 from marketing.models import Review
 from orders.models import Coupon, Order
 from products.models import Flavor
+
+CRUNCH_AUDIO_EXTENSIONS = ('mp3', 'wav', 'ogg', 'm4a')
+CRUNCH_AUDIO_MAX_BYTES = 2 * 1024 * 1024
 
 VALID_ROLES = ('admin', 'staff', 'super_admin')
 
@@ -202,3 +207,32 @@ class SettingsAPI(APIView):
         if not deleted:
             return _fail('Error deleting admin user.')
         return Response({'success': True, 'message': 'Admin user deleted.'})
+
+
+class UploadCrunchAudioAPI(APIView):
+    """POST multipart {audio: file} -> stores it under media/lead_popup/ and
+    points the `lead_popup_crunch_audio_url` Setting at it. Replaces any
+    previous upload (the storefront always plays whatever this Setting
+    currently points to)."""
+
+    permission_classes = [HasModulePermission]
+    permission_module = 'settings'
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        f = request.FILES.get('audio')
+        if not f:
+            return _fail('No file uploaded.')
+        if f.size > CRUNCH_AUDIO_MAX_BYTES:
+            return _fail('File too large — please keep it under 2MB.')
+        ext = f.name.rsplit('.', 1)[-1].lower() if '.' in f.name else ''
+        if ext not in CRUNCH_AUDIO_EXTENSIONS:
+            return _fail('Please upload an mp3, wav, ogg or m4a file.')
+
+        filename = f'lead_popup/crunch_{int(timezone.now().timestamp())}.{ext}'
+        path = default_storage.save(filename, f)
+        url = default_storage.url(path)
+        Setting.objects.update_or_create(
+            setting_key='lead_popup_crunch_audio_url', defaults={'setting_value': url},
+        )
+        return Response({'success': True, 'message': 'Crunch sound uploaded!', 'url': url})

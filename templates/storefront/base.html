@@ -3,6 +3,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  {% if gtm_container_id %}
+  <!-- Google Tag Manager -->
+  <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+  new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+  j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+  'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+  })(window,document,'script','dataLayer','{{ gtm_container_id }}');</script>
+  <!-- End Google Tag Manager -->
+  {% endif %}
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}Varthaai - Premium Kerala Banana Chips{% endblock %}</title>
   <meta name="csrf-token" content="{{ csrf_token }}">
@@ -45,6 +54,12 @@
   {% block extra_head %}{% endblock %}
 </head>
 <body>
+{% if gtm_container_id %}
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id={{ gtm_container_id }}"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+{% endif %}
 <div class="loader-overlay" id="loader" style="display:none">
   <div class="loader-wrapper">
     <div class="spinner"></div>
@@ -68,29 +83,48 @@
 
 {% block modals %}{% endblock %}
 
-<!-- Lead Capture Popup (content/fields/coupon admin-configurable, see Settings → Lead Popup) -->
-<div class="modal fade" id="leadPopupModal" tabindex="-1" aria-hidden="true">
+<!-- Lead Capture Popup (content/fields/coupon/theme admin-configurable, see Settings → Lead Popup) -->
+<div class="modal fade lead-popup" id="leadPopupModal" data-popup-theme="regular" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title" id="lead-popup-headline">Get a discount on your first order</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+    <div class="modal-content lead-popup-card">
+      <button type="button" class="btn-close lead-popup-close" data-bs-dismiss="modal" aria-label="Close"></button>
+
+      <div class="lead-popup-band">
+        <span class="lead-popup-ribbon d-none" id="lead-popup-badge-text"></span>
+        <div class="lead-popup-mascot-wrap">
+          <button type="button" id="crunch-btn" class="lead-popup-mascot-btn" aria-label="Tap to hear the crunch">
+            <img src="{% static 'images/mascot.png' %}" alt="Varthaai Mascot" id="lead-popup-mascot" class="crunch-mascot">
+            <span class="lead-popup-speaker"><i class="fas fa-volume-high"></i></span>
+          </button>
+        </div>
+        <p class="lead-popup-crunch-hint" id="lead-popup-crunch-hint">Tap for a crunch</p>
       </div>
-      <div class="modal-body">
-        <p id="lead-popup-body" class="text-muted"></p>
+
+      <div class="lead-popup-body-wrap">
+        <h5 class="lead-popup-headline" id="lead-popup-headline">Get a discount on your first order</h5>
+        <p class="lead-popup-subtext" id="lead-popup-body"></p>
+
         <form id="lead-popup-form">
           <div id="lead-popup-fields"></div>
+          <div class="lead-popup-actions">
+            <button type="button" class="lead-popup-skip" data-bs-dismiss="modal">No thanks</button>
+            <button type="button" id="lead-popup-submit-btn" class="lead-popup-cta">Get My Code</button>
+          </div>
         </form>
-        <div id="lead-popup-success" class="text-center d-none">
-          <i class="fas fa-circle-check fa-2x mb-2" style="color:#85AA4E"></i>
+
+        <div id="lead-popup-success" class="lead-popup-success d-none">
+          <i class="fas fa-circle-check"></i>
           <p id="lead-popup-success-message" class="mb-2"></p>
-          <div id="lead-popup-coupon-code" class="hashtag-display" style="display:none"></div>
+          <div id="lead-popup-voucher" class="lead-popup-voucher d-none">
+            <span class="lead-popup-voucher-label">Your code</span>
+            <span class="lead-popup-voucher-code" id="lead-popup-coupon-code"></span>
+            <button type="button" class="lead-popup-voucher-copy" id="lead-popup-copy-btn" title="Copy code">
+              <i class="fas fa-copy"></i>
+            </button>
+          </div>
         </div>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">No thanks</button>
-        <button type="button" id="lead-popup-submit-btn" class="btn btn-primary">Get My Code</button>
-      </div>
+      <audio id="lead-popup-crunch-audio" preload="none"></audio>
     </div>
   </div>
 </div>

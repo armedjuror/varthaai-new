@@ -1213,3 +1213,324 @@ section {
     gap: 15px;
   }
 }
+
+/* ============================================================
+   Lead popup — "tap for a crunch" treat card
+   Three admin-selectable moods (Settings → Lead Popup → Theme):
+   regular (default), festive (Onam/Diwali/New Year), product_release.
+   Layout/mechanics are identical across themes — only the band
+   color, ribbon and badge-glow change.
+   ============================================================ */
+.lead-popup-card {
+  border: none;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+}
+
+.lead-popup-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 3;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 50%;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  opacity: 1;
+}
+
+/* -- Top band + mascot badge -- */
+.lead-popup-band {
+  position: relative;
+  padding: 36px 20px 44px;
+  text-align: center;
+  background: linear-gradient(160deg, #F3F1E6 0%, #E8E2C6 100%);
+  overflow: hidden;
+}
+
+.lead-popup-ribbon {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 5px 16px;
+  border-radius: 50px;
+  margin-bottom: 14px;
+  background: var(--active-color);
+  color: #4a3b00;
+}
+
+.lead-popup-mascot-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.lead-popup-mascot-btn {
+  position: relative;
+  border: none;
+  background: radial-gradient(circle, rgba(252, 218, 81, 0.55) 0%, rgba(252, 218, 81, 0) 72%);
+  border-radius: 50%;
+  width: 128px;
+  height: 128px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.2s ease;
+}
+
+.lead-popup-mascot-btn:hover {
+  transform: scale(1.04);
+}
+
+.lead-popup-mascot-btn:active {
+  transform: scale(0.97);
+}
+
+.crunch-mascot {
+  width: 88px;
+  height: 88px;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+}
+
+.crunch-mascot.crunching {
+  animation: crunch-wiggle 0.5s ease;
+}
+
+@keyframes crunch-wiggle {
+  0%   { transform: scale(1) rotate(0deg); }
+  20%  { transform: scale(1.15) rotate(-8deg); }
+  40%  { transform: scale(0.95) rotate(6deg); }
+  60%  { transform: scale(1.1) rotate(-4deg); }
+  80%  { transform: scale(0.98) rotate(2deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+.lead-popup-speaker {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--primary-color-a11y);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  border: 3px solid #fff;
+  pointer-events: none;
+}
+
+.lead-popup-crunch-hint {
+  margin: 10px 0 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--primary-color-a11y);
+  opacity: 0.85;
+}
+
+/* -- Body / form -- */
+.lead-popup-body-wrap {
+  background: #fff;
+  padding: 28px 28px 24px;
+}
+
+.lead-popup-headline {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #2c2c28;
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+.lead-popup-subtext {
+  font-size: 0.92rem;
+  color: #666;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.lead-popup #lead-popup-fields .form-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #444;
+}
+
+.lead-popup #lead-popup-fields .form-control {
+  border-radius: 50px;
+  border: 1.5px solid #e4e0d0;
+  padding: 10px 18px;
+  background: #FBFAF5;
+}
+
+.lead-popup #lead-popup-fields .form-control:focus {
+  border-color: var(--primary-color-a11y);
+  box-shadow: 0 0 0 3px rgba(94, 119, 55, 0.15);
+  background: #fff;
+}
+
+.lead-popup-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.lead-popup-skip {
+  border: none;
+  background: none;
+  color: #999;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 10px 8px;
+}
+
+.lead-popup-skip:hover {
+  color: #666;
+}
+
+.lead-popup-cta {
+  border: none;
+  border-radius: 50px;
+  padding: 12px 28px;
+  font-weight: 700;
+  background: var(--primary-color-a11y);
+  color: #fff;
+  transition: all 0.2s ease;
+}
+
+.lead-popup-cta:hover {
+  background: var(--secondary-color-a11y);
+}
+
+.lead-popup-cta:active {
+  transform: scale(0.97);
+}
+
+/* -- Success / voucher state -- */
+.lead-popup-success {
+  text-align: center;
+  padding: 8px 0 4px;
+}
+
+.lead-popup-success > i {
+  font-size: 2.2rem;
+  color: var(--primary-color-a11y);
+  margin-bottom: 10px;
+  display: block;
+}
+
+.lead-popup-voucher {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 16px auto 4px;
+  max-width: 280px;
+  padding: 14px 20px;
+  border: 2px dashed var(--primary-color-a11y);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 0 50%, #fff 6px, transparent 7px) left center,
+    radial-gradient(circle at 100% 50%, #fff 6px, transparent 7px) right center,
+    #FBF8EC;
+  background-size: 14px 100%, 14px 100%, 100% 100%;
+  background-repeat: no-repeat;
+}
+
+.lead-popup-voucher-label {
+  font-size: 0.7rem;
+  color: #999;
+  text-transform: none;
+  display: none; /* label kept for a11y via aria, visually the code speaks for itself */
+}
+
+.lead-popup-voucher-code {
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--primary-color-a11y);
+}
+
+.lead-popup-voucher-copy {
+  border: none;
+  background: none;
+  color: var(--primary-color-a11y);
+  font-size: 1rem;
+  padding: 4px;
+}
+
+.lead-popup-voucher-copy:hover {
+  color: var(--secondary-color-a11y);
+}
+
+/* -- Theme: festive (Onam / Diwali / New Year) -- */
+.lead-popup[data-popup-theme="festive"] .lead-popup-band {
+  background: linear-gradient(160deg, #7A2D2D 0%, #B3611F 60%, #D99A2B 100%);
+}
+
+.lead-popup[data-popup-theme="festive"] .lead-popup-crunch-hint {
+  color: #fff;
+  opacity: 0.9;
+}
+
+.lead-popup[data-popup-theme="festive"] .lead-popup-ribbon {
+  background: #FCDA51;
+  color: #5c3b00;
+}
+
+.lead-popup[data-popup-theme="festive"] .lead-popup-mascot-btn {
+  background: radial-gradient(circle, rgba(255, 221, 140, 0.65) 0%, rgba(255, 221, 140, 0) 72%);
+}
+
+.lead-popup[data-popup-theme="festive"] .lead-popup-band::before,
+.lead-popup[data-popup-theme="festive"] .lead-popup-band::after {
+  content: '✨';
+  position: absolute;
+  font-size: 1.1rem;
+  opacity: 0.8;
+}
+
+.lead-popup[data-popup-theme="festive"] .lead-popup-band::before {
+  top: 18px;
+  left: 24px;
+}
+
+.lead-popup[data-popup-theme="festive"] .lead-popup-band::after {
+  top: 30px;
+  right: 28px;
+}
+
+/* -- Theme: product release -- */
+.lead-popup[data-popup-theme="product_release"] .lead-popup-band {
+  background: linear-gradient(160deg, #3f5321 0%, var(--primary-color-a11y) 100%);
+}
+
+.lead-popup[data-popup-theme="product_release"] .lead-popup-crunch-hint {
+  color: #fff;
+  opacity: 0.9;
+}
+
+.lead-popup[data-popup-theme="product_release"] .lead-popup-ribbon {
+  background: #fff;
+  color: var(--primary-color-a11y);
+}
+
+.lead-popup[data-popup-theme="product_release"] .lead-popup-mascot-btn {
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0) 72%);
+}
+
+@media (max-width: 480px) {
+  .lead-popup-band { padding: 30px 16px 38px; }
+  .lead-popup-body-wrap { padding: 24px 20px 20px; }
+  .lead-popup-actions { flex-direction: column-reverse; align-items: stretch; }
+  .lead-popup-cta { width: 100%; }
+  .lead-popup-skip { text-align: center; }
+}
