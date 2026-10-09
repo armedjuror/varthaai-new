@@ -3,6 +3,33 @@
 
 {% block title %}Varthaai - Premium Kerala Banana Chips{% endblock %}
 
+{% block extra_head %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Varthaai",
+  "url": "https://varthaai.com",
+  "logo": "https://varthaai.com{% static 'images/logo.png' %}",
+  "image": "https://varthaai.com{% static 'images/favicon.png' %}",
+  "description": "Premium Kerala-style banana chips, handcrafted with coconut oil and turmeric.",
+  "address": {
+    "@type": "PostalAddress",
+    "addressLocality": "Bengaluru",
+    "addressRegion": "Karnataka",
+    "addressCountry": "IN"
+  },
+  "contactPoint": {
+    "@type": "ContactPoint",
+    "telephone": "+91-9400557445",
+    "contactType": "customer service",
+    "email": "info@varthaai.com"
+  },
+  "sameAs": ["https://instagram.com/varthaai"]
+}
+</script>
+{% endblock %}
+
 {% block content %}
 <!-- Hero Section -->
 <header class="hero-section">
@@ -189,7 +216,7 @@
     <div class="row g-4 justify-content-center">
       <div class="col-lg-12 col-md-12">
         <div class="campaign-content text-center">
-          <p class="lead mb-4">Join thousands of satisfied customers sharing their Varthaai moments on social media.</p>
+          <p class="lead mb-4">Share your Varthaai moment and join the customers already raving about us on social media.</p>
           <div class="hashtag-display mb-4">#OruVarthaaiVarthaanm</div>
           <p>Share your Varthaai experience on Instagram with our hashtag and get featured!</p>
           <div class="mt-4">

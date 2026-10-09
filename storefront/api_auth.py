@@ -52,6 +52,9 @@ class VerifyOTPAPI(StorefrontAPIView):
         clean = services.clean_mobile(mobile)
         user = User.objects.filter(brand_id=_brand_id(), mobile=clean).first()
         if user:
+            if user.is_lead:
+                user.is_lead = False
+                user.save(update_fields=['is_lead'])
             services.login_user(request, user)
             return Response({
                 'success': True, 'message': 'Login successful',

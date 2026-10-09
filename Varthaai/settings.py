@@ -56,6 +56,7 @@ DJANGO_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.sitemaps',
 ]
 
 THIRD_PARTY_APPS = [
@@ -121,6 +122,11 @@ LOGOUT_REDIRECT_URL = 'accounts:login'
 # CSRF cookie must be readable by jQuery so it can send the X-CSRFToken header.
 CSRF_COOKIE_HTTPONLY = False
 SESSION_COOKIE_HTTPONLY = True
+
+# nginx (deploy/varthaai.nginx.conf) sets X-Forwarded-Proto — without this,
+# Django always sees the internal http://127.0.0.1:8007 connection and thinks
+# every request is insecure (wrong scheme in sitemap.xml/absolute URLs, etc).
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 
 # Database

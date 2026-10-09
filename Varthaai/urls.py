@@ -1,7 +1,11 @@
 """URL configuration for the Varthaai project."""
 from django.conf import settings
 from django.conf.urls.static import static
+from django.contrib.sitemaps.views import sitemap
 from django.urls import include, path
+
+from storefront.sitemaps import SITEMAPS
+from storefront.views import robots_txt
 
 urlpatterns = [
     path('admin/', include('accounts.urls')),          # login, logout, brand switch
@@ -14,6 +18,8 @@ urlpatterns = [
     path('admin/', include('content.urls')),           # Content Studio (Phase 0/1/2/3 — see content-generator-plan.md)
     path('admin/', include('debugger.urls')),          # Debugger Agent (super_admin)
     path('admin/', include('sessions_tracking.urls')), # Employee sessions + performance dashboard
+    path('sitemap.xml', sitemap, {'sitemaps': SITEMAPS}, name='sitemap'),
+    path('robots.txt', robots_txt, name='robots_txt'),
     path('', include('storefront.urls')),              # Phase 15 — public storefront
 ]
 

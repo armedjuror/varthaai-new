@@ -195,6 +195,7 @@ class CustomersAPI(APIView):
         search = (params.get('search') or '').strip()
         date_from = parse_date(params.get('date_from') or '')
         date_to = parse_date(params.get('date_to') or '')
+        lead_filter = (params.get('lead_filter') or '').strip()  # '', 'leads', 'customers'
         page = max(1, int(params.get('page') or 1))
         per_page = int(params.get('per_page') or 0)
         if per_page not in PER_PAGE_CHOICES:
@@ -206,6 +207,7 @@ class CustomersAPI(APIView):
             qs = qs.filter(
                 Q(name__icontains=search)
                 | Q(mobile__icontains=search)
+                | Q(email__icontains=search)
                 | Q(referral_code__icontains=search)
                 | Q(designation__icontains=search)
             )
@@ -213,6 +215,10 @@ class CustomersAPI(APIView):
             qs = qs.filter(created_at__date__gte=date_from)
         if date_to:
             qs = qs.filter(created_at__date__lte=date_to)
+        if lead_filter == 'leads':
+            qs = qs.filter(is_lead=True)
+        elif lead_filter == 'customers':
+            qs = qs.filter(is_lead=False)
 
         total = qs.count()
 
@@ -244,6 +250,7 @@ class CustomersAPI(APIView):
         data = [{
             'id': u.id,
             'mobile': u.mobile,
+            'email': u.email,
             'name': u.name,
             'address': u.address,
             'designation': u.designation,
@@ -253,6 +260,8 @@ class CustomersAPI(APIView):
             'created_at': u.created_at.isoformat(),
             'total_orders': u.total_orders,
             'total_spent': float(u.total_spent or 0),
+            'is_lead': u.is_lead,
+            'extra_user_data': u.extra_user_data,
         } for u in rows]
 
         return ok({
@@ -260,6 +269,7 @@ class CustomersAPI(APIView):
             'total': total,
             'page': page,
             'per_page': per_page,
+            'lead_count': User.objects.filter(brand_id=brand_id, is_lead=True).count(),
         })
 
     def post(self, request):

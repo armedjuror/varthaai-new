@@ -27,6 +27,9 @@
           <button class="nav-link text-start" data-bs-toggle="pill" data-bs-target="#tabLoyalty" type="button">
             <i class="fas fa-coins me-2"></i>Loyalty Points
           </button>
+          <button class="nav-link text-start" data-bs-toggle="pill" data-bs-target="#tabLeadPopup" type="button">
+            <i class="fas fa-envelope-open-text me-2"></i>Lead Popup
+          </button>
           <button class="nav-link text-start" data-bs-toggle="pill" data-bs-target="#tabSecurity" type="button">
             <i class="fas fa-key me-2"></i>Security
           </button>
@@ -147,6 +150,91 @@
               <div class="mt-4">
                 <button type="submit" class="btn btn-primary btn-sm">
                   <i class="fas fa-save me-1"></i>Save Loyalty Settings
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Lead Capture Popup -->
+        <div class="tab-pane fade" id="tabLeadPopup" role="tabpanel">
+          <div class="data-card">
+            <div class="data-card-header">
+              <h3><i class="fas fa-envelope-open-text me-2" style="color:var(--primary-color)"></i>Homepage Lead Popup</h3>
+            </div>
+            <form id="leadPopupForm" style="padding:20px">
+              <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" role="switch" id="lead_popup_enabled">
+                <label class="form-check-label" for="lead_popup_enabled">Show the popup to visitors who haven't bought yet</label>
+                <div class="form-text">Captures a name/email/phone from browsers who aren't ready to buy, so you can follow up later. Stored on the same customers table, flagged as a lead.</div>
+              </div>
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">Headline</label>
+                  <input type="text" class="form-control" id="lead_popup_headline" placeholder="Get 10% off your first order">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Button Text</label>
+                  <input type="text" class="form-control" id="lead_popup_button_text" placeholder="Get My Code">
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Body Text</label>
+                  <textarea class="form-control" id="lead_popup_body" rows="2" placeholder="Leave your email or phone and we'll send you a discount code."></textarea>
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Success Message</label>
+                  <textarea class="form-control" id="lead_popup_success_message" rows="2" placeholder="Thanks! Here's your code:"></textarea>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Coupon Code to Show</label>
+                  <input type="text" class="form-control" id="lead_popup_coupon_code" placeholder="WELCOME10">
+                  <div class="form-text">Create/manage the actual discount under Marketing &rarr; Coupons; this just tells the popup which code to hand out.</div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Show After (seconds)</label>
+                  <input type="number" class="form-control" id="lead_popup_delay_seconds" min="0" step="1">
+                </div>
+              </div>
+
+              <hr class="my-4">
+              <h6 class="mb-3">Fields to Ask For</h6>
+              <div class="row g-3">
+                <div class="col-md-4">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="lead_popup_collect_name">
+                    <label class="form-check-label" for="lead_popup_collect_name">Name</label>
+                  </div>
+                </div>
+                <div class="col-md-4">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="lead_popup_collect_email">
+                    <label class="form-check-label" for="lead_popup_collect_email">Email</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="lead_popup_require_email">
+                    <label class="form-check-label" for="lead_popup_require_email">Required</label>
+                  </div>
+                </div>
+                <div class="col-md-4">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="lead_popup_collect_phone">
+                    <label class="form-check-label" for="lead_popup_collect_phone">Phone</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="lead_popup_require_phone">
+                    <label class="form-check-label" for="lead_popup_require_phone">Required</label>
+                  </div>
+                </div>
+                <div class="col-12">
+                  <label class="form-label">Extra Fields (one per line, optional)</label>
+                  <textarea class="form-control" id="lead_popup_extra_fields" rows="2" placeholder="Birthday&#10;Favourite Flavour"></textarea>
+                  <div class="form-text">Shown as optional text fields. Answers are stored on the customer's profile, not mixed into name/email/phone.</div>
+                </div>
+              </div>
+
+              <div class="mt-4">
+                <button type="submit" class="btn btn-primary btn-sm">
+                  <i class="fas fa-save me-1"></i>Save Lead Popup Settings
                 </button>
               </div>
             </form>

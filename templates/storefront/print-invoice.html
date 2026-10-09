@@ -127,7 +127,7 @@
         <td class="price">
           ₹{{ item.sale_price_per_kg|floatformat:0 }}
           {% if item.price_per_kg != item.sale_price_per_kg %}
-            <br><small style="text-decoration: line-through; color: #999;">₹{{ item.price_per_kg|floatformat:0 }}</small>
+            <br><small style="text-decoration: line-through; color: #666;">₹{{ item.price_per_kg|floatformat:0 }}</small>
           {% endif %}
         </td>
         <td class="total">₹{{ item.item_total|floatformat:2 }}</td>

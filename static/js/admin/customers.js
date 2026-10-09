@@ -5,9 +5,10 @@ var _custFilterDebounce = null;
 
 function collectCustomerFilters() {
   return {
-    search:    $('#filterSearch').val(),
-    date_from: $('#filterDateFrom').val(),
-    date_to:   $('#filterDateTo').val()
+    search:      $('#filterSearch').val(),
+    date_from:   $('#filterDateFrom').val(),
+    date_to:     $('#filterDateTo').val(),
+    lead_filter: $('#filterLeadType').val()
   };
 }
 
@@ -21,7 +22,7 @@ $(function () {
   loadCustomers();
 
   // Auto-apply filters
-  $('#filterDateFrom, #filterDateTo').on('change', applyCustomerFilters);
+  $('#filterDateFrom, #filterDateTo, #filterLeadType').on('change', applyCustomerFilters);
   $('#perPageCustomers').on('change', function () {
     customersState.per_page = parseInt(this.value);
     customersState.page = 1;
@@ -107,6 +108,11 @@ function loadCustomers() {
       var d = res.data || {};
       renderCustomersTable(d.items, d.total);
       renderCustomersPagination(d.total, d.per_page, d.page);
+      if (d.lead_count) {
+        $('#leadCountBadge').text(d.lead_count + ' lead' + (d.lead_count === 1 ? '' : 's') + ' to follow up').show();
+      } else {
+        $('#leadCountBadge').hide();
+      }
     })
     .fail(function () { showAlertModal('Failed to load customers.', 'danger'); })
     .always(hideLoader);
@@ -124,8 +130,10 @@ function renderCustomersTable(rows, total) {
     html += '<tr>' +
       '<td><input type="checkbox" class="customer-check" value="' + u.id + '"></td>' +
       '<td><strong>' + escHtml(u.name || '—') + '</strong>' +
-        (u.designation ? '<br><small style="color:var(--gray-400)">' + escHtml(u.designation) + '</small>' : '') + '</td>' +
-      '<td>' + escHtml(u.mobile) + '</td>' +
+        (u.is_lead ? ' <span class="badge badge-warning" style="font-size:0.65rem">Lead</span>' : '') +
+        (u.designation ? '<br><small style="color:var(--gray-400)">' + escHtml(u.designation) + '</small>' : '') +
+        (u.email ? '<br><small style="color:var(--gray-400)">' + escHtml(u.email) + '</small>' : '') + '</td>' +
+      '<td>' + escHtml(u.mobile || '—') + '</td>' +
       '<td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.8rem;color:var(--gray-500)">' + escHtml(u.address || '—') + '</td>' +
       '<td><span class="badge badge-info" style="font-size:0.85rem">' + (u.loyalty_points || 0) + ' pts</span></td>' +
       '<td><strong>' + (u.total_orders || 0) + '</strong></td>' +

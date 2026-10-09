@@ -26,6 +26,8 @@ urlpatterns = [
     path('api/validate-coupon/', api_public.ValidateCouponAPI.as_view(), name='validate_coupon'),
     path('api/track-source/', api_public.TrackSourceAPI.as_view(), name='track_source'),
     path('api/submit-review/', api_public.SubmitReviewAPI.as_view(), name='submit_review'),
+    path('api/lead-popup/', api_public.LeadPopupConfigAPI.as_view(), name='lead_popup'),
+    path('api/submit-lead/', api_public.SubmitLeadAPI.as_view(), name='submit_lead'),
 
     # OTP auth
     path('api/send-otp/', api_auth.SendOTPAPI.as_view(), name='send_otp'),

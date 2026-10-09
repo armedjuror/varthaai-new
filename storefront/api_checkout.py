@@ -98,6 +98,9 @@ class PlaceOrderAPI(StorefrontAPIView):
             brand_id=brand.id, mobile=clean,
             defaults={'name': name, 'address': address, 'pincode': pincode},
         )
+        if user.is_lead:
+            user.is_lead = False
+            user.save(update_fields=['is_lead'])
 
         # Authoritative prices from the flavors table; quantity (grams) from input.
         flavor_ids = [it.get('id') for it in items]
