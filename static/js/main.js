@@ -1127,6 +1127,19 @@ function initializeRecaptcha() {
         }
     });
 
+    $('#leadPopupModal').on('shown.bs.modal', function() {
+        if (!recaptchaWidgets['lead-popup-submit-btn'] && typeof submitLeadPopup === 'function') {
+            try {
+                recaptchaWidgets['lead-popup-submit-btn'] = grecaptcha.render('lead-popup-submit-btn', {
+                    'sitekey': '6Le6wbcrAAAAACAS_jUK2UM_vaNbbk2g2Xf5kvdC',
+                    'callback': submitLeadPopup,
+                    'size': 'invisible'
+                });
+            } catch(e) {
+                console.error('Error rendering reCAPTCHA for lead-popup-submit-btn:', e);
+            }
+        }
+    });
 
 }
 
@@ -1179,5 +1192,17 @@ $('#submit-review-btn').on('click', function(e) {
     }
     if (recaptchaWidgets['submit-review-btn']) {
         grecaptcha.execute(recaptchaWidgets['submit-review-btn']);
+    }
+});
+
+$('#lead-popup-submit-btn').on('click', function(e) {
+    if (typeof validateLeadPopupForm === 'function' && !validateLeadPopupForm()) {
+        e.preventDefault();
+        return false;
+    }
+    if (recaptchaWidgets['lead-popup-submit-btn']) {
+        grecaptcha.execute(recaptchaWidgets['lead-popup-submit-btn']);
+    } else if (typeof submitLeadPopup === 'function') {
+        submitLeadPopup(''); // reCAPTCHA not configured/loaded — backend skips verification when secret is unset
     }
 });

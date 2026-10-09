@@ -71,16 +71,30 @@ class AdminUser(AbstractBaseUser, PermissionsMixin):
 
 
 class User(models.Model):
-    """Storefront customer (ported from the PHP `users` table)."""
+    """Storefront customer (ported from the PHP `users` table).
+
+    `mobile` is nullable to support leads captured via the homepage popup
+    with only an email address (see `is_lead`) — Postgres allows multiple
+    NULLs under the (brand, mobile) unique constraint, so this doesn't
+    weaken uniqueness for rows that do have a mobile number.
+    """
 
     brand = models.ForeignKey('core.Brand', on_delete=models.CASCADE, related_name='customers')
-    mobile = models.CharField(max_length=15)
+    mobile = models.CharField(max_length=15, null=True, blank=True)
+    email = models.EmailField(max_length=255, blank=True)
     name = models.CharField(max_length=255, blank=True)
     address = models.TextField(blank=True)
     designation = models.CharField(max_length=255, blank=True)
     pincode = models.CharField(max_length=10, blank=True)
     referral_code = models.CharField(max_length=50, unique=True, null=True, blank=True)
     loyalty_points = models.IntegerField(default=0)
+    # True for a lead captured via the popup who hasn't converted yet (no
+    # OTP-verified login, no order). Flipped to False the moment they do
+    # either, so the customers list can filter leads to re-target them.
+    is_lead = models.BooleanField(default=False)
+    # Popup fields beyond name/email/phone (which map to the columns above) —
+    # keyed by the admin-defined field label, e.g. {"Birthday": "12 Jan"}.
+    extra_user_data = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

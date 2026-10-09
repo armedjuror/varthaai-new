@@ -3,6 +3,12 @@
 :root {
     --primary-color: #86AA4E;
     --secondary-color: #78a432;
+    /* Same brand green, darkened to clear 4.5:1 against white/cream — the
+       audit measured normal-sized text/buttons in --primary-color at only
+       2.67:1. Used anywhere the green is read as small/normal text rather
+       than a big decorative heading or icon. */
+    --primary-color-a11y: #5E7737;
+    --secondary-color-a11y: #4E6B20;
     --active-color:#FCDA51;
     --dark-color: #1a1a2e;
     --light-color: rgb(232, 228, 205, 0.5);
@@ -14,7 +20,7 @@
 
 body {
     font-family: "Montserrat", serif;
-    color: var(--primary-color);
+    color: #333;
     background-color: var(--light-color);
     position: relative;
 }
@@ -59,7 +65,7 @@ body {
 }
 
 .nav-link {
-    color: var(--primary-color);
+    color: var(--primary-color-a11y);
     font-weight: 500;
     transition: all 0.3s ease;
 }
@@ -119,26 +125,26 @@ body {
 }
 
 .btn-primary {
-    background-color: var(--primary-color);
-    border-color: var(--primary-color);
+    background-color: var(--primary-color-a11y);
+    border-color: var(--primary-color-a11y);
 }
 
 .btn-primary:hover {
-    background-color: var(--secondary-color);
-    border-color: var(--secondary-color);
+    background-color: var(--secondary-color-a11y);
+    border-color: var(--secondary-color-a11y);
 }
 
 .btn-primary:active {
-    background-color: var(--secondary-color);
+    background-color: var(--secondary-color-a11y);
 }
 
 .btn-outline-primary {
-    border-color: var(--primary-color);
-    color: var(--primary-color);
+    border-color: var(--primary-color-a11y);
+    color: var(--primary-color-a11y);
 }
 
 .btn-outline-primary:hover {
-    background-color: var(--primary-color);
+    background-color: var(--primary-color-a11y);
     border-color: var(--light-color);
 }
 
@@ -199,7 +205,7 @@ body {
 
 .original-price {
     text-decoration: line-through;
-    color: #999;
+    color: #666;
     margin-left: 10px;
     font-size: 0.9rem;
 }
@@ -284,7 +290,7 @@ section {
 
 .review-date {
     font-size: 0.8rem;
-    color: #888;
+    color: #666;
 }
 
 .review-rating {
@@ -501,7 +507,7 @@ section {
     color: var(--danger-color);
 }
 .reviewer-designation {
-    color: #777;
+    color: #666;
     font-weight: normal;
     font-style: italic;
 }
@@ -562,6 +568,27 @@ section {
 
     .about-image img {
         margin: 0 0;
+    }
+
+    /* Comfortable ~44px thumb targets in the menu/footer — the audit found
+       15 of 20 tappable elements on the mobile homepage smaller than that. */
+    .nav-link {
+        padding: 12px 10px;
+        display: block;
+    }
+
+    .navbar-toggler {
+        padding: 10px 12px;
+    }
+
+    .social-icons a {
+        width: 44px;
+        height: 44px;
+    }
+
+    .footer-links a {
+        display: inline-block;
+        padding: 8px 0;
     }
 }
 
@@ -1137,13 +1164,34 @@ section {
 
 /* Responsive */
 @media (max-width: 768px) {
+  /* The four badges (High Quality Bananas / Pure Coconut Oil / Finest Chips /
+     Fried With Love) are absolutely positioned on desktop so they float
+     around the product photo. On narrow screens that overlap put them
+     behind the photo and made them unreadable, so below this width they
+     drop into normal flow above the photo instead. */
   .product-image-container {
-    height: 350px;
+    height: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
     margin-bottom: 30px;
   }
 
+  .floating-elements {
+    position: static;
+    width: 100%;
+    height: auto;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    order: -1;
+  }
+
   .ingredient-bubble {
+    position: static;
+    width: 100%;
     padding: 10px 15px;
+    animation: none;
   }
 
   .ingredient-bubble img {
@@ -1153,6 +1201,11 @@ section {
 
   .ingredient-bubble span {
     font-size: 0.8rem;
+    white-space: normal;
+  }
+
+  .main-product-image {
+    align-self: center;
   }
 
   .nutrition-grid {

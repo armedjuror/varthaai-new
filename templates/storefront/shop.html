@@ -11,7 +11,7 @@
     .invoice-sidebar.scrolled-past-nav { top: 20px; max-height: calc(100vh - 40px); }
   }
   .invoice-panel { background: white; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); padding: 2rem; margin-bottom: 2rem; }
-  .cart-empty-state { text-align: center; padding: 3rem 1rem; color: #999; }
+  .cart-empty-state { text-align: center; padding: 3rem 1rem; color: #666; }
   .cart-empty-state i { font-size: 3rem; margin-bottom: 1rem; opacity: 0.5; }
   .cart-item-row { display: flex; align-items: center; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid #eee; }
   .cart-item-row:last-child { border-bottom: none; }
@@ -33,7 +33,7 @@
   .product-subtitle { color: #666; margin-bottom: 1.5rem; font-size: 0.875rem; }
   .pricing-display { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; }
   .current-price { font-size: 1.75rem; font-weight: 700; color: var(--primary-color, #86AA4E); }
-  .original-price { font-size: 1.125rem; color: #999; text-decoration: line-through; }
+  .original-price { font-size: 1.125rem; color: #666; text-decoration: line-through; }
   .discount-tag { background: linear-gradient(135deg, #FFD700, #FFA500); color: #333; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
   .quantity-section { margin-bottom: 2rem; }
   .quantity-presets { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
@@ -80,6 +80,36 @@
   .remove-coupon-btn { background: none; border: none; color: #dc3545; padding: 0.25rem 0.5rem; border-radius: 6px; cursor: pointer; font-size: 0.875rem; transition: background-color 0.3s; display: flex; align-items: center; gap: 0.25rem; }
   .remove-coupon-btn:hover { background-color: rgba(220, 53, 69, 0.1); }
 </style>
+{% if seo_flavors %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  "itemListElement": [
+    {% for f in seo_flavors %}
+    {
+      "@type": "ListItem",
+      "position": {{ forloop.counter }},
+      "item": {
+        "@type": "Product",
+        "name": "{{ f.name|escapejs }}",
+        "description": "{{ f.description|default:""|escapejs }}",
+        {% if f.absolute_image_url %}"image": "{{ f.absolute_image_url }}",{% endif %}
+        "brand": { "@type": "Brand", "name": "Varthaai" },
+        "offers": {
+          "@type": "Offer",
+          "url": "https://varthaai.com/shop/",
+          "priceCurrency": "INR",
+          "price": "{{ f.sale_price_per_kg|floatformat:2 }}",
+          "availability": "https://schema.org/InStock"
+        }
+      }
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+  ]
+}
+</script>
+{% endif %}
 {% endblock %}
 
 {% block content %}

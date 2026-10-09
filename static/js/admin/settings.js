@@ -43,6 +43,31 @@ $(function () {
       .always(hideLoader);
   });
 
+  /* ── Lead Popup form ── */
+  $('#leadPopupForm').on('submit', function (e) {
+    e.preventDefault();
+    var data = {
+      lead_popup_enabled:          $('#lead_popup_enabled').is(':checked') ? 'true' : 'false',
+      lead_popup_headline:         $('#lead_popup_headline').val(),
+      lead_popup_body:             $('#lead_popup_body').val(),
+      lead_popup_button_text:      $('#lead_popup_button_text').val(),
+      lead_popup_success_message:  $('#lead_popup_success_message').val(),
+      lead_popup_coupon_code:      $('#lead_popup_coupon_code').val().trim().toUpperCase(),
+      lead_popup_delay_seconds:    $('#lead_popup_delay_seconds').val(),
+      lead_popup_collect_name:     $('#lead_popup_collect_name').is(':checked') ? 'true' : 'false',
+      lead_popup_collect_email:    $('#lead_popup_collect_email').is(':checked') ? 'true' : 'false',
+      lead_popup_collect_phone:    $('#lead_popup_collect_phone').is(':checked') ? 'true' : 'false',
+      lead_popup_require_email:    $('#lead_popup_require_email').is(':checked') ? 'true' : 'false',
+      lead_popup_require_phone:    $('#lead_popup_require_phone').is(':checked') ? 'true' : 'false',
+      lead_popup_extra_fields:     $('#lead_popup_extra_fields').val()
+    };
+    showLoader('Saving…');
+    apiPost('/admin/api/settings/', { action: 'update_settings', data: data })
+      .done(function (res) { showAlertModal(res.message, res.success ? 'success' : 'danger'); })
+      .fail(function ()    { showAlertModal('Request failed.', 'danger'); })
+      .always(hideLoader);
+  });
+
   /* ── Loyalty form ── */
   $('#loyaltyForm').on('submit', function (e) {
     e.preventDefault();
@@ -163,7 +188,10 @@ function populateSettings(s) {
   var fields = [
     'business_name', 'business_email', 'business_phone', 'business_address',
     'delivery_charge', 'free_delivery_threshold', 'min_order_quantity',
-    'points_per_rupee', 'review_points', 'referral_points', 'signup_bonus'
+    'points_per_rupee', 'review_points', 'referral_points', 'signup_bonus',
+    'lead_popup_headline', 'lead_popup_body', 'lead_popup_button_text',
+    'lead_popup_success_message', 'lead_popup_coupon_code', 'lead_popup_delay_seconds',
+    'lead_popup_extra_fields'
   ];
   fields.forEach(function (k) {
     if (s[k] !== undefined) $('#' + k).val(s[k]);
@@ -171,6 +199,13 @@ function populateSettings(s) {
   if (s.employee_telegram_report_enabled !== undefined) {
     $('#employee_telegram_report_enabled').prop('checked', s.employee_telegram_report_enabled === 'true');
   }
+  var leadCheckboxes = [
+    'lead_popup_enabled', 'lead_popup_collect_name', 'lead_popup_collect_email',
+    'lead_popup_collect_phone', 'lead_popup_require_email', 'lead_popup_require_phone'
+  ];
+  leadCheckboxes.forEach(function (k) {
+    if (s[k] !== undefined) $('#' + k).prop('checked', s[k] === 'true');
+  });
 }
 
 function renderSystemStats(s) {

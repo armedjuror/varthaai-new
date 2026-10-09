@@ -10,6 +10,7 @@ import re
 import markdown as markdown_lib
 from django.core.paginator import Paginator
 from django.db.models import Q, Sum
+from django.http import HttpResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.safestring import mark_safe
@@ -19,6 +20,7 @@ from accounts.models import PointsTransaction
 from core.models import Setting
 from marketing.models import Blog
 from orders.models import Order
+from products.models import Flavor
 
 from storefront import services
 
@@ -61,7 +63,10 @@ def home(request):
 
 @ensure_csrf_cookie
 def shop(request):
-    return render(request, 'storefront/shop.html', _ctx(request))
+    flavors = list(Flavor.objects.filter(is_active=True).order_by('id'))
+    for f in flavors:
+        f.absolute_image_url = SITE_URL + f.image.url if f.image else ''
+    return render(request, 'storefront/shop.html', _ctx(request, seo_flavors=flavors))
 
 
 @ensure_csrf_cookie
@@ -157,3 +162,14 @@ def print_invoice(request):
 def logout(request):
     services.logout_user(request)
     return redirect('/')
+
+
+_ROBOTS_TXT = """User-agent: *
+Allow: /
+
+Sitemap: {site_url}/sitemap.xml
+""".format(site_url=SITE_URL)
+
+
+def robots_txt(request):
+    return HttpResponse(_ROBOTS_TXT, content_type='text/plain')

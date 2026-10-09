@@ -664,6 +664,9 @@ class CreateOrderAPI(APIView):
             brand_id=brand_id, mobile=mobile,
             defaults={'name': name, 'address': address, 'pincode': pincode},
         )
+        if user.is_lead:
+            user.is_lead = False
+            user.save(update_fields=['is_lead'])
 
         items = []
         regular_total = 0.0

@@ -68,7 +68,39 @@
 
 {% block modals %}{% endblock %}
 
+<!-- Lead Capture Popup (content/fields/coupon admin-configurable, see Settings → Lead Popup) -->
+<div class="modal fade" id="leadPopupModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="lead-popup-headline">Get a discount on your first order</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p id="lead-popup-body" class="text-muted"></p>
+        <form id="lead-popup-form">
+          <div id="lead-popup-fields"></div>
+        </form>
+        <div id="lead-popup-success" class="text-center d-none">
+          <i class="fas fa-circle-check fa-2x mb-2" style="color:#85AA4E"></i>
+          <p id="lead-popup-success-message" class="mb-2"></p>
+          <div id="lead-popup-coupon-code" class="hashtag-display" style="display:none"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">No thanks</button>
+        <button type="button" id="lead-popup-submit-btn" class="btn btn-primary">Get My Code</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% include 'storefront/_foot.html' %}
+
+<script>
+  var STOREFRONT_LOGGED_IN = {% if is_loggedin %}true{% else %}false{% endif %};
+</script>
+<script src="{% static 'js/lead-popup.js' %}"></script>
 
 {% block extra_js %}{% endblock %}
 </body>
