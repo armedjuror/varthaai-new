@@ -73,6 +73,13 @@ class Order(models.Model):
     razorpay_order_id = models.CharField(max_length=255, blank=True)
     razorpay_payment_id = models.CharField(max_length=255, blank=True)
     payment_date = models.DateTimeField(null=True, blank=True)
+    # GST (billing app). Delivery-address state = place of supply for B2C.
+    shipping_state_code = models.CharField(max_length=2, blank=True)
+    # 'inclusive' / 'exclusive', copied from settings when the order is
+    # created and never changed afterwards. Blank = created before GST billing
+    # (treated as inclusive).
+    price_mode = models.CharField(max_length=10, blank=True)
+    gst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -169,6 +176,20 @@ class B2BOrder(models.Model):
     # Set once, in code, the first time status transitions to 'delivered'
     # (see orders.views_b2b.B2BOrdersAPI._update_status). Never set manually.
     delivered_at = models.DateTimeField(null=True, blank=True)
+    # GST (billing app). price_mode is pinned at creation (blank = created
+    # before GST billing, treated as inclusive); gst_amount is the GST inside
+    # (inclusive) or on top of (exclusive) the goods value in total_amount.
+    price_mode = models.CharField(max_length=10, blank=True)
+    gst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    ship_to_same_as_bill_to = models.BooleanField(default=True)
+    ship_to_name = models.CharField(max_length=255, blank=True)
+    ship_to_address = models.TextField(blank=True)
+    ship_to_state_code = models.CharField(max_length=2, blank=True)
+    ship_to_pincode = models.CharField(max_length=10, blank=True)
+    ship_to_gstin = models.CharField(max_length=15, blank=True)
+    place_of_supply_state = models.CharField(max_length=2, blank=True)
+    customer_po_no = models.CharField(max_length=100, blank=True)
+    customer_po_date = models.DateField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -214,6 +235,7 @@ class B2BPayment(models.Model):
         BANK_TRANSFER = 'bank_transfer', 'Bank Transfer'
         CHEQUE = 'cheque', 'Cheque'
         CREDIT_ADJUSTMENT = 'credit_adjustment', 'Credit Adjustment'
+        ONLINE = 'online', 'Online'
 
     company = models.ForeignKey('crm.B2BCompany', on_delete=models.CASCADE, related_name='payments')
     b2b_order = models.ForeignKey(B2BOrder, on_delete=models.SET_NULL, null=True, blank=True, related_name='payments')
@@ -246,6 +268,13 @@ class B2BReturn(models.Model):
     return_amount = models.DecimalField(max_digits=12, decimal_places=2)
     refund_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     notes = models.TextField(blank=True)
+    # Returns against an order with a GST invoice need a credit note. Until
+    # it is generated the return is "credit note pending" and its money side
+    # (total reduction / refund) is not applied yet.
+    needs_credit_note = models.BooleanField(default=False)
+    credit_note = models.OneToOneField(
+        'billing.CreditNote', on_delete=models.PROTECT, null=True, blank=True, related_name='b2b_return',
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, blank=True, related_name='+',
@@ -257,3 +286,7 @@ class B2BReturn(models.Model):
 
     def __str__(self):
         return f'Return {self.return_amount} — {self.b2b_order_id}'
+
+    @property
+    def credit_note_pending(self):
+        return self.needs_credit_note and self.credit_note_id is None

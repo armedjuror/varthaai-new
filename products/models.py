@@ -12,6 +12,7 @@ class Flavor(models.Model):
     ingredients = models.TextField(blank=True)
     nutrition_fact = models.JSONField(null=True, blank=True)
     image = models.ImageField(upload_to='flavors/', null=True, blank=True)
+    hsn = models.ForeignKey('billing.HSNCode', on_delete=models.SET_NULL, null=True, blank=True, related_name='flavors')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

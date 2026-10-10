@@ -28,6 +28,9 @@ def _post_login_redirect_target(user, brand_id):
         return 'core:dashboard'
     if has_module_permission(user, brand_id, 'field_employee'):
         return 'sessions_tracking:my_performance'
+    if has_module_permission(user, brand_id, 'gst_records'):
+        # The CA login: GST records is the only page such an account can open.
+        return 'billing:gst_records'
     return 'core:dashboard'
 
 

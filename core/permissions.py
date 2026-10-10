@@ -31,6 +31,7 @@ MODULE_PERMISSIONS = [
     ('expenses', 'Expenses'),
     ('settings', 'Settings'),
     ('b2b', 'B2B'),
+    ('gst_records', 'GST Records (read-only, for the CA)'),
     ('field_employee', 'Field Employee (sessions)'),
     ('employee_performance', 'Employee Performance'),
     ('content_dashboard', 'Content: Dashboard'),

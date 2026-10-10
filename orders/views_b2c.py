@@ -21,6 +21,8 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.views import APIView
 
 from accounts.models import PointsTransaction, User
+from billing import services as billing
+from billing.gst_states import STATES, normalise_state_code
 from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
 from core.models import Brand, Setting
@@ -166,6 +168,24 @@ def _pack_prices(pack):
     mrp = float(pack.mrp) if pack.mrp else 0.0
     regular = mrp / pack.weight_grams * 1000 if mrp > 0 else sale
     return regular, sale
+
+
+def _apply_status(order, status, user):
+    """Move `order` to `status`: stock deduction / reversal, the GST invoice
+    on dispatch (shipped/delivered from a pre-dispatch status), income sync.
+    Atomic — a failed invoice (missing state, HSN or GST setup) rolls the
+    whole change back and raises billing.BillingError."""
+    previous = order.status
+    with transaction.atomic():
+        order.status = status
+        order.save(update_fields=['status', 'updated_at'])
+        if status in DEDUCT_STATUSES:
+            _deduct_stock_for_order(order, user)
+        elif status == 'cancelled' and order.stock_deducted:
+            _revert_stock_for_order(order, user)
+        if previous not in DEDUCT_STATUSES and billing.needs_invoice(order, status):
+            billing.ensure_invoice(order, user)
+    sync_b2c_order_income(order)
 
 
 # ═══════════════════════════════════════════════════════ Orders pages ══
@@ -486,17 +506,17 @@ class OrdersAPI(APIView):
         status = data.get('status', '')
         if not order or status not in ORDER_STATUSES:
             return err('Invalid parameters.')
-        if status in STOCK_CHECK_STATUSES:
+        blocked = billing.status_change_error(order, status)
+        if blocked:
+            return err(blocked)
+        if status in STOCK_CHECK_STATUSES and not order.stock_deducted:
             stock_err = _check_stock_for_order(order)
             if stock_err:
                 return err(f"Cannot move to '{status}': {stock_err}")
-        order.status = status
-        order.save(update_fields=['status', 'updated_at'])
-        if status in DEDUCT_STATUSES:
-            _deduct_stock_for_order(order, request.user)
-        elif status == 'cancelled' and order.stock_deducted:
-            _revert_stock_for_order(order, request.user)
-        sync_b2c_order_income(order)
+        try:
+            _apply_status(order, status, request.user)
+        except billing.BillingError as exc:
+            return err(str(exc))
         return ok(message='Order status updated successfully!')
 
     def _update_payment_status(self, request):
@@ -523,25 +543,46 @@ class OrdersAPI(APIView):
         payment_status = data.get('payment_status') or order.payment_status
         coupon_id = data.get('coupon_id')
         user_id = data.get('user_id')
-        with transaction.atomic():
-            order.name = name
-            order.mobile = mobile
-            order.address = (data.get('address') or '').strip()
-            order.pincode = (data.get('pincode') or '').strip()
-            order.status = data.get('status') or order.status
-            order.payment_status = payment_status
-            order.delivery_charge = _float(data.get('delivery_charge'))
-            order.coupon_id = _int(coupon_id) if coupon_id else None
-            order.user_id = _int(user_id) if user_id else None
-            order.save()
-            for item_id, qty in (data.get('item_quantities') or {}).items():
-                qty = _int(qty)
-                if qty > 0:
-                    OrderItem.objects.filter(
-                        id=_int(item_id), order_id=order.id,
-                    ).update(quantity=qty)
-                else:
-                    OrderItem.objects.filter(id=_int(item_id), order_id=order.id).delete()
+        new_status = data.get('status') or order.status
+        new_values = {
+            'name': name,
+            'address': (data.get('address') or '').strip(),
+            'pincode': (data.get('pincode') or '').strip(),
+            'shipping_state_code': normalise_state_code(data.get('shipping_state_code'))
+            if 'shipping_state_code' in data else order.shipping_state_code,
+            'delivery_charge': _float(data.get('delivery_charge')),
+            'coupon_id': _int(coupon_id) if coupon_id else None,
+        }
+        item_changes = {
+            _int(item_id): _int(qty) for item_id, qty in (data.get('item_quantities') or {}).items()
+        }
+        if billing.active_invoice(order):
+            current_qty = dict(order.items.values_list('id', 'quantity'))
+            changed = [k for k, v in new_values.items() if getattr(order, k) != v]
+            if any(current_qty.get(i) != q for i, q in item_changes.items()) or changed:
+                return err(billing.freeze_error(order))
+            blocked = billing.status_change_error(order, new_status)
+            if blocked:
+                return err(blocked)
+
+        try:
+            with transaction.atomic():
+                order.mobile = mobile
+                for key, value in new_values.items():
+                    setattr(order, key, value)
+                order.payment_status = payment_status
+                order.user_id = _int(user_id) if user_id else None
+                order.save()
+                for item_id, qty in item_changes.items():
+                    if qty > 0:
+                        OrderItem.objects.filter(id=item_id, order_id=order.id).update(quantity=qty)
+                    else:
+                        OrderItem.objects.filter(id=item_id, order_id=order.id).delete()
+                billing.refresh_b2c_gst(order)
+                if new_status != order.status:
+                    _apply_status(order, new_status, request.user)
+        except billing.BillingError as exc:
+            return err(str(exc))
 
         if order.user_id and payment_status != old_payment:
             _sync_loyalty(order.id, payment_status)
@@ -555,6 +596,9 @@ class OrdersAPI(APIView):
         quantity = _int(data.get('quantity'))
         if not order or flavor_id <= 0 or quantity <= 0:
             return err('Invalid parameters.')
+        frozen = billing.freeze_error(order)
+        if frozen:
+            return err(frozen)
         flavor = Flavor.objects.filter(
             id=flavor_id, is_active=True,
         ).first()
@@ -578,6 +622,7 @@ class OrdersAPI(APIView):
             sale_price_per_kg=sale_price_per_kg, quantity=quantity,
             pack_label=pack_label,
         )
+        billing.refresh_b2c_gst(order)
         sync_b2c_order_income(order)
         return ok({
             'item': {
@@ -597,10 +642,14 @@ class OrdersAPI(APIView):
         item_id = _int(data.get('item_id'))
         if not order or not item_id:
             return err('Invalid parameters.')
+        frozen = billing.freeze_error(order)
+        if frozen:
+            return err(frozen)
         deleted, _ignored = OrderItem.objects.filter(
             id=item_id, order_id=order.id,
         ).delete()
         if deleted:
+            billing.refresh_b2c_gst(order)
             sync_b2c_order_income(order)
         return ok(message='Item removed.') if deleted else err('Item not found.')
 
@@ -626,18 +675,24 @@ class OrdersAPI(APIView):
             if not orders:
                 return err('No orders could be confirmed due to insufficient stock.')
 
+        blocked = []
+        updated = 0
         for o in orders:
-            o.status = status
-            o.save(update_fields=['status', 'updated_at'])
-            if status in DEDUCT_STATUSES:
-                _deduct_stock_for_order(o, request.user)
-            elif status == 'cancelled' and o.stock_deducted:
-                _revert_stock_for_order(o, request.user)
-            sync_b2c_order_income(o)
+            reason = billing.status_change_error(o, status)
+            if reason is None:
+                try:
+                    _apply_status(o, status, request.user)
+                    updated += 1
+                    continue
+                except billing.BillingError as exc:
+                    reason = str(exc)
+            blocked.append(f'{o.id}: {reason}')
 
-        msg = f'{len(orders)} order(s) updated to {status}!'
+        msg = f'{updated} order(s) updated to {status}!'
         if skipped:
             msg += f' {len(skipped)} skipped due to insufficient stock.'
+        if blocked:
+            msg += f' {len(blocked)} not updated — ' + '; '.join(blocked[:5])
         return ok(message=msg)
 
 
@@ -655,6 +710,9 @@ class CreateOrderAPI(APIView):
         pincode = (data.get('pincode') or '').strip()
         if not name or not mobile or not address or not pincode:
             return err('Required fields are missing.')
+        state_code = normalise_state_code(data.get('shipping_state_code'))
+        if billing.gst_active(brand_id) and not state_code:
+            return err('Select the delivery state (needed for the GST invoice).')
 
         delivery_charge = _float(data.get('delivery_charge'))
         coupon_code = (data.get('coupon_code') or '').strip()
@@ -734,7 +792,7 @@ class CreateOrderAPI(APIView):
                 referral=referral_user, coupon=coupon, coupon_code=coupon_code,
                 coupon_discount=coupon_discount, delivery_charge=delivery_charge,
                 status='pending', payment_status='pending',
-                order_date=order_date,
+                order_date=order_date, shipping_state_code=state_code,
             )
             OrderItem.objects.bulk_create([
                 OrderItem(
@@ -745,6 +803,7 @@ class CreateOrderAPI(APIView):
                 )
                 for it in items
             ])
+            billing.refresh_b2c_gst(order)
 
         return ok(
             {'order_id': order_id},
