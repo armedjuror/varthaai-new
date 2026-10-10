@@ -13,6 +13,9 @@ Path: `/home/ubuntu/varthaai-new` · Venv: `/home/ubuntu/varthaai-new/venv`
 - nginx installed with the usual `sites-available` / `sites-enabled` layout.
 - DNS: `varthaai.com` and `www.varthaai.com` A-records → this EC2's public IP.
 - Security Group: inbound 80 (and 443 later) open; 8007 stays private (localhost only).
+- WeasyPrint system libraries (GST invoice PDFs):
+  `sudo apt install libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libharfbuzz-subset0 fonts-dejavu-core`
+  — see `deploy/GST_BILLING.md`.
 
 ## 1. Get the code
 ```bash

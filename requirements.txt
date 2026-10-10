@@ -31,6 +31,12 @@ mcp==1.29.0
 # available to confirm it in this session.
 litellm==1.55.8
 Markdown==3.10.3
+# GST billing (billing app): tax invoice / credit note PDFs and amount in
+# words. WeasyPrint needs Pango system libraries — see deploy/GST_BILLING.md.
+# Pinned exactly: billing/pdf.py subclasses weasyprint.urls.URLFetcher, whose
+# API changed in recent majors.
+weasyprint==70.0
+num2words==0.5.14
 # bizmcp app's MCP server. Version constrained by claude-agent-sdk's own
 # `mcp<2.0.0,>=1.23.0` requirement (verified by resolving both together).
 mcp==1.30.0

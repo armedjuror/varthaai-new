@@ -99,12 +99,10 @@ def _balance(order):
     return order.total_amount - order.paid_amount
 
 
-def _url_fetcher(url):
-    """Serve /static/ and /media/ from disk; never fetch over the network."""
+def _local_file_for(url):
+    """Map /static/... and /media/... to files on disk (None otherwise)."""
     from pathlib import Path
     from urllib.parse import unquote, urlparse
-
-    from weasyprint.urls import default_url_fetcher
 
     path = unquote(urlparse(url).path)
     for prefix, roots in ((settings.STATIC_URL, list(settings.STATICFILES_DIRS) + [settings.STATIC_ROOT]),
@@ -112,18 +110,35 @@ def _url_fetcher(url):
         if path.startswith(prefix):
             rel = path[len(prefix):]
             for root in roots:
-                candidate = (Path(root) / rel).resolve()
-                if str(candidate).startswith(str(Path(root).resolve())) and candidate.is_file():
-                    return default_url_fetcher(candidate.as_uri())
-    if url.startswith('data:'):
-        return default_url_fetcher(url)
-    raise ValueError(f'External resource not allowed in PDF: {url}')
+                base = Path(root).resolve()
+                candidate = (base / rel).resolve()
+                if str(candidate).startswith(str(base)) and candidate.is_file():
+                    return candidate
+    return None
+
+
+def _fetcher():
+    """WeasyPrint URL fetcher that serves /static/ and /media/ from disk and
+    never goes to the network (rendering must not depend on, or call, this
+    same web server)."""
+    from weasyprint.urls import URLFetcher
+
+    class LocalFetcher(URLFetcher):
+        def fetch(self, url, headers=None):
+            if url.startswith('data:'):
+                return super().fetch(url, headers)
+            local = _local_file_for(url)
+            if local is None:
+                raise ValueError(f'External resource not allowed in PDF: {url}')
+            return super().fetch(local.as_uri(), headers)
+
+    return LocalFetcher()
 
 
 def _write_pdf(html):
     from weasyprint import HTML
 
-    return HTML(string=html, base_url='http://pdf.local/', url_fetcher=_url_fetcher).write_pdf()
+    return HTML(string=html, base_url='http://pdf.local/', url_fetcher=_fetcher()).write_pdf()
 
 
 def render_invoice_pdf(invoice):
