@@ -184,9 +184,13 @@
         <div class="modal-body">
           <div class="table-responsive">
             <table class="table table-sm" style="font-size:0.85rem">
-              <thead><tr><th>Flavor</th><th>Pack</th><th>Remaining</th><th style="width:110px">Return Qty</th><th>Amount</th></tr></thead>
+              <thead><tr><th>Flavor</th><th>Pack</th><th>Remaining</th><th style="width:110px">Return Qty</th><th>Restock</th><th>Amount</th></tr></thead>
               <tbody id="returnItemsBody"></tbody>
             </table>
+          </div>
+          <div class="alert alert-info py-2 d-none" id="returnCreditNoteNote" style="font-size:0.82rem">
+            This order has GST invoice <strong id="returnInvoiceNo"></strong>. The return is recorded now; the bill is
+            adjusted when its credit note is generated (amounts include GST). Untick "Restock" for goods that are discarded.
           </div>
           <div class="row g-3 mt-1">
             <div class="col-md-6">
@@ -213,6 +217,50 @@
           <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-rotate-left me-1"></i>Process Return</button>
         </div>
       </form>
+    </div>
+  </div>
+</div>
+<!-- Cancel & reissue modal -->
+<div class="modal fade" id="reissueModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-arrows-rotate me-2"></i>Cancel &amp; reissue invoice <span id="reissueInvoiceNo"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:0.82rem;color:var(--gray-400)">A full credit note cancels the current invoice and a new invoice is issued with these corrected details. The company record is updated too. Both documents stay on record.</p>
+        <div class="row g-3">
+          <div class="col-md-6"><label class="form-label">Buyer GSTIN</label><input class="form-control text-uppercase" id="riGstin" maxlength="15" placeholder="Leave blank if unregistered"></div>
+          <div class="col-md-6"><label class="form-label">Legal name (as on GST certificate)</label><input class="form-control" id="riLegalName"></div>
+          <div class="col-12"><label class="form-label">Invoice address</label><textarea class="form-control" id="riAddress" rows="2"></textarea></div>
+          <div class="col-md-4"><label class="form-label">City</label><input class="form-control" id="riCity"></div>
+          <div class="col-md-4"><label class="form-label">Pincode</label><input class="form-control" id="riPincode"></div>
+          <div class="col-md-4"><label class="form-label">State</label>
+            <select class="form-select" id="riState"><option value="">Select…</option>{% for code, name in states %}<option value="{{ code }}">{{ name }}</option>{% endfor %}</select>
+            <div class="form-text">Taken from the GSTIN when one is entered.</div>
+          </div>
+          <div class="col-12">
+            <div class="form-check"><input class="form-check-input" type="checkbox" id="riShipSame" checked>
+              <label class="form-check-label" for="riShipSame">Delivery address same as invoice address</label></div>
+          </div>
+          <div class="col-12 ri-ship d-none">
+            <div class="row g-3">
+              <div class="col-md-6"><label class="form-label">Delivery name</label><input class="form-control" id="riShipName"></div>
+              <div class="col-md-6"><label class="form-label">Delivery GSTIN (optional)</label><input class="form-control text-uppercase" id="riShipGstin" maxlength="15"></div>
+              <div class="col-12"><label class="form-label">Delivery address</label><textarea class="form-control" id="riShipAddress" rows="2"></textarea></div>
+              <div class="col-md-6"><label class="form-label">Pincode</label><input class="form-control" id="riShipPincode"></div>
+              <div class="col-md-6"><label class="form-label">State</label>
+                <select class="form-select" id="riShipState"><option value="">Select…</option>{% for code, name in states %}<option value="{{ code }}">{{ name }}</option>{% endfor %}</select>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-warning btn-sm" onclick="submitReissue()"><i class="fas fa-arrows-rotate me-1"></i>Cancel &amp; reissue</button>
+      </div>
     </div>
   </div>
 </div>

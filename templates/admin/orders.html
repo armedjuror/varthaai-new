@@ -1,5 +1,5 @@
 {% extends 'admin/base.html' %}
-{% load static %}
+{% load static billing_tags %}
 
 {% block title %}Orders — Varthaai Admin{% endblock %}
 
@@ -152,7 +152,14 @@
             </div>
             <div class="col-md-3">
               <label class="form-label">Pincode</label>
-              <input type="text" class="form-control" name="pincode">
+              <input type="text" class="form-control" name="pincode" id="createPincode">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">State *</label>
+              <select class="form-select" name="shipping_state_code" id="createState">
+                <option value="">Select state…</option>
+                {% for code, name in states %}<option value="{{ code }}">{{ name }}</option>{% endfor %}
+              </select>
             </div>
             <div class="col-md-3">
               <label class="form-label">Delivery Charge</label>
@@ -206,4 +213,8 @@
 </div>
 {% endblock %}
 
-{% block extra_js %}<script src="{% static 'js/admin/orders.js' %}"></script>{% endblock %}
+{% block extra_js %}
+{% pin_state_script %}
+<script src="{% static 'js/admin/orders.js' %}"></script>
+<script>bindStateFromPincode(document.getElementById('createPincode'), document.getElementById('createState'));</script>
+{% endblock %}

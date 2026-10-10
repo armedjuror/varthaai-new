@@ -41,6 +41,7 @@ $(function () {
     fd.append('state',               $('#addState').val());
     fd.append('pincode',             $('#addPincode').val());
     fd.append('gst_number',          $('#addGst').val());
+    fd.append('gst_legal_name',      $('#addGstName').val());
     fd.append('location_url',        $('#addLocationUrl').val());
     fd.append('assigned_to',         $('#addAssignedTo').val());
     fd.append('created_date',        $('#addCreatedDate').val());

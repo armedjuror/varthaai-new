@@ -1,0 +1,67 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}GST Records — Varthaai Admin{% endblock %}
+
+{% block content %}
+<div class="page-body">
+
+  <div class="page-header">
+    <div>
+      <h1>GST Records</h1>
+      <p>Tax invoices and credit notes issued by the business (all brands). Read-only.</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-primary btn-sm" onclick="exportZip()"><i class="fas fa-file-zipper me-1"></i>Export ZIP</button>
+    </div>
+  </div>
+
+  <div class="alert alert-danger d-none" id="gapAlert" style="font-size:0.875rem"></div>
+
+  <!-- Filters -->
+  <div class="filter-bar mb-3">
+    <div class="row g-2 align-items-end w-100">
+      <div class="col-md-2">
+        <label class="form-label" style="font-size:0.78rem">Period</label>
+        <select class="form-select form-select-sm" id="periodType">
+          <option value="month">Month</option>
+          <option value="fy">Financial year</option>
+          <option value="custom">Custom</option>
+          <option value="all">All</option>
+        </select>
+      </div>
+      <div class="col-md-2 period period-month"><label class="form-label" style="font-size:0.78rem">Month</label><input type="month" class="form-control form-control-sm" id="periodMonth"></div>
+      <div class="col-md-2 period period-fy d-none"><label class="form-label" style="font-size:0.78rem">Financial year</label><select class="form-select form-select-sm" id="periodFy"></select></div>
+      <div class="col-md-2 period period-custom d-none"><label class="form-label" style="font-size:0.78rem">From</label><input type="date" class="form-control form-control-sm" id="periodFrom"></div>
+      <div class="col-md-2 period period-custom d-none"><label class="form-label" style="font-size:0.78rem">To</label><input type="date" class="form-control form-control-sm" id="periodTo"></div>
+      <div class="col-md-2">
+        <label class="form-label" style="font-size:0.78rem">Type</label>
+        <select class="form-select form-select-sm" id="supplyType"><option value="">B2B + B2C</option><option value="B2B">B2B (with GSTIN)</option><option value="B2C">B2C</option></select>
+      </div>
+      <div class="col-md-2"><label class="form-label" style="font-size:0.78rem">Search</label><input class="form-control form-control-sm" id="search" placeholder="Number, GSTIN, name…"></div>
+    </div>
+  </div>
+
+  <ul class="nav nav-tabs mb-3" id="recordTabs">
+    <li class="nav-item"><a class="nav-link active" href="#" data-tab="invoices">Invoices</a></li>
+    <li class="nav-item"><a class="nav-link" href="#" data-tab="credit_notes">Credit notes</a></li>
+    <li class="nav-item"><a class="nav-link" href="#" data-tab="pending">Credit notes pending <span class="badge bg-warning text-dark" id="pendingCount"></span></a></li>
+    <li class="nav-item"><a class="nav-link" href="#" data-tab="missing">Dispatched without invoice <span class="badge bg-danger" id="missingCount"></span></a></li>
+  </ul>
+
+  <div class="data-card">
+    <div class="table-responsive">
+      <table class="table" style="font-size:0.85rem">
+        <thead id="recordsHead"></thead>
+        <tbody id="recordsBody"><tr><td class="text-center" style="padding:30px;color:var(--gray-400)">Loading…</td></tr></tbody>
+        <tfoot id="recordsFoot"></tfoot>
+      </table>
+    </div>
+    <div id="recordsPagination" style="padding:12px 16px"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/admin/gst-records.js' %}"></script>
+{% endblock %}

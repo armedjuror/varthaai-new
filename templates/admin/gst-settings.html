@@ -1,0 +1,153 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}GST Settings — Varthaai Admin{% endblock %}
+
+{% block content %}
+<div class="page-body">
+
+  <div class="page-header">
+    <div>
+      <h1>GST Settings</h1>
+      <p>Business GST details, price modes, HSN codes and rates for tax invoices.</p>
+    </div>
+    <div class="page-header-actions">
+      <a href="{% url 'core:settings' %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i>Settings</a>
+    </div>
+  </div>
+
+  <div class="alert alert-warning d-none" id="entityError" style="font-size:0.875rem"></div>
+
+  <div class="row g-4">
+    <!-- Business (legal entity) -->
+    <div class="col-lg-7">
+      <div class="data-card">
+        <div class="data-card-header"><h3><i class="fas fa-building me-2" style="color:var(--primary-color)"></i>Business (as on the GST certificate)</h3></div>
+        <form id="entityForm" style="padding:20px">
+          <div class="row g-3">
+            <div class="col-md-6"><label class="form-label">Legal name *</label><input class="form-control" name="legal_name"></div>
+            <div class="col-md-6"><label class="form-label">Trade name</label><input class="form-control" name="trade_name"></div>
+            <div class="col-md-6"><label class="form-label">GSTIN *</label><input class="form-control text-uppercase" name="gstin" maxlength="15"></div>
+            <div class="col-md-3"><label class="form-label">PAN</label><input class="form-control text-uppercase" name="pan" maxlength="10"></div>
+            <div class="col-md-3"><label class="form-label">State</label>
+              <select class="form-select" name="state_code">{% for code, name in states %}<option value="{{ code }}">{{ name }}</option>{% endfor %}</select>
+            </div>
+            <div class="col-12"><label class="form-label">Registered address *</label><textarea class="form-control" name="address" rows="3"></textarea></div>
+            <div class="col-md-4"><label class="form-label">FSSAI Lic. No.</label><input class="form-control" name="fssai_no"></div>
+            <div class="col-md-4"><label class="form-label">Phone</label><input class="form-control" name="phone"></div>
+            <div class="col-md-4"><label class="form-label">Email</label><input class="form-control" name="email"></div>
+            <div class="col-md-4"><label class="form-label">Bank name</label><input class="form-control" name="bank_name"></div>
+            <div class="col-md-4"><label class="form-label">Account no.</label><input class="form-control" name="bank_account_no"></div>
+            <div class="col-md-4"><label class="form-label">IFSC</label><input class="form-control text-uppercase" name="bank_ifsc"></div>
+            <div class="col-md-6"><label class="form-label">Branch</label><input class="form-control" name="bank_branch"></div>
+            <div class="col-md-6"><label class="form-label">UPI ID</label><input class="form-control" name="upi_id"></div>
+            <div class="col-md-6"><label class="form-label">Jurisdiction (city)</label><input class="form-control" name="jurisdiction"></div>
+            <div class="col-md-6"><label class="form-label">Signatory line</label><input class="form-control" name="signatory" placeholder="Authorised Signatory"></div>
+            <div class="col-12"><label class="form-label">B2B payment / interest terms (printed on B2B invoices)</label><textarea class="form-control" name="b2b_terms" rows="2"></textarea></div>
+          </div>
+          <div class="mt-3 text-end"><button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Save business details</button></div>
+        </form>
+      </div>
+    </div>
+
+    <!-- GST settings -->
+    <div class="col-lg-5 d-flex flex-column gap-4">
+      <div class="data-card">
+        <div class="data-card-header"><h3><i class="fas fa-sliders me-2" style="color:var(--primary-color)"></i>Invoicing</h3></div>
+        <form id="gstSettingsForm" style="padding:20px">
+          <div class="mb-3">
+            <label class="form-label">GST billing starts on</label>
+            <input type="date" class="form-control" id="gstEffectiveDate">
+            <div class="form-text">Orders dispatched on/after this date get a GST tax invoice.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">B2B prices</label>
+            <select class="form-select" id="gstModeB2B">
+              <option value="exclusive">GST on top (exclusive)</option>
+              <option value="inclusive">GST included in price (inclusive)</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">B2C / website prices</label>
+            <select class="form-select" id="gstModeB2C">
+              <option value="inclusive">GST included in price (inclusive)</option>
+              <option value="exclusive" disabled>GST on top (exclusive) — Phase 2</option>
+            </select>
+            <div class="form-text">Applies to orders created after saving. Existing orders keep the mode they were created with.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Copies printed by default</label>
+            <div class="form-check"><input class="form-check-input gst-copy" type="checkbox" value="original" id="copyOriginal"><label class="form-check-label" for="copyOriginal">Original for Recipient</label></div>
+            <div class="form-check"><input class="form-check-input gst-copy" type="checkbox" value="duplicate" id="copyDuplicate"><label class="form-check-label" for="copyDuplicate">Duplicate for Transporter</label></div>
+            <div class="form-check"><input class="form-check-input gst-copy" type="checkbox" value="triplicate" id="copyTriplicate"><label class="form-check-label" for="copyTriplicate">Triplicate for Supplier</label></div>
+          </div>
+          <div class="text-end"><button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Save</button></div>
+        </form>
+      </div>
+
+      <div class="data-card">
+        <div class="data-card-header"><h3><i class="fas fa-cookie-bite me-2" style="color:var(--primary-color)"></i>Flavor → HSN</h3></div>
+        <div style="padding:12px 20px">
+          <table class="table table-sm" style="font-size:0.85rem"><tbody id="flavorHsnBody"></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- HSN codes + rates -->
+    <div class="col-12">
+      <div class="data-card">
+        <div class="data-card-header">
+          <h3><i class="fas fa-percent me-2" style="color:var(--primary-color)"></i>HSN codes &amp; GST rates</h3>
+          <button class="btn btn-primary btn-sm" onclick="openHsnModal()"><i class="fas fa-plus me-1"></i>HSN code</button>
+        </div>
+        <div class="table-responsive">
+          <table class="table">
+            <thead><tr><th>HSN</th><th>Description</th><th>UQC</th><th>Rate today</th><th>Rate history</th><th></th></tr></thead>
+            <tbody id="hsnBody"><tr><td colspan="6" class="text-center" style="padding:30px;color:var(--gray-400)">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- HSN modal -->
+<div class="modal fade" id="hsnModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">HSN code</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="hsnId">
+        <div class="mb-2"><label class="form-label">HSN code (4, 6 or 8 digits)</label><input class="form-control" id="hsnCode"></div>
+        <div class="mb-2"><label class="form-label">Description</label><input class="form-control" id="hsnDescription"></div>
+        <div class="mb-2"><label class="form-label">Unit (UQC) reported</label><select class="form-select" id="hsnUqc"></select></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary btn-sm" onclick="saveHsn()">Save</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- Rate modal -->
+<div class="modal fade" id="rateModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Add GST rate — <span id="rateHsnCode"></span></h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="rateHsnId">
+        <div class="row g-2">
+          <div class="col-6"><label class="form-label">GST rate % (total)</label><input type="number" step="0.01" min="0" class="form-control" id="rateValue" placeholder="e.g. 5"></div>
+          <div class="col-6"><label class="form-label">Cess %</label><input type="number" step="0.01" min="0" class="form-control" id="rateCess" value="0"></div>
+          <div class="col-6"><label class="form-label">Effective from</label><input type="date" class="form-control" id="rateFrom"></div>
+          <div class="col-6"><label class="form-label">Effective to (optional)</label><input type="date" class="form-control" id="rateTo"></div>
+        </div>
+        <div class="form-text mt-2">Invoices look up the rate by invoice date. Issued invoices keep the rate they were issued with.</div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary btn-sm" onclick="saveRate()">Add rate</button></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/admin/gst-settings.js' %}"></script>
+{% endblock %}

@@ -33,7 +33,7 @@ $(function () {
         }
       }
     })
-    .fail(function () { showAlertModal('Failed to load form data.', 'danger'); })
+    .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Failed to load form data.'), 'danger'); })
     .always(hideLoader);
 });
 
@@ -378,7 +378,93 @@ function recalculate() {
   }
 
   $('#summTotal').text(formatCurrency(total));
+  scheduleGstPreview();
 }
+
+/* ── GST breakup (server-computed: rates, place of supply, price mode) ── */
+var gstPreviewTimer = null;
+var gstPreviewSeq = 0;
+
+function scheduleGstPreview() {
+  clearTimeout(gstPreviewTimer);
+  gstPreviewTimer = setTimeout(loadGstPreview, 300);
+}
+
+function shipToPayload() {
+  var same = $('#shipSame').is(':checked');
+  return {
+    ship_to_same_as_bill_to: same ? 1 : 0,
+    ship_to_name:       same ? '' : $('#shipName').val().trim(),
+    ship_to_gstin:      same ? '' : $('#shipGstin').val().trim(),
+    ship_to_address:    same ? '' : $('#shipAddress').val().trim(),
+    ship_to_pincode:    same ? '' : $('#shipPincode').val().trim(),
+    ship_to_state_code: same ? '' : $('#shipState').val()
+  };
+}
+
+function toggleShipTo() {
+  $('#shipToFields').toggle(!$('#shipSame').is(':checked'));
+  scheduleGstPreview();
+}
+
+function itemsPayload() {
+  return orderItems.map(function (it) {
+    return {
+      flavor_id:      it.flavor_id,
+      flavor_pack_id: it.flavor_pack_id,
+      stock_id:       it.stock_id,
+      quantity:       it.quantity,
+      weight_grams:   it.weight_grams,
+      mrp:            it.mrp,
+      selling_price:  it.selling_price,
+      cost_price:     it.cost_price,
+      is_free_item:   it.is_free_item,
+      offer_id:       it.offer_id,
+      flavor_name:    it.flavor_name,
+      pack_label:     it.pack_label
+    };
+  });
+}
+
+function loadGstPreview() {
+  var companyId = parseInt($('#orderCompany').val());
+  if (!companyId || !orderItems.length) { $('#summGst').hide(); $('#summGstNote').text(''); return; }
+  var seq = ++gstPreviewSeq;
+  apiPost('/admin/api/b2b-orders/', $.extend({
+    action: 'gst_preview', company_id: companyId, order_id: EDIT_ORDER_ID || null,
+    discount_type: $('#discountType').val() || null,
+    discount_value: parseFloat($('#discountValue').val()) || null,
+    items: itemsPayload()
+  }, shipToPayload()))
+    .done(function (res) {
+      if (seq !== gstPreviewSeq || !res.success) return;
+      var g = res.data || {};
+      if (!g.enabled) { $('#summGst').hide(); $('#summGstNote').text(''); return; }
+      if (g.error) {
+        $('#summGst').html('<div class="summary-row" style="color:#dc2626"><span>GST</span><span>—</span></div>').show();
+        $('#summGstNote').html('<span style="color:#dc2626">' + escHtml(g.error) + '</span>');
+        return;
+      }
+      var rows = g.is_interstate
+        ? '<div class="summary-row"><span>IGST</span><span>' + formatCurrency(g.igst) + '</span></div>'
+        : '<div class="summary-row"><span>CGST</span><span>' + formatCurrency(g.cgst) + '</span></div>' +
+          '<div class="summary-row"><span>SGST</span><span>' + formatCurrency(g.sgst) + '</span></div>';
+      if (g.price_mode === 'inclusive') {
+        rows = '<div style="font-size:0.78rem;color:var(--gray-400)">' + rows + '</div>';
+      }
+      $('#summGst').html(rows).show();
+      $('#summTotal').text(formatCurrency(g.grand_total));
+      $('#summGstNote').html(
+        (g.price_mode === 'exclusive' ? 'GST added on top of the prices' : 'Prices include GST') +
+        (g.place_of_supply ? ' · Place of supply: ' + escHtml(g.place_of_supply) : '') +
+        (g.eway_required ? '<div style="color:#b45309;margin-top:4px"><i class="fas fa-triangle-exclamation me-1"></i>Inter-state above ₹50,000 — an e-way bill is needed before dispatch.</div>' : '')
+      );
+    });
+}
+
+$(document).on('input change', '#shipName, #shipGstin, #shipAddress, #shipPincode', function () {
+  if (this.id === 'shipPincode') scheduleGstPreview();
+});
 
 /* ── Submit ── */
 function submitOrder() {
@@ -404,23 +490,11 @@ function submitOrder() {
     due_date:     $('#orderDueDate').val() || null,
     order_date:   $('#orderDate').val() || null,
     source_order_id: REPEAT_ORDER_ID || null,
-    items: orderItems.map(function (it) {
-      return {
-        flavor_id:      it.flavor_id,
-        flavor_pack_id: it.flavor_pack_id,
-        stock_id:       it.stock_id,
-        quantity:        it.quantity,
-        weight_grams:   it.weight_grams,
-        mrp:            it.mrp,
-        selling_price:  it.selling_price,
-        cost_price:     it.cost_price,
-        is_free_item:   it.is_free_item,
-        offer_id:       it.offer_id,
-        flavor_name:    it.flavor_name,
-        pack_label:     it.pack_label
-      };
-    })
+    customer_po_no:   $('#poNumber').val().trim(),
+    customer_po_date: $('#poDate').val() || null,
+    items: itemsPayload()
   };
+  $.extend(data, shipToPayload());
   if (isEdit) data.order_id = EDIT_ORDER_ID;
   if (!isEdit) data.status = $('#orderStatus').val() || 'draft';
 
@@ -442,7 +516,7 @@ function submitOrder() {
         showAlertModal(res.message, 'danger');
       }
     })
-    .fail(function () { showAlertModal('Request failed.', 'danger'); })
+    .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Request failed.'), 'danger'); })
     .always(hideLoader);
 }
 
@@ -461,6 +535,7 @@ function loadEditOrder() {
       if (res.notes) $('#orderNotes').val(res.notes);
       $('#orderDueDate').val(res.due_date || '');
       $('#orderDate').val(res.order_date ? _toLocalDatetimeInput(res.order_date) : '');
+      applyShipTo(res, true);
 
       (res.items || []).forEach(function (it) {
         itemCounter++;
@@ -485,7 +560,7 @@ function loadEditOrder() {
       renderItems();
       recalculate();
     })
-    .fail(function () { showAlertModal('Failed to load order.', 'danger'); })
+    .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Failed to load order.'), 'danger'); })
     .always(hideLoader);
 }
 
@@ -502,6 +577,7 @@ function loadRepeatOrder() {
       if (res.contact_id) $('#orderContact').val(res.contact_id);
       if (res.discount_type) { $('#discountType').val(res.discount_type); $('#discountValue').val(res.discount_value); }
       if (res.notes) $('#orderNotes').val(res.notes);
+      applyShipTo(res, false);
 
       // Add items (re-map with fresh prices where possible)
       (res.items || []).forEach(function (it) {
@@ -527,6 +603,22 @@ function loadRepeatOrder() {
       renderItems();
       recalculate();
     })
-    .fail(function () { showAlertModal('Failed to load order.', 'danger'); })
+    .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Failed to load order.'), 'danger'); })
     .always(hideLoader);
+}
+
+/* Prefill delivery address (and, when editing, the PO) from a loaded order. */
+function applyShipTo(res, withPo) {
+  var same = res.ship_to_same_as_bill_to === undefined ? true : !!parseInt(res.ship_to_same_as_bill_to);
+  $('#shipSame').prop('checked', same);
+  $('#shipName').val(res.ship_to_name || '');
+  $('#shipGstin').val(res.ship_to_gstin || '');
+  $('#shipAddress').val(res.ship_to_address || '');
+  $('#shipPincode').val(res.ship_to_pincode || '');
+  $('#shipState').val(res.ship_to_state_code || '');
+  $('#shipToFields').toggle(!same);
+  if (withPo) {
+    $('#poNumber').val(res.customer_po_no || '');
+    $('#poDate').val(res.customer_po_date || '');
+  }
 }

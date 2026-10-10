@@ -49,7 +49,19 @@ def _order_summary(order):
             'item_total': item_total,
         })
     discount = order.coupon_discount or 0.0
+    invoices = list(order.invoices.all())
+    invoice = next((i for i in invoices if i.status == 'active'), None)
     return {
+        'tax_invoice': {
+            'number': invoice.number, 'date': invoice.invoice_date.isoformat(),
+            'url': f'/tax-invoice/{order.id}.pdf',
+        } if invoice else None,
+        'gst_billing': bool(order.price_mode) or invoice is not None,
+        'gst_amount': float(order.gst_amount),
+        'credit_notes': [{
+            'number': cn.number, 'date': cn.credit_note_date.isoformat(),
+            'amount': float(cn.grand_total), 'url': f'/credit-note/{cn.id}.pdf',
+        } for inv in invoices for cn in inv.credit_notes.all()],
         'id': order.id, 'status': order.status, 'payment_status': order.payment_status,
         'name': order.name, 'mobile': order.mobile, 'address': order.address,
         'pincode': order.pincode, 'delivery_charge': order.delivery_charge,
@@ -71,7 +83,7 @@ class DashboardDataAPI(StorefrontAPIView):
 
         orders = (
             Order.objects.filter(user=user).exclude(status='deleted')
-            .prefetch_related('items', 'items__flavor').order_by('-order_date')
+            .prefetch_related('items', 'items__flavor', 'invoices__credit_notes').order_by('-order_date')
         )
         order_ids = set()
         order_list = []
@@ -219,7 +231,10 @@ class CancelOrderAPI(StorefrontAPIView):
         order_id = (body.get('order_id') or '').strip()
         if not order_id:
             return Response({'success': False, 'message': 'Order ID is required'})
-        updated = Order.objects.filter(id=order_id, payment_status='pending').update(
+        # Never cancel a dispatched / GST-invoiced order from the storefront.
+        updated = Order.objects.filter(
+            id=order_id, payment_status='pending', invoices__isnull=True,
+        ).exclude(status__in=('shipped', 'delivered')).update(
             status='cancelled', payment_status='cancelled',
         )
         if updated:

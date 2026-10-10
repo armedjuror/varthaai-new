@@ -126,3 +126,8 @@ def state_from_pincode(pincode):
     if len(digits) != 6:
         return ''
     return _PIN3.get(digits[:3]) or _PIN2.get(digits[:2], '')
+
+
+def pincode_prefix_map():
+    """Prefix tables for the browser-side prefill (state-from-pincode.js)."""
+    return {'p3': _PIN3, 'p2': _PIN2}

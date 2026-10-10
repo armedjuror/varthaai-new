@@ -623,6 +623,7 @@
     if (!formData.mobile || !formData.mobile.match(/^\d{10}$/)) { showValidationError('#mobile', 'Please enter a valid 10-digit mobile number'); isValid = false; }
     if (!formData.address) { showValidationError('#address', 'Please enter your delivery address'); isValid = false; }
     if (!formData.pincode || !formData.pincode.match(/^\d{6}$/)) { showValidationError('#pincode', 'Please enter a valid 6-digit pincode'); isValid = false; }
+    if (!$('#delivery-state').val()) { showValidationError('#delivery-state', 'Please select your state'); isValid = false; }
     return isValid;
   }
 

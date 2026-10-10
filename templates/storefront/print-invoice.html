@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Invoice - {{ order.id }}</title>
+  <title>Order Summary - {{ order.id }}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background: white; }
@@ -41,6 +41,7 @@
     .footer { margin-top: 40px; text-align: center; font-size: 0.85rem; color: #666; border-top: 1px solid #eee; padding-top: 20px; }
     .payment-info { background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
     .payment-info h4 { margin-bottom: 10px; color: #333; }
+{% include 'billing/_summary_styles.html' %}
     @media print {
       body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       .invoice-container { margin: 0; padding: 0; }
@@ -59,7 +60,7 @@
 <body>
 <div class="invoice-container">
   <div style="text-align: right; margin-bottom: 20px;" class="no-print">
-    <button onclick="window.print()" style="background: #85aa4e; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">Print Invoice</button>
+    <button onclick="window.print()" style="background: #85aa4e; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">Print Order Summary</button>
     <a href="/dashboard/" style="background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; text-decoration: none; margin-left: 10px;">Back to Dashboard</a>
   </div>
 
@@ -74,7 +75,8 @@
       </div>
     </div>
     <div class="invoice-info">
-      <div class="invoice-number"><strong>INVOICE #{{ order.id }}</strong></div>
+      <div class="invoice-number"><strong>ORDER SUMMARY</strong></div>
+      <div class="invoice-date">Order #{{ order.id }}</div>
       <div class="invoice-date">Date: {{ order.order_date|date:"d/m/Y" }}</div>
       <div class="invoice-date">Time: {{ order.order_date|date:"H:i" }}</div>
       <div style="margin-top: 10px;">
@@ -163,6 +165,7 @@
         <span>Delivery Charge:</span>
         <span>{% if order.delivery_charge > 0 %}₹{{ order.delivery_charge|floatformat:2 }}{% else %}FREE{% endif %}</span>
       </div>
+      {% include 'billing/_summary_gst_rows.html' %}
       <div class="totals-row total">
         <span>TOTAL AMOUNT:</span>
         <span>₹{{ total|floatformat:2 }}</span>
@@ -170,6 +173,7 @@
     </div>
   </div>
 
+  {% include 'billing/_summary_documents.html' %}
   <div class="payment-info">
     <h4>Payment Information</h4>
     <div><strong>Payment Status:</strong> {{ order.payment_status|capfirst }}</div>
@@ -181,7 +185,7 @@
   <div class="footer">
     <div style="margin-bottom: 10px;"><strong>Thank you for choosing Varthaai!</strong></div>
     <div>For any queries, contact us at {{ settings_map.business_phone|default:'' }} or {{ settings_map.business_email|default:'' }}</div>
-    <div style="margin-top: 10px; font-size: 0.75rem;">This is a computer-generated invoice. No signature required.</div>
+    <div style="margin-top: 10px; font-size: 0.75rem;">This is not a tax invoice.</div>
   </div>
 </div>
 </body>

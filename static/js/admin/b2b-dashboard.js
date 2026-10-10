@@ -397,6 +397,9 @@ function renderStats(stats, pipeline) {
     { icon: 'fa-clock',              bg: '#fef2f2', color: '#dc2626', value: formatCurrency(stats.total_overdue), label: 'Overdue' },
     { icon: 'fa-wallet',             bg: '#f0fdf4', color: '#16a34a', value: formatCurrency(stats.total_advance), label: 'Advance Credit' }
   ];
+  if (parseInt(stats.credit_notes_pending) > 0) {
+    cards.push({ icon: 'fa-file-circle-exclamation', bg: '#fffbeb', color: '#b45309', value: parseInt(stats.credit_notes_pending), label: 'Credit Notes Pending' });
+  }
 
   var html = '';
   cards.forEach(function (c) {

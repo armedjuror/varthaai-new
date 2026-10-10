@@ -134,14 +134,20 @@ def entity_config_error(entity):
 
 def gst_active(brand_id, on_date=None):
     """True when orders dispatched on `on_date` must get a GST invoice: the
-    effective date has arrived and the brand bills under a legal entity.
-    (An incomplete entity still counts as active, so dispatch is blocked
-    with a clear message rather than silently skipping the invoice.)"""
+    effective date has arrived and the brand's legal entity has a GSTIN.
+
+    Saving the GSTIN in Settings -> GST is the go-live switch: until then
+    every order behaves as before GST billing. Once it is live, anything
+    missing for a valid invoice (HSN, rate, delivery state, address) blocks
+    the dispatch with a clear message instead of skipping the invoice."""
     eff = effective_date()
     if eff is None:
         return False
     on_date = on_date or ist_today()
-    return on_date >= eff and entity_for_brand(brand_id) is not None
+    if on_date < eff:
+        return False
+    entity = entity_for_brand(brand_id)
+    return entity is not None and bool(entity.gstin)
 
 
 # ── numbering ────────────────────────────────────────────────────────────
@@ -874,4 +880,41 @@ def tax_result_payload(result):
         'taxable_total': float(result.taxable_total), 'cgst': float(result.cgst_total),
         'sgst': float(result.sgst_total), 'igst': float(result.igst_total),
         'tax_total': float(result.tax_total), 'grand_total': float(result.grand_total),
+    }
+
+
+def attach_document_urls(gst, invoice_url, credit_note_url):
+    """Set `.url` on the summary's invoice and credit notes for the Order
+    Summary page (admin print pages vs storefront PDF downloads)."""
+    if not gst:
+        return gst
+    if gst.get('invoice') is not None:
+        gst['invoice_url'] = invoice_url(gst['invoice'])
+    for cn in gst.get('credit_notes', []):
+        cn.url = credit_note_url(cn)
+    return gst
+
+
+def order_summary_context(order, invoice_url, credit_note_url, order_total):
+    """Extra context for an Order Summary page: GST block, PAID / PART PAID
+    seal, and the total after credit notes. `order_total` is what the page
+    shows as the order total (B2C: computed from items; B2B: total_amount,
+    which credit notes have already reduced)."""
+    gst = attach_document_urls(order_gst_summary(order), invoice_url, credit_note_url)
+    kind = _order_kind(order)
+    seal = None
+    if kind == 'b2c':
+        if order.payment_status == 'paid':
+            seal = {'partial': False, 'date': order.payment_date}
+        net = Decimal(str(order_total)) - (gst['credit_total'] if gst else ZERO)
+    else:
+        last = order.payments.filter(payment_type='payment').order_by('-payment_date').first()
+        if order.total_amount > 0 and order.paid_amount >= order.total_amount:
+            seal = {'partial': False, 'date': last.payment_date if last else None}
+        elif order.paid_amount > 0:
+            seal = {'partial': True, 'paid': order.paid_amount, 'due': order.total_amount - order.paid_amount}
+        net = order.total_amount
+    return {
+        'gst': gst, 'paid_seal': seal, 'net_after_credit': net,
+        'cancelled': order.status in ('cancelled', 'failed', 'deleted'),
     }

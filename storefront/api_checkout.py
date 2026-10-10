@@ -20,6 +20,8 @@ from django.utils import timezone
 from rest_framework.response import Response
 
 from accounts.models import User
+from billing import services as billing
+from billing.gst_states import normalise_state_code, state_from_pincode
 from core.models import Brand
 from finance.services import sync_b2c_order_income
 from orders.models import Coupon, Order, OrderItem
@@ -80,6 +82,9 @@ class PlaceOrderAPI(StorefrontAPIView):
         mobile = (body.get('mobile') or '').strip()
         address = (body.get('address') or '').strip()
         pincode = (body.get('pincode') or '').strip()
+        # Delivery state = GST place of supply. Older cached pages may not send
+        # it, so fall back to the pincode prefix.
+        state_code = normalise_state_code(body.get('state')) or state_from_pincode(pincode)
         referral_code = (body.get('referral') or '').strip()
         coupon_code = (body.get('coupon') or '').strip()
         items = body.get('items') or []
@@ -143,7 +148,7 @@ class PlaceOrderAPI(StorefrontAPIView):
                     name=name, mobile=clean, address=address, pincode=pincode,
                     referral=referral_user, coupon=coupon, coupon_code=coupon_code,
                     coupon_discount=coupon_discount, delivery_charge=delivery_charge,
-                    status='pending', payment_status='pending',
+                    status='pending', payment_status='pending', shipping_state_code=state_code,
                 )
                 OrderItem.objects.bulk_create([
                     OrderItem(
@@ -152,6 +157,7 @@ class PlaceOrderAPI(StorefrontAPIView):
                         quantity=qty,
                     ) for f, qty in line_items
                 ])
+                billing.refresh_b2c_gst(order)
                 rzp = _razorpay_client().order.create({
                     'receipt': order_id,
                     'amount': int(round(final_amount * 100)),

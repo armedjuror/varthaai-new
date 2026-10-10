@@ -94,7 +94,7 @@ function loadOrders() {
       renderOrdersTable(res.data.orders, res.data.total);
       renderOrdersPagination(res.data.total, res.data.per_page, res.data.page);
     })
-    .fail(function () { showAlertModal('Failed to load orders.', 'danger'); })
+    .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Failed to load orders.'), 'danger'); })
     .always(hideLoader);
 }
 
@@ -161,7 +161,7 @@ function updateOrderStatus(orderId, status) {
         showAlertModal(res.message, res.success ? 'success' : 'danger');
         if (res.success) loadOrders();
       })
-      .fail(function () { showAlertModal('Request failed.', 'danger'); })
+      .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Request failed.'), 'danger'); })
       .always(hideLoader);
   });
 }
@@ -174,7 +174,7 @@ function updatePaymentStatus(orderId, paymentStatus) {
         showAlertModal(res.message, res.success ? 'success' : 'danger');
         if (res.success) loadOrders();
       })
-      .fail(function () { showAlertModal('Request failed.', 'danger'); })
+      .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Request failed.'), 'danger'); })
       .always(hideLoader);
   });
 }
@@ -189,7 +189,7 @@ function bulkStatusUpdate(status) {
         showAlertModal(res.message, res.success ? 'success' : 'danger');
         if (res.success) loadOrders();
       })
-      .fail(function () { showAlertModal('Request failed.', 'danger'); })
+      .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Request failed.'), 'danger'); })
       .always(hideLoader);
   });
 }
@@ -339,6 +339,7 @@ function submitCreateOrder() {
     mobile: $('[name="mobile"]').val(),
     address: $('[name="address"]').val(),
     pincode: $('[name="pincode"]').val(),
+    shipping_state_code: $('#createState').val(),
     delivery_charge: parseFloat($('[name="delivery_charge"]').val()) || 0,
     coupon_code: $('[name="coupon_code"]').val(),
     referral_code: $('[name="referral_code"]').val(),
@@ -355,6 +356,6 @@ function submitCreateOrder() {
         loadOrders();
       }
     })
-    .fail(function () { showAlertModal('Request failed.', 'danger'); })
+    .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Request failed.'), 'danger'); })
     .always(hideLoader);
 }

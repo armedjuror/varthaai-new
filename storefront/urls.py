@@ -17,6 +17,10 @@ urlpatterns = [
     path('policy/', views.policy, name='policy'),
     path('dashboard/', views.dashboard, name='dashboard'),
     path('print-invoice/', views.print_invoice, name='print_invoice'),
+    path('order-summary/', views.print_invoice, name='order_summary'),
+    path('order-summary/<str:order_id>.pdf', views.order_summary_pdf, name='order_summary_pdf'),
+    path('tax-invoice/<str:order_id>.pdf', views.tax_invoice_pdf, name='tax_invoice_pdf'),
+    path('credit-note/<int:pk>.pdf', views.credit_note_pdf, name='credit_note_pdf'),
     path('logout/', views.logout, name='logout'),
 
     # Public read APIs

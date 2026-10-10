@@ -16,7 +16,7 @@ const ALERT_MODAL_HTML = `
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" id="alertModalCloseBtn"></button>
       </div>
       <div class="modal-body" id="alertModalBody">
-        <p id="alertModalMessage"></p>
+        <p id="alertModalMessage" style="white-space:pre-line"></p>
       </div>
       <div class="modal-footer" id="alertModalFooter">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="alertModalCancelBtn" style="display: none;">Cancel</button>

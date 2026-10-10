@@ -1,5 +1,5 @@
 {% extends 'admin/base.html' %}
-{% load static %}
+{% load static billing_tags %}
 
 {% block title %}B2B Company — Varthaai Admin{% endblock %}
 
@@ -293,15 +293,20 @@
             </div>
             <div class="col-md-4">
               <label class="form-label">State</label>
-              <input type="text" class="form-control" id="editState">
+              <select class="form-select" id="editState"><option value="">Select…</option>{% gst_state_options %}</select>
             </div>
             <div class="col-md-4">
               <label class="form-label">Pincode</label>
               <input type="text" class="form-control" id="editPincode">
             </div>
             <div class="col-md-4">
-              <label class="form-label">GST Number</label>
-              <input type="text" class="form-control" id="editGst">
+              <label class="form-label">GSTIN</label>
+              <input type="text" class="form-control text-uppercase" id="editGst" maxlength="15" placeholder="e.g. 29ABCDE1234F1Z5">
+              <div class="form-text" style="font-size:0.72rem">Checked when saved; sets the state.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Legal name (GST)</label>
+              <input type="text" class="form-control" id="editGstName" placeholder="As on GST certificate">
             </div>
             <div class="col-md-4">
               <label class="form-label">Assigned To</label>

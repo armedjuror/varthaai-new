@@ -16,6 +16,8 @@ from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.views import APIView
 
+from billing.gst_states import normalise_state_code, state_name
+from billing.gstin import validate_gstin
 from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
 from crm import services as crm_services
@@ -70,6 +72,8 @@ def _company_detail(c):
         'state': c.state,
         'pincode': c.pincode,
         'gst_number': c.gst_number,
+        'gst_legal_name': c.gst_legal_name,
+        'state_code': c.state_code,
         'location_url': c.location_url,
         'photo': c.photo.url if c.photo else '',
         'stage': c.stage,
@@ -280,15 +284,17 @@ class B2BAPI(APIView):
         name = (body.get('company_name') or '').strip()
         if not name:
             return err('Company name is required.')
+        gst, gst_error = _gst_fields(body)
+        if gst_error:
+            return err(gst_error)
         company = B2BCompany.objects.create(
             brand_id=brand_id,
             category_id=_int_or_none(body.get('category_id')),
             company_name=name,
             address=(body.get('address') or '').strip(),
             city=(body.get('city') or '').strip(),
-            state=(body.get('state') or '').strip(),
             pincode=(body.get('pincode') or '').strip(),
-            gst_number=(body.get('gst_number') or '').strip(),
+            **gst,
             location_url=(body.get('location_url') or '').strip(),
             photo=request.FILES.get('photo') or None,
             stage=body.get('stage') or 'lead',
@@ -323,13 +329,16 @@ class B2BAPI(APIView):
         name = (body.get('company_name') or '').strip()
         if not name:
             return err('Company name is required.')
+        gst, gst_error = _gst_fields(body)
+        if gst_error:
+            return err(gst_error)
         company.category_id = _int_or_none(body.get('category_id'))
         company.company_name = name
         company.address = (body.get('address') or '').strip()
         company.city = (body.get('city') or '').strip()
-        company.state = (body.get('state') or '').strip()
         company.pincode = (body.get('pincode') or '').strip()
-        company.gst_number = (body.get('gst_number') or '').strip()
+        for key, value in gst.items():
+            setattr(company, key, value)
         company.location_url = (body.get('location_url') or '').strip()
         photo = request.FILES.get('photo')
         if photo:
@@ -485,6 +494,23 @@ class B2BAPI(APIView):
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
+def _gst_fields(body):
+    """GSTIN (validated, uppercase), legal name and state. A GSTIN fixes the
+    state (its first two digits). The state select sends a GST state code;
+    older clients may send a state name."""
+    gstin, gstin_err = validate_gstin(body.get('gst_number'))
+    if gstin_err:
+        return None, gstin_err
+    code = gstin[:2] if gstin else normalise_state_code(body.get('state'))
+    raw_state = (body.get('state') or '').strip()
+    return {
+        'gst_number': gstin,
+        'gst_legal_name': (body.get('gst_legal_name') or '').strip()[:255],
+        'state_code': code,
+        'state': state_name(code) or (raw_state if not raw_state.isdigit() else ''),
+    }, None
+
 
 def _int_or_none(value):
     try:

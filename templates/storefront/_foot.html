@@ -1,4 +1,4 @@
-{% load static %}
+{% load static billing_tags %}
 <!-- Modal: Delivery Information -->
 <div class="modal fade" id="deliveryModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
@@ -25,6 +25,13 @@
           <div class="mb-3">
             <label for="pincode" class="form-label">Pincode</label>
             <input type="text" class="form-control" id="pincode" pattern="[0-9]{6}" required>
+          </div>
+          <div class="mb-3">
+            <label for="delivery-state" class="form-label">State</label>
+            <select class="form-select" id="delivery-state" required>
+              <option value="">Select state…</option>
+              {% gst_state_options %}
+            </select>
           </div>
           <div class="mb-3 d-none" id="delivery-note"></div>
         </form>
@@ -174,4 +181,6 @@
 <!-- Alert Modal JS -->
 <script src="{% static 'js/alert-modal.js' %}"></script>
 <!-- Custom JS -->
+{% pin_state_script %}
 <script src="{% static 'js/main.js' %}"></script>
+<script>bindStateFromPincode(document.getElementById('pincode'), document.getElementById('delivery-state'));</script>

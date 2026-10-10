@@ -469,9 +469,18 @@
                       </div>
                       <div class="order-actions">
                           <button onclick="printInvoice('${order.id}')" target="_top" class="btn btn-outline-primary btn-sm">
-                              <i class="fas fa-print"></i> Print Invoice
+                              <i class="fas fa-file-lines"></i> Order Summary
                           </button>
+                          <a href="/order-summary/${encodeURIComponent(order.id)}.pdf" class="btn btn-outline-secondary btn-sm">
+                              <i class="fas fa-download"></i> Summary PDF
+                          </a>
+                          ${order.tax_invoice
+                            ? `<a href="${order.tax_invoice.url}" class="btn btn-outline-success btn-sm"><i class="fas fa-file-invoice"></i> Tax Invoice ${escapeHtml(order.tax_invoice.number)}</a>`
+                            : (order.gst_billing && order.status !== 'cancelled'
+                                ? `<button class="btn btn-outline-secondary btn-sm" disabled title="Available once shipped"><i class="fas fa-file-invoice"></i> Tax Invoice — available once shipped</button>`
+                                : '')}
                       </div>
+                      ${(order.credit_notes || []).length ? `<div class="mt-2" style="font-size:0.85rem"><strong>Credit notes:</strong> ${order.credit_notes.map(cn => `<a href="${cn.url}">${escapeHtml(cn.number)}</a> (₹${formatNumber(cn.amount, 2)})`).join(', ')}</div>` : ''}
                   </div>
               </div>
           </div>`;

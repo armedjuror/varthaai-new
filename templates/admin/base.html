@@ -149,6 +149,13 @@
       </a>
     {% endif %}
 
+    {% if 'gst_records' in nav_perms %}
+      <a href="{% url 'billing:gst_records' %}" class="nav-item{% if url_name == 'gst_records' %} active{% endif %}">
+        <i class="fas fa-file-invoice"></i>
+        <span>GST Records</span>
+      </a>
+    {% endif %}
+
     {% if 'employee_performance' in nav_perms %}
       <a href="{% url 'sessions_tracking:performance' %}" class="nav-item{% if url_name == 'performance' or url_name == 'performance_period' or url_name == 'performance_overall' %} active{% endif %}">
         <i class="fas fa-user-clock"></i>

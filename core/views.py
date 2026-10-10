@@ -25,7 +25,7 @@ from rest_framework.views import APIView
 
 from accounts.models import User
 from core.api import HasModulePermission, current_brand_id, ok
-from core.auth import admin_login_required
+from core.auth import admin_login_required, require_module
 from marketing.models import Review
 from orders.models import Order, OrderItem
 from products.models import Flavor
@@ -39,6 +39,7 @@ INACTIVE_STATUSES = ['cancelled', 'deleted']
 
 
 @admin_login_required
+@require_module('dashboard')
 @ensure_csrf_cookie
 def dashboard_page(request):
     return render(request, 'admin/dashboard.html')
