@@ -32,6 +32,12 @@ function load() {
     $('#entityError').toggleClass('d-none', !gstData.entity_error).text(gstData.entity_error ? gstData.entity_error + ' Invoices cannot be issued until this is fixed.' : '');
     var s = gstData.settings;
     $('#gstEffectiveDate').val(s.gst_effective_date || '');
+    $('#gstPilot').val(s.gst_pilot || '');
+    var pl = gstData.pilot || { companies: [], mobiles: [] };
+    var piloting = pl.companies.length || pl.mobiles.length;
+    $('#pilotBanner').toggleClass('d-none', !piloting).text(piloting
+      ? 'Pilot mode is ON: GST billing applies only to company IDs [' + pl.companies.join(', ') + '] and mobiles [' + pl.mobiles.join(', ') + ']. All other orders behave as before.'
+      : '');
     $('#gstModeB2B').val(s.gst_price_mode_b2b);
     $('#gstModeB2C').val(s.gst_price_mode_b2c);
     var copies = (s.gst_invoice_copies || '').split(',');
@@ -92,7 +98,8 @@ function saveSettings() {
     gst_effective_date: $('#gstEffectiveDate').val(),
     gst_price_mode_b2b: $('#gstModeB2B').val(),
     gst_price_mode_b2c: $('#gstModeB2C').val(),
-    gst_invoice_copies: copies
+    gst_invoice_copies: copies,
+    gst_pilot: $('#gstPilot').val()
   } });
 }
 

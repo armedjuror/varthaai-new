@@ -17,6 +17,7 @@
   </div>
 
   <div class="alert alert-warning d-none" id="entityError" style="font-size:0.875rem"></div>
+  <div class="alert alert-info d-none" id="pilotBanner" style="font-size:0.875rem"></div>
 
   <div class="row g-4">
     <!-- Business (legal entity) -->
@@ -74,6 +75,11 @@
               <option value="exclusive">GST on top (exclusive)</option>
             </select>
             <div class="form-text">Applies to orders created after saving. Existing orders keep the mode they were created with. GST on top is refused while any price + GST would exceed its MRP.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Pilot mode (test on the live site)</label>
+            <input type="text" class="form-control" id="gstPilot" placeholder="company:12, mobile:9876543210">
+            <div class="form-text">When filled, GST billing applies <strong>only</strong> to these B2B company IDs (shown in the company page URL) and B2C mobile numbers. Every other order behaves as before. Clear it to go live for everyone.</div>
           </div>
           <div class="mb-3">
             <label class="form-label">Copies printed by default</label>

@@ -729,7 +729,7 @@ class CreateOrderAPI(APIView):
         if not name or not mobile or not address or not pincode:
             return err('Required fields are missing.')
         state_code = normalise_state_code(data.get('shipping_state_code'))
-        if billing.gst_active(brand_id) and not state_code:
+        if billing.gst_active(brand_id, mobile=mobile) and not state_code:
             return err('Select the delivery state (needed for the GST invoice).')
 
         delivery_charge = _float(data.get('delivery_charge'))

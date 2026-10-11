@@ -114,7 +114,7 @@ class Command(BaseCommand):
         d = billing.ist_date(when)
         if order.pk in overrides:
             d, source = overrides[order.pk], 'override'
-        if d and start <= d <= end and billing.gst_active(order.brand_id, d):
+        if d and start <= d <= end and billing.gst_active_for(order, d):
             yield {'order': order, 'id': order.pk, 'kind': kind, 'date': d, 'when': when, 'source': source}
 
     # ── issue ────────────────────────────────────────────────────────────

@@ -147,7 +147,7 @@ class PlaceOrderAPI(StorefrontAPIView):
 
         delivery_charge = 50 if sale_total < 300 else 0
         final_amount = sale_total - coupon_discount + delivery_charge
-        gst_on_top = (billing.gst_active(brand.id)
+        gst_on_top = (billing.gst_active(brand.id, mobile=clean)
                       and billing.price_mode_setting('b2c') == 'exclusive')
         if gst_on_top:
             problems = billing.mrp_guard_errors(flavors=[f for f, _ in line_items], packs=[])

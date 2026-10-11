@@ -6,6 +6,7 @@ Everything that writes an Invoice / CreditNote goes through here so the
 numbering lock, the snapshots and the activity log stay in one place.
 """
 import hashlib
+import re
 import logging
 from datetime import date
 from decimal import Decimal
@@ -40,6 +41,7 @@ SETTING_DEFAULTS = {
     'gst_price_mode_b2c': INCLUSIVE,
     'gst_effective_date': '2026-10-01',
     'gst_invoice_copies': 'original,duplicate,triplicate',
+    'gst_pilot': '',
 }
 COPY_LABELS = {
     'original': 'Original for Recipient',
@@ -132,14 +134,48 @@ def entity_config_error(entity):
     return None
 
 
-def gst_active(brand_id, on_date=None):
+def pilot_list(raw=None):
+    """Pilot (test) mode: `gst_pilot` setting such as
+    "company:12, company:15, mobile:9876543210". When set, GST billing applies
+    ONLY to these B2B companies / B2C mobile numbers — every other order
+    behaves as if GST billing were off. Used to test on the live site."""
+    raw = (get_setting('gst_pilot') if raw is None else raw) or ''
+    raw = raw.strip()
+    companies, mobiles = set(), set()
+    for part in re.split(r'[,;\n]+', raw):
+        kind, _, value = part.partition(':')
+        value = value.strip()
+        if kind.strip().lower() == 'company' and value.isdigit():
+            companies.add(int(value))
+        elif kind.strip().lower() == 'mobile':
+            digits = re.sub(r'\D', '', value)[-10:]
+            if len(digits) == 10:
+                mobiles.add(digits)
+    return companies, mobiles
+
+
+def _pilot_allows(company=None, mobile=None):
+    companies, mobiles = pilot_list()
+    if not companies and not mobiles:
+        return True
+    company_id = getattr(company, 'pk', company)
+    if company_id is not None and int(company_id) in companies:
+        return True
+    digits = re.sub(r'\D', '', mobile or '')[-10:]
+    return bool(digits) and digits in mobiles
+
+
+def gst_active(brand_id, on_date=None, company=None, mobile=None):
     """True when orders dispatched on `on_date` must get a GST invoice: the
     effective date has arrived and the brand's legal entity has a GSTIN.
 
     Saving the GSTIN in Settings -> GST is the go-live switch: until then
     every order behaves as before GST billing. Once it is live, anything
     missing for a valid invoice (HSN, rate, delivery state, address) blocks
-    the dispatch with a clear message instead of skipping the invoice."""
+    the dispatch with a clear message instead of skipping the invoice.
+
+    In pilot mode (see pilot_list) only the listed company / mobile counts;
+    callers pass the order's company (B2B) or mobile (B2C)."""
     eff = effective_date()
     if eff is None:
         return False
@@ -147,7 +183,15 @@ def gst_active(brand_id, on_date=None):
     if on_date < eff:
         return False
     entity = entity_for_brand(brand_id)
-    return entity is not None and bool(entity.gstin)
+    if entity is None or not entity.gstin:
+        return False
+    return _pilot_allows(company, mobile)
+
+
+def gst_active_for(order, on_date=None):
+    if _order_kind(order) == 'b2b':
+        return gst_active(order.brand_id, on_date, company=order.company_id)
+    return gst_active(order.brand_id, on_date, mobile=order.mobile)
 
 
 # ── numbering ────────────────────────────────────────────────────────────
@@ -297,7 +341,7 @@ def refresh_b2c_gst(order):
     if order.price_mode == EXCLUSIVE and order.payment_status == 'paid':
         return  # the GST the customer paid is pinned
     fields = []
-    if not order.price_mode and gst_active(order.brand_id):
+    if not order.price_mode and gst_active_for(order):
         order.price_mode = price_mode_setting('b2c')
         fields.append('price_mode')
     gst = ZERO
@@ -436,7 +480,7 @@ def status_change_error(order, target):
 
 def needs_invoice(order, target_status, on_date=None):
     allowed = B2C_INVOICE_STATUSES if _order_kind(order) == 'b2c' else B2B_INVOICE_STATUSES
-    return target_status in allowed and gst_active(order.brand_id, on_date)
+    return target_status in allowed and gst_active_for(order, on_date)
 
 
 # ── issue invoice ────────────────────────────────────────────────────────

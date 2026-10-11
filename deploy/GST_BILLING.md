@@ -86,6 +86,30 @@ add a nginx `location` for it. Include it in backups: records are kept for
 - Customers download the Order Summary PDF and, once shipped, the stored Tax
   Invoice PDF (and credit notes) from their dashboard.
 
+## Trying it on the live site (pilot mode)
+
+1. Settings → GST & Invoicing → **Pilot mode**: enter your test company and
+   your own number, e.g. `company:123, mobile:9876543210` (company id is in the
+   company page URL `/admin/b2b/123/`). **Save this before the GSTIN.**
+2. Fill HSN, rates, flavor mapping, business details, then save the GSTIN.
+   GST billing now applies only to the pilot company / mobile; every other
+   order behaves exactly as before (no GST added, no invoice on dispatch).
+3. Test: B2B order → dispatch → invoice → return → credit note → WhatsApp →
+   pay from the link; B2C order from your number → ship → refund.
+4. Clean up (dry run first, then `--yes`):
+   ```bash
+   ./venv/bin/python manage.py gst_test_cleanup --order VOB_xxx --order VO_yyy
+   ./venv/bin/python manage.py gst_test_cleanup --order VOB_xxx --order VO_yyy --yes --delete-orders --restock
+   ```
+   It deletes those orders' invoices, credit notes, refunds records, links,
+   payment attempts, message logs and PDFs, and resets each series to the last
+   real number (0 → next invoice is `/0000001`). It refuses if any real
+   invoice / credit note was issued after the test ones, or if a document is
+   in a closed month. It never refunds money: refund Razorpay test payments in
+   the Razorpay dashboard. Delete the test company from the pipeline yourself.
+5. When ready for everyone: clear the pilot field, then run the October
+   backfill (above) before anyone dispatches.
+
 ## Phase 2
 
 **Order links** (`/o/<token>/`). Every order (B2C and B2B) can be shared as an

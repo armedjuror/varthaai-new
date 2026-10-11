@@ -270,7 +270,8 @@ ENTITY_FIELDS = [
     'bank_name', 'bank_account_no', 'bank_ifsc', 'bank_branch', 'upi_id', 'jurisdiction', 'signatory',
     'b2b_terms',
 ]
-GST_SETTING_KEYS = ['gst_price_mode_b2b', 'gst_price_mode_b2c', 'gst_effective_date', 'gst_invoice_copies']
+GST_SETTING_KEYS = ['gst_price_mode_b2b', 'gst_price_mode_b2c', 'gst_effective_date', 'gst_invoice_copies',
+                    'gst_pilot']
 
 
 @admin_login_required
@@ -311,6 +312,7 @@ class GSTSettingsAPI(APIView):
                 'id': f.id, 'name': f.name, 'is_active': f.is_active, 'hsn_id': f.hsn_id,
             } for f in Flavor.objects.order_by('-is_active', 'name')],
             'gst_active': billing.gst_active(current_brand_id(request)),
+            'pilot': {'companies': sorted(billing.pilot_list()[0]), 'mobiles': sorted(billing.pilot_list()[1])},
             'messages': {k: links.message_template(k.replace('wa_message_', '')) for k in links.DEFAULT_MESSAGES},
         })
 
@@ -376,6 +378,12 @@ class GSTSettingsAPI(APIView):
         values['gst_effective_date'] = eff.isoformat()
         copies = [c for c in (data.get('gst_invoice_copies') or []) if c in billing.COPY_LABELS]
         values['gst_invoice_copies'] = ','.join(copies or ['original'])
+        pilot = (data.get('gst_pilot') or '').strip()
+        values['gst_pilot'] = pilot
+        if pilot:
+            companies, mobiles = billing.pilot_list(pilot)
+            if not companies and not mobiles:
+                return err('Pilot list not understood. Use e.g. "company:12, mobile:9876543210".')
         for key, value in values.items():
             Setting.objects.update_or_create(
                 setting_key=key, defaults={'setting_value': value, 'category': 'gst'},

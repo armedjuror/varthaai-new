@@ -466,3 +466,69 @@ class TriggerTests(Phase2Base):
         cn = billing.issue_credit_note(inv, [(inv.lines.first(), 100, False)], 'other', self.admin)
         with self.assertRaises(DatabaseError), transaction.atomic():
             CreditNote.objects.filter(pk=cn.pk).update(grand_total=0)
+
+
+class PilotAndCleanupTests(Phase2Base):
+    def _pilot(self, value):
+        Setting.objects.update_or_create(setting_key='gst_pilot', defaults={'setting_value': value})
+
+    def test_pilot_limits_gst_to_listed_company_and_mobile(self):
+        other = B2BCompany.objects.create(brand=self.brand, company_name='Real Shop', stage='converted',
+                                          state_code='32')
+        self._pilot(f'company:{self.company.id}, mobile:+91 98765 43210')
+        self.assertTrue(billing.gst_active(self.brand.id, company=self.company))
+        self.assertFalse(billing.gst_active(self.brand.id, company=other))
+        self.assertTrue(billing.gst_active(self.brand.id, mobile='9876543210'))
+        self.assertFalse(billing.gst_active(self.brand.id, mobile='9000000000'))
+        real = Order.objects.create(id='VO_real', brand=self.brand, name='R', mobile='9000000000', address='x',
+                                    pincode='673001', shipping_state_code='32')
+        OrderItem.objects.create(order=real, flavor=self.flavor, quantity=500, price_per_kg=1000,
+                                 sale_price_per_kg=1000, flavor_name='Classic')
+        res = self.client.post('/admin/api/orders/', {'action': 'update_status', 'order_id': real.id,
+                                                      'status': 'shipped'}, content_type='application/json')
+        self.assertTrue(res.json()['success'])
+        self.assertFalse(Invoice.objects.exists())
+        res = self.client.post('/admin/api/b2b-orders/', {
+            'action': 'create_order', 'company_id': other.id,
+            'items': [{'flavor_id': self.flavor.id, 'weight_grams': 250, 'quantity': 4, 'selling_price': 100,
+                       'flavor_name': 'Classic'}]}, content_type='application/json').json()
+        self.assertEqual(B2BOrder.objects.get(id=res['data']['order_id']).price_mode, '')
+        test_order = self.b2b()
+        self.assertTrue(billing.needs_invoice(test_order, 'dispatched'))
+        bad = self.client.post('/admin/api/gst/settings/', {'action': 'save_settings', 'settings': {
+            'gst_price_mode_b2b': 'exclusive', 'gst_price_mode_b2c': 'inclusive', 'gst_effective_date': '2026-01-01',
+            'gst_invoice_copies': ['original'], 'gst_pilot': 'nonsense'}}, content_type='application/json').json()
+        self.assertFalse(bad['success'])
+        self.assertEqual(billing.pilot_list()[0], {self.company.id})  # unchanged
+
+    def test_cleanup_resets_numbering_and_refuses_gaps(self):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        from products.models import Stock
+
+        t1 = self.b2c('VO_t1')
+        self.client.post('/admin/api/orders/', {'action': 'update_status', 'order_id': t1.id, 'status': 'shipped'},
+                         content_type='application/json')
+        inv = Invoice.objects.get(b2c_order=t1)
+        billing.b2c_credit_note(t1, [(inv.lines.first(), 200, True)], 'sales_return', self.admin)
+        links.get_or_create_link(t1)
+        stock_after_test = Stock.objects.get().quantity_grams   # 100000 - 1000 + 200
+        out = io.StringIO()
+        call_command('gst_test_cleanup', '--order', 'VO_t1', stdout=out)
+        self.assertIn('Dry run', out.getvalue())
+        self.assertEqual(Invoice.objects.count(), 1)
+        call_command('gst_test_cleanup', '--order', 'VO_t1', '--yes', '--delete-orders', '--restock', stdout=out)
+        self.assertFalse(Invoice.objects.exists() or CreditNote.objects.exists() or ShareLink.objects.exists())
+        self.assertFalse(Order.objects.filter(id='VO_t1').exists())
+        self.assertEqual(Stock.objects.get().quantity_grams, stock_after_test + 800)
+        real = self.b2c('VO_real2')
+        self.assertTrue(billing.ensure_invoice(real).number.endswith('/0000001'))
+        # A test invoice issued before a real one cannot be removed.
+        t2 = self.b2c('VO_t2')
+        billing.ensure_invoice(t2)
+        billing.ensure_invoice(self.b2c('VO_real3'))
+        with self.assertRaises(CommandError):
+            call_command('gst_test_cleanup', '--order', 'VO_t2', '--yes', stdout=out)
+        # The immutability trigger is back on.
+        with self.assertRaises(DatabaseError), transaction.atomic():
+            Invoice.objects.filter(b2c_order_id='VO_real2').update(grand_total=0)

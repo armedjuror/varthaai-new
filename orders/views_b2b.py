@@ -540,7 +540,7 @@ class B2BOrdersAPI(APIView):
         ship, ship_err = _ship_to_fields(body)
         if ship_err:
             return err(ship_err)
-        price_mode = billing.price_mode_setting('b2b') if billing.gst_active(brand_id) else ''
+        price_mode = billing.price_mode_setting('b2b') if billing.gst_active(brand_id, company=company) else ''
         gst_amount = Decimal('0')
         if price_mode:
             try:
@@ -1087,7 +1087,7 @@ class B2BOrdersAPI(APIView):
         if existing:
             price_mode = existing.price_mode
         else:
-            price_mode = billing.price_mode_setting('b2b') if billing.gst_active(brand_id) else ''
+            price_mode = billing.price_mode_setting('b2b') if billing.gst_active(brand_id, company=company) else ''
         if not price_mode:
             return ok({'enabled': False})
         disc_amt = self._compute_discount(
