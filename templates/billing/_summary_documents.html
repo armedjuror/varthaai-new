@@ -1,0 +1,33 @@
+{% load billing_tags %}{% if paid_seal %}
+  <div class="paid-seal-wrap">
+    <div class="paid-seal">{% if paid_seal.partial %}PART PAID<small>₹{{ paid_seal.paid|inr }} paid · ₹{{ paid_seal.due|inr }} due</small>{% else %}PAID{% if paid_seal.date %}<small>{{ paid_seal.date|date:"d M Y" }}</small>{% endif %}{% endif %}</div>
+  </div>
+{% endif %}
+{% if gst %}
+  <div class="tax-invoice-line">
+    {% if gst.invoice %}
+      Tax Invoice No. <strong>{{ gst.invoice.number }}</strong> dated {{ gst.invoice.invoice_date|date:"d-m-Y" }}
+      {% if gst.invoice_url %}<a class="no-print" href="{{ gst.invoice_url }}" target="_blank">Download</a>{% endif %}
+    {% elif not cancelled %}
+      Tax invoice will be issued when your order is dispatched.
+    {% endif %}
+  </div>
+  {% if gst.credit_notes %}
+  <div class="credit-notes">
+    <h4>Credit notes</h4>
+    <table class="payment-table">
+      <thead><tr><th>Number</th><th>Date</th><th>Reason</th><th style="text-align:right">Amount</th><th class="no-print"></th></tr></thead>
+      <tbody>
+      {% for cn in gst.credit_notes %}
+        <tr>
+          <td>{{ cn.number }}</td><td>{{ cn.credit_note_date|date:"d-m-Y" }}</td><td>{{ cn.get_reason_display }}</td>
+          <td style="text-align:right">₹{{ cn.grand_total|inr }}</td>
+          <td class="no-print">{% if cn.url %}<a href="{{ cn.url }}" target="_blank">Download</a>{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if gst.credit_total %}<div style="text-align:right;margin-top:6px"><strong>Total after credit notes: ₹{{ net_after_credit|inr }}</strong></div>{% endif %}
+  </div>
+  {% endif %}
+{% endif %}

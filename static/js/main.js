@@ -349,7 +349,7 @@ function getUserData(userId) {
                 $('#name').val(data.user.name);
                 $('#mobile').val(data.user.mobile);
                 $('#address').val(data.user.address);
-                $('#pincode').val(data.user.pincode);
+                $('#pincode').val(data.user.pincode).trigger('change');
             }
             $('#loader').fadeOut()
         },
@@ -387,7 +387,7 @@ function checkUserByMobile(mobile) {
                     $('#address').val(response.user.address);
                 }
                 if (response.user.pincode) {
-                    $('#pincode').val(response.user.pincode);
+                    $('#pincode').val(response.user.pincode).trigger('change');
                 }
             }
             // If user not found, do nothing - let user enter details manually
@@ -412,6 +412,7 @@ function placeOrder(recaptchaToken) {
     order.mobile = $('#mobile').val()
     order.address = $('#address').val()
     order.pincode = $('#pincode').val()
+    order.state = $('#delivery-state').val()
     order.referral = localStorage.getItem('referral') || null
     order.recaptcha_token = recaptchaToken || ''
     $('#loader').fadeIn()
@@ -907,6 +908,13 @@ function validateDeliveryForm() {
         isValid = false;
     } else {
         removeError('#pincode');
+    }
+
+    if ($('#delivery-state').length && !$('#delivery-state').val()) {
+        showError('#delivery-state', 'Please select your state');
+        isValid = false;
+    } else {
+        removeError('#delivery-state');
     }
     
     return isValid;

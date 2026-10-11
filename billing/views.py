@@ -531,7 +531,7 @@ def dispatched_without_invoice():
     for o in (B2BOrder.objects.filter(status__in=billing.B2B_INVOICE_STATUSES).filter(since)
               .filter(invoices__isnull=True).select_related('company').order_by('order_date')):
         rows.append({'kind': 'B2B', 'order_id': o.id, 'name': o.company.company_name, 'status': o.status,
-                     'order_date': o.order_date.isoformat(), 'url': '/admin/b2b-orders/?view=' + o.id})
+                     'order_date': o.order_date.isoformat(), 'url': '/admin/b2b-orders/?order=' + o.id})
     return rows
 
 
@@ -541,7 +541,7 @@ def pending_credit_notes():
     return [{
         'return_id': r.id, 'order_id': r.b2b_order_id, 'company': r.b2b_order.company.company_name,
         'date': r.created_at.isoformat(), 'amount': float(r.return_amount),
-        'url': '/admin/b2b-orders/?view=' + r.b2b_order_id,
+        'url': '/admin/b2b-orders/?order=' + r.b2b_order_id,
     } for r in B2BReturn.objects.filter(needs_credit_note=True, credit_note__isnull=True)
         .select_related('b2b_order__company').order_by('created_at')]
 

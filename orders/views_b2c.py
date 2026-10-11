@@ -194,7 +194,7 @@ def _apply_status(order, status, user):
 @require_module('orders')
 @ensure_csrf_cookie
 def orders_page(request):
-    return render(request, 'admin/orders.html')
+    return render(request, 'admin/orders.html', {'states': STATES})
 
 
 _TIMELINE_DEF = [
@@ -268,8 +268,12 @@ def view_order(request, pk):
     ]
     sc, sbg = _STATUS_COLORS.get(order.status, ('#6b7280', '#f3f4f6'))
     pc, pbg = _PAYMENT_COLORS.get(order.payment_status, ('#6b7280', '#f3f4f6'))
+    gst = billing.order_gst_summary(order)
 
     return render(request, 'admin/view-order.html', {
+        'gst': gst,
+        'states': STATES,
+        'state_label': billing.state_label(order.shipping_state_code),
         'order': order,
         'items': items,
         'subtotal': subtotal,
@@ -332,6 +336,8 @@ def edit_order(request, pk):
 
     return render(request, 'admin/edit-order.html', {
         'order': order,
+        'states': STATES,
+        'invoice': billing.active_invoice(order),
         'items': items,
         'subtotal': subtotal,
         'discount': discount,
@@ -360,6 +366,10 @@ def print_invoice(request, pk):
     brand = Brand.objects.filter(id=current_brand_id(request)).first()
 
     return render(request, 'admin/print-invoice.html', {
+        **billing.order_summary_context(
+            order, lambda inv: f'/admin/gst/invoice/{inv.id}/',
+            lambda cn: f'/admin/gst/credit-note/{cn.id}/', total,
+        ),
         'order': order,
         'items': items,
         'subtotal': subtotal,

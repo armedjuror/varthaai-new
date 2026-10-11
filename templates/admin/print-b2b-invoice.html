@@ -1,7 +1,7 @@
 {% load static %}
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>B2B Invoice - {{ order.id }}</title>
+<title>Order Summary - {{ order.id }}</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background: white; }
@@ -60,6 +60,7 @@
   .payment-table th, .payment-table td { padding: 6px 10px; text-align: left; border-bottom: 1px solid #eee; }
   .payment-table th { font-weight: 600; font-size: 0.8rem; text-transform: uppercase; }
 
+{% include 'billing/_summary_styles.html' %}
   .footer {
     margin-top: 40px; text-align: center; font-size: 0.85rem; color: #666;
     border-top: 1px solid #eee; padding-top: 20px;
@@ -83,9 +84,7 @@
 <div class="invoice-container">
 
   <div style="text-align: right; margin-bottom: 20px;" class="no-print">
-    <button onclick="window.print()" style="background: #85aa4e; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">
-      Print Invoice
-    </button>
+    <button onclick="window.print()" style="background: #85aa4e; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">Print Order Summary</button>
   </div>
 
   <!-- Header -->
@@ -104,7 +103,9 @@
       </div>
     </div>
     <div class="invoice-info">
-      <div class="invoice-number"><strong>INVOICE #{{ order.id }}</strong></div>
+      <div class="invoice-number"><strong>ORDER SUMMARY</strong></div>
+      <div class="invoice-date">Order #{{ order.id }}</div>
+      {% if order.customer_po_no %}<div class="invoice-date">PO: {{ order.customer_po_no }}</div>{% endif %}
       <div class="invoice-date">Date: {{ order.order_date|date:"d/m/Y" }}</div>
       {% if order.due_date %}
         <div class="invoice-date">Due: {{ order.due_date|date:"d/m/Y" }}</div>
@@ -125,6 +126,11 @@
       {% endif %}
       {% if company.gst_number %}
         <div><strong>GSTIN:</strong> {{ company.gst_number }}</div>
+      {% endif %}
+      {% if not order.ship_to_same_as_bill_to %}
+        <h3 style="margin-top:14px">Deliver To:</h3>
+        <div class="customer-name">{{ order.ship_to_name }}</div>
+        <div>{{ order.ship_to_address|linebreaksbr }} {{ order.ship_to_pincode }}</div>
       {% endif %}
     </div>
     <div class="shipping-info">
@@ -208,6 +214,7 @@
       </div>
       {% endif %}
 
+      {% include 'billing/_summary_gst_rows.html' %}
       <div class="totals-row total">
         <span>TOTAL AMOUNT:</span>
         <span>₹{{ order.total_amount|floatformat:2 }}</span>
@@ -226,6 +233,8 @@
       {% endif %}
     </div>
   </div>
+
+  {% include 'billing/_summary_documents.html' %}
 
   <!-- Payment History -->
   {% if payments %}
@@ -258,6 +267,6 @@
   <div class="footer">
     <div style="margin-bottom: 10px;"><strong>Thank you for choosing {% if brand %}{{ brand.name }}{% else %}us{% endif %}!</strong></div>
     <div>For any queries, contact us at {{ settings.business_phone }} or {{ settings.business_email }}</div>
-    <div style="margin-top: 10px; font-size: 0.75rem;">This is a computer-generated invoice. No signature required.</div>
+    <div style="margin-top: 10px; font-size: 0.75rem;">This is not a tax invoice.</div>
   </div>
 </div>

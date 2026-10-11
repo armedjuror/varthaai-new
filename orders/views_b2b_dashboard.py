@@ -23,7 +23,7 @@ from core.auth import admin_login_required, require_module
 from core.models import Brand
 from crm.models import B2BActivity, B2BCompany
 from orders import reports_b2b
-from orders.models import B2BOrder, B2BOrderItem
+from orders.models import B2BOrder, B2BOrderItem, B2BReturn
 
 ACTIVE_STATUSES = ['draft', 'confirmed', 'dispatched']
 MONEY = DecimalField(max_digits=14, decimal_places=2)
@@ -150,8 +150,12 @@ class B2BDashboardStatsAPI(APIView):
         pending = B2BOrder.objects.filter(
             brand_id=brand_id, status__in=ACTIVE_STATUSES,
         ).count()
+        credit_notes_pending = B2BReturn.objects.filter(
+            b2b_order__brand_id=brand_id, needs_credit_note=True, credit_note__isnull=True,
+        ).count()
         return {
             'pending_orders': pending,
+            'credit_notes_pending': credit_notes_pending,
             'total_revenue': _f(agg['total_revenue']),
             'total_outstanding': _f(agg['total_outstanding']),
             'total_overdue': _f(agg['total_overdue']),

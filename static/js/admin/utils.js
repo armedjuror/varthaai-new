@@ -61,6 +61,12 @@ function apiGet(url, params) {
   });
 }
 
+// Message from a failed API call: the server's {success:false, message} body
+// when there is one (business errors come back as HTTP 400), else `fallback`.
+function apiErrorMessage(xhr, fallback) {
+  return (xhr && xhr.responseJSON && xhr.responseJSON.message) || fallback || 'Request failed.';
+}
+
 /* ── Confirm then run ── */
 
 function confirmThen(message, onConfirm) {

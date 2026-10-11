@@ -23,7 +23,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.views import APIView
 
 from billing import services as billing
-from billing.gst_states import normalise_state_code, state_label
+from billing.gst_states import STATES, normalise_state_code, state_label
 from billing.gstin import validate_gstin
 from billing.models import Invoice
 from core.api import HasModulePermission, current_brand_id, err, ok
@@ -44,7 +44,7 @@ OFFER_TYPES = ['buy_x_get_y', 'discount_percent', 'flat_discount']
 @require_module('b2b')
 @ensure_csrf_cookie
 def b2b_orders_page(request):
-    return render(request, 'admin/b2b-orders.html')
+    return render(request, 'admin/b2b-orders.html', {'states': STATES})
 
 
 @admin_login_required
@@ -91,6 +91,10 @@ def print_b2b_invoice_page(request, pk):
     brand = Brand.objects.filter(id=brand_id).first()
 
     return render(request, 'admin/print-b2b-invoice.html', {
+        **billing.order_summary_context(
+            order, lambda inv: f'/admin/gst/invoice/{inv.id}/',
+            lambda cn: f'/admin/gst/credit-note/{cn.id}/', order.total_amount,
+        ),
         'order': order,
         'company': order.company,
         'contact': order.contact,

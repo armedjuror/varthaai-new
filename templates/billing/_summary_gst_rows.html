@@ -1,0 +1,12 @@
+{% load billing_tags %}{% if gst and not gst.unavailable %}
+      <div class="totals-row">
+        <span>Total GST{% if gst.price_mode == 'inclusive' %} (included){% endif %}:</span>
+        <span>₹{{ gst.tax_total|inr }}</span>
+      </div>
+      {% if gst.is_interstate %}
+      <div class="totals-row gst-split"><span>&nbsp;&nbsp;IGST</span><span>₹{{ gst.igst|inr }}</span></div>
+      {% else %}
+      <div class="totals-row gst-split"><span>&nbsp;&nbsp;CGST</span><span>₹{{ gst.cgst|inr }}</span></div>
+      <div class="totals-row gst-split"><span>&nbsp;&nbsp;SGST</span><span>₹{{ gst.sgst|inr }}</span></div>
+      {% endif %}
+{% endif %}

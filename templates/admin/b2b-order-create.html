@@ -1,5 +1,5 @@
 {% extends 'admin/base.html' %}
-{% load static %}
+{% load static billing_tags %}
 
 {% block title %}{% if edit_order_id %}Edit B2B Order{% else %}Create B2B Order{% endif %} — Varthaai Admin{% endblock %}
 
@@ -60,6 +60,31 @@
                 <option value="">Select…</option>
               </select>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Delivery address + customer PO -->
+      <div class="data-card mb-4">
+        <div class="data-card-header"><h3>Invoice &amp; Delivery</h3></div>
+        <div style="padding:16px 20px">
+          <div style="font-size:0.82rem;color:var(--gray-400);margin-bottom:10px" id="billToInfo">The invoice address is the company's address (and GSTIN) from the B2B pipeline.</div>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="shipSame" checked onchange="toggleShipTo()">
+            <label class="form-check-label" for="shipSame">Delivery address same as invoice address</label>
+          </div>
+          <div class="row g-3" id="shipToFields" style="display:none">
+            <div class="col-md-6"><label class="form-label">Delivery name</label><input class="form-control" id="shipName"></div>
+            <div class="col-md-6"><label class="form-label">Delivery GSTIN <span class="text-muted" style="font-weight:400">(optional)</span></label><input class="form-control text-uppercase" id="shipGstin" maxlength="15"></div>
+            <div class="col-12"><label class="form-label">Delivery address <span class="text-danger">*</span></label><textarea class="form-control" id="shipAddress" rows="2"></textarea></div>
+            <div class="col-md-6"><label class="form-label">Pincode</label><input class="form-control" id="shipPincode"></div>
+            <div class="col-md-6"><label class="form-label">State <span class="text-danger">*</span></label>
+              <select class="form-select" id="shipState" onchange="scheduleGstPreview()"><option value="">Select…</option>{% gst_state_options %}</select>
+            </div>
+          </div>
+          <div class="row g-3 mt-1">
+            <div class="col-md-6"><label class="form-label">Customer PO No.</label><input class="form-control" id="poNumber" maxlength="100"></div>
+            <div class="col-md-6"><label class="form-label">PO Date</label><input type="date" class="form-control" id="poDate"></div>
           </div>
         </div>
       </div>
@@ -243,10 +268,12 @@
               <span style="color:#3b82f6">Discount</span>
               <span id="summDiscount" style="color:#3b82f6">-₹0</span>
             </div>
+            <div id="summGst" style="display:none"></div>
             <div class="summary-row total">
               <span>Total</span>
               <span id="summTotal">₹0</span>
             </div>
+            <div id="summGstNote" style="font-size:0.75rem;color:var(--gray-400);margin-top:6px"></div>
           </div>
         </div>
       </div>
@@ -270,5 +297,7 @@
   var EDIT_ORDER_ID = "{{ edit_order_id|escapejs }}";
   var PRESELECT_COMPANY = {{ preselect_company|default:0 }};
 </script>
+{% pin_state_script %}
 <script src="{% static 'js/admin/b2b-order-create.js' %}"></script>
+<script>bindStateFromPincode(document.getElementById('shipPincode'), document.getElementById('shipState'));</script>
 {% endblock %}

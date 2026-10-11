@@ -10,13 +10,15 @@ import re
 import markdown as markdown_lib
 from django.core.paginator import Paginator
 from django.db.models import Q, Sum
-from django.http import HttpResponse
+from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.safestring import mark_safe
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 from accounts.models import PointsTransaction
+from billing import services as billing
+from billing.models import CreditNote
 from core.models import Setting
 from marketing.models import Blog
 from orders.models import Order
@@ -121,21 +123,18 @@ def dashboard(request):
     return render(request, 'storefront/dashboard.html', _ctx(request))
 
 
-@ensure_csrf_cookie
-def print_invoice(request):
+def _customer_order(request, order_id):
     user = services.current_user(request)
-    if not user:
-        return redirect('/')
-    order_id = request.GET.get('id') or request.GET.get('order_id') or ''
-    order = (
+    if not user or not order_id:
+        return None
+    return (
         Order.objects.filter(id=order_id, user=user)
         .select_related('user', 'referral', 'coupon')
         .prefetch_related('items', 'items__flavor').first()
-        if order_id else None
     )
-    if not order:
-        return redirect('/dashboard/')
 
+
+def _order_summary_ctx(request, order, for_pdf=False):
     items = []
     subtotal = 0.0
     total_quantity = 0
@@ -152,22 +151,82 @@ def print_invoice(request):
             'item_total': item_total,
         })
     discount = order.coupon_discount or 0.0
+    total = subtotal - discount + order.delivery_charge
     loyalty = (
         PointsTransaction.objects.filter(user=order.user, status='credited')
         .aggregate(s=Sum('points'))['s'] or 0
     )
-    return render(request, 'storefront/print-invoice.html', _ctx(
+    return _ctx(
         request,
         order=order,
         items=items,
         subtotal=subtotal,
         total_quantity=total_quantity,
         discount=discount,
-        total=subtotal - discount + order.delivery_charge,
+        total=total,
         loyalty_points=loyalty,
         referral_name=order.referral.name if order.referral else '',
         settings_map=dict(Setting.objects.values_list('setting_key', 'setting_value')),
-    ))
+        for_pdf=for_pdf,
+        **billing.order_summary_context(
+            order, lambda inv: f'/tax-invoice/{order.id}.pdf',
+            lambda cn: f'/credit-note/{cn.id}.pdf', total,
+        ),
+    )
+
+
+@ensure_csrf_cookie
+def print_invoice(request):
+    """Order Summary page (not a tax invoice). Kept at /print-invoice/ for old links."""
+    if not services.current_user(request):
+        return redirect('/')
+    order = _customer_order(request, request.GET.get('id') or request.GET.get('order_id') or '')
+    if not order:
+        return redirect('/dashboard/')
+    return render(request, 'storefront/print-invoice.html', _order_summary_ctx(request, order))
+
+
+def _private_pdf(data_or_file, filename):
+    if isinstance(data_or_file, (bytes, bytearray)):
+        response = HttpResponse(data_or_file, content_type='application/pdf')
+    else:
+        response = FileResponse(data_or_file, content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response['X-Robots-Tag'] = 'noindex'
+    response['Cache-Control'] = 'private, no-store'
+    return response
+
+
+def order_summary_pdf(request, order_id):
+    """Order Summary as a PDF, rendered on demand."""
+    from billing.pdf import render_html_pdf
+
+    order = _customer_order(request, order_id)
+    if not order:
+        raise Http404
+    data = render_html_pdf('storefront/print-invoice.html', _order_summary_ctx(request, order, for_pdf=True))
+    return _private_pdf(data, f'order-summary-{order.id}.pdf')
+
+
+def tax_invoice_pdf(request, order_id):
+    """The stored Tax Invoice PDF — never regenerated once it exists."""
+    order = _customer_order(request, order_id)
+    invoice = billing.active_invoice(order) if order else None
+    if not invoice:
+        raise Http404
+    if not invoice.pdf_file:
+        invoice = billing.store_pdf(invoice.pk, 'invoice')
+    return _private_pdf(invoice.pdf_file.open('rb'), invoice.number.replace('/', '-') + '.pdf')
+
+
+def credit_note_pdf(request, pk):
+    user = services.current_user(request)
+    cn = CreditNote.objects.filter(pk=pk, invoice__b2c_order__user=user).first() if user else None
+    if not cn:
+        raise Http404
+    if not cn.pdf_file:
+        cn = billing.store_pdf(cn.pk, 'credit_note')
+    return _private_pdf(cn.pdf_file.open('rb'), cn.number.replace('/', '-') + '.pdf')
 
 
 def logout(request):

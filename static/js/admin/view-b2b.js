@@ -102,7 +102,7 @@ function renderInfo() {
     ['Category', escHtml(c.category_name || '—')],
     ['City', escHtml([c.city, c.state].filter(Boolean).join(', ') || '—')],
     ['Pincode', escHtml(c.pincode || '—')],
-    ['GST', escHtml(c.gst_number || '—')],
+    ['GSTIN', escHtml(c.gst_number || '—') + (c.gst_legal_name ? '<div style="font-size:0.75rem;color:var(--gray-400)">' + escHtml(c.gst_legal_name) + '</div>' : '')],
     ['Location', c.location_url
       ? '<a href="' + encodeURI(c.location_url) + '" target="_blank" rel="noopener"><i class="fas fa-map-marker-alt me-1"></i>View</a>'
       : '—'],
@@ -348,7 +348,8 @@ function openEditCompanyModal() {
   $('#editSource').val(c.source || '');
   $('#editAddress').val(c.address || '');
   $('#editCity').val(c.city || '');
-  $('#editState').val(c.state || '');
+  $('#editState').val(c.state_code || '');
+  $('#editGstName').val(c.gst_legal_name || '');
   $('#editPincode').val(c.pincode || '');
   $('#editGst').val(c.gst_number || '');
   $('#editAssignedTo').val(c.assigned_to || '');
@@ -384,6 +385,7 @@ $('#editCompanyForm').on('submit', function (e) {
   fd.append('state',              $('#editState').val());
   fd.append('pincode',            $('#editPincode').val());
   fd.append('gst_number',         $('#editGst').val());
+  fd.append('gst_legal_name',     $('#editGstName').val());
   fd.append('location_url',       $('#editLocationUrl').val());
   fd.append('assigned_to',        $('#editAssignedTo').val());
   fd.append('credit_limit',       $('#editCreditLimit').val());

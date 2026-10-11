@@ -46,3 +46,26 @@ def qty(value):
     d = _dec(value).quantize(Decimal('0.001'))
     text = f'{d:f}'
     return text.rstrip('0').rstrip('.') if '.' in text else text
+
+
+@register.simple_tag
+def pin_state_script():
+    """Prefix tables + helper for prefilling a state <select> from a pincode."""
+    from django.templatetags.static import static
+    from django.utils.html import format_html, json_script
+
+    from billing.gst_states import pincode_prefix_map
+
+    return format_html('{}<script src="{}"></script>', json_script(pincode_prefix_map(), 'pinStateMap'),
+                       static('js/state-from-pincode.js'))
+
+
+@register.simple_tag
+def gst_state_options(selected=''):
+    from django.utils.html import format_html, format_html_join
+
+    from billing.gst_states import STATES
+
+    return format_html_join('', '<option value="{}"{}>{}</option>', (
+        (code, format_html(' selected') if code == selected else '', name) for code, name in STATES
+    ))

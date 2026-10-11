@@ -99,10 +99,31 @@ def _balance(order):
     return order.total_amount - order.paid_amount
 
 
+def _url_fetcher(url):
+    """Serve /static/ and /media/ from disk; never fetch over the network."""
+    from pathlib import Path
+    from urllib.parse import unquote, urlparse
+
+    from weasyprint.urls import default_url_fetcher
+
+    path = unquote(urlparse(url).path)
+    for prefix, roots in ((settings.STATIC_URL, list(settings.STATICFILES_DIRS) + [settings.STATIC_ROOT]),
+                          (settings.MEDIA_URL, [settings.MEDIA_ROOT])):
+        if path.startswith(prefix):
+            rel = path[len(prefix):]
+            for root in roots:
+                candidate = (Path(root) / rel).resolve()
+                if str(candidate).startswith(str(Path(root).resolve())) and candidate.is_file():
+                    return default_url_fetcher(candidate.as_uri())
+    if url.startswith('data:'):
+        return default_url_fetcher(url)
+    raise ValueError(f'External resource not allowed in PDF: {url}')
+
+
 def _write_pdf(html):
     from weasyprint import HTML
 
-    return HTML(string=html, base_url=str(settings.BASE_DIR)).write_pdf()
+    return HTML(string=html, base_url='http://pdf.local/', url_fetcher=_url_fetcher).write_pdf()
 
 
 def render_invoice_pdf(invoice):
