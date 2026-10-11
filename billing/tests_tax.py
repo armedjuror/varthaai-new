@@ -114,7 +114,7 @@ class CreditLineTests(SimpleTestCase):
     def _line(self):
         return SimpleNamespace(source_quantity=3, quantity=D('1.500'), taxable_value=D('100.01'),
                                cgst_amount=D('2.51'), sgst_amount=D('2.51'), igst_amount=D('0'),
-                               cess_amount=D('0'))
+                               cess_amount=D('0'), total_amount=D('105.03'))
 
     def test_credit_in_pieces_sums_to_line(self):
         line = self._line()
@@ -128,6 +128,14 @@ class CreditLineTests(SimpleTestCase):
             done += qty
         self.assertEqual(earlier['taxable_value'], D('100.01'))
         self.assertEqual(earlier['cgst_amount'], D('2.51'))
+
+    def test_partial_credit_is_exact_share_of_total(self):
+        line = SimpleNamespace(source_quantity=1000, quantity=D('1.000'), taxable_value=D('952.38'),
+                               cgst_amount=D('23.81'), sgst_amount=D('23.81'), igst_amount=D('0'),
+                               cess_amount=D('0'), total_amount=D('1000.00'))
+        amounts = credit_line_amounts(line, 0, {}, 300)
+        self.assertEqual(amounts['total_amount'], D('300.00'))
+        self.assertEqual(amounts['cgst_amount'], amounts['sgst_amount'])
 
     def test_cannot_over_credit(self):
         with self.assertRaises(ValueError):

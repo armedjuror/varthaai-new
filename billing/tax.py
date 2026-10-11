@@ -282,11 +282,19 @@ def credit_line_amounts(line, earlier_source_qty, earlier, source_qty):
             f'Cannot credit {source_qty} — only {line.source_quantity - earlier_source_qty} left on the invoice line.'
         )
     cumulative = Fraction(earlier_source_qty + source_qty, line.source_quantity)
-    out = {}
-    for attr in CREDIT_FIELDS:
-        full = getattr(line, attr)
-        target = q2(Decimal(full) * Decimal(cumulative.numerator) / Decimal(cumulative.denominator))
-        out[attr] = target - earlier.get(attr, ZERO)
+
+    def share(amount):
+        return q2(Decimal(amount) * Decimal(cumulative.numerator) / Decimal(cumulative.denominator))
+
+    # Pro-rate the line total and each tax, and let the taxable value take
+    # the rounding: the credit is then exactly the share of what was billed
+    # (₹300 of ₹1,000 credits ₹300.00, not ₹299.99) and CGST stays = SGST.
+    line_total = getattr(line, 'total_amount', None)
+    if line_total is None:
+        line_total = sum((getattr(line, f) for f in CREDIT_FIELDS), ZERO)
+    targets = {f: share(getattr(line, f)) for f in CREDIT_FIELDS if f != 'taxable_value'}
+    targets['taxable_value'] = share(line_total) - sum(targets.values(), ZERO)
+    out = {f: targets[f] - earlier.get(f, ZERO) for f in CREDIT_FIELDS}
     out['quantity'] = q3(Decimal(line.quantity) * Decimal(source_qty) / Decimal(line.source_quantity))
     out['total_amount'] = sum((out[a] for a in CREDIT_FIELDS), ZERO)
     return out

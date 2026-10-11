@@ -255,6 +255,10 @@ RECAPTCHA_SECRET = env('RECAPTCHA_SECRET', '')
 TELEGRAM_BOT_TOKEN = env('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_GROUP_CHAT_ID = env('TELEGRAM_GROUP_CHAT_ID', '')
 
+# Public base URL used in order links sent on WhatsApp when there is no
+# request to take the host from.
+SITE_URL = env('SITE_URL', 'https://varthaai.com')
+
 WHATSAPP_BUSINESS_NUMBER = env('WHATSAPP_BUSINESS_NUMBER', '919400557445')
 
 # Loyalty points (ported from PHP config.php constants).

@@ -86,8 +86,64 @@ add a nginx `location` for it. Include it in backups: records are kept for
 - Customers download the Order Summary PDF and, once shipped, the stored Tax
   Invoice PDF (and credit notes) from their dashboard.
 
-## Not in Phase 1
+## Phase 2
 
-Share links / pay-from-link, WhatsApp buttons and message log, B2C GST-on-top
-at checkout with the MRP guard, Razorpay refunds, CA CSV registers beyond the
-ZIP export, finance net-of-GST income, ITC, e-invoicing.
+**Order links** (`/o/<token>/`). Every order (B2C and B2B) can be shared as an
+open link: Order Summary, PAID / PART PAID seal or a **Pay** button for the
+balance, and the Tax Invoice / credit-note PDFs. The page shows the name,
+items, amounts and delivery state/pincode only; the phone is masked. Links
+are `noindex`, `no-referrer`, `no-store`, rate-limited per IP, and expire 60
+days after the order is fully paid. **New link** on the order revokes the
+old one. `SITE_URL` (env) is the host used when no request is available.
+
+**Pay from the link.** A Razorpay order for the current balance (credit notes
+reduce it first). The browser return and the existing webhook
+(`/api/razorpay-webhook/`: `payment.captured`, `order.paid`,
+`payment.failed`) both settle it, idempotent on the payment id. B2B records
+a payment with method *Online*. Also subscribe the webhook to
+`refund.processed` and `refund.failed`.
+
+**WhatsApp.** *Send on WhatsApp* / *Send reminder* (B2C order page, B2B order
+modal, B2B dashboard overdue list) open `wa.me` with the message and the
+order link ready; the sender still taps Send. Texts are editable in
+Settings → GST & Invoicing (placeholders `{name} {order_id} {amount}
+{due_date} {link} {brand}`). Each click is logged (message log, B2B timeline,
+activity log); the overdue list shows *last reminded*.
+
+**B2C GST on top.** Settings → GST lets B2C switch to *exclusive* only when
+every active flavor (per-kg web price) and pack satisfies
+`selling price × (1 + rate) ≤ MRP`. While exclusive is on, flavor/pack edits
+that break it are refused and checkout blocks a violating item. The cart
+shows a GST line, the Razorpay amount includes it, and the GST is pinned on
+the order. Checkout also takes an optional business **GSTIN** (B2B-type
+invoice, place of supply = GSTIN state).
+
+**Refunds (B2C).** From the credit note dialog or the order's *Refund*
+button: through Razorpay (on the original payment) or recorded as manual.
+`payment_status` is *refund initiated* while a Razorpay refund is pending
+(or a fully credited order still owes money back) and *refunded* when
+everything paid has gone back. Customers see refunds on their dashboard.
+
+**Reports (GST Records → Reports).** GSTR-1 data as CSVs in the offline
+tool's layout (B2B, B2CL, B2CS, CDNR, CDNUR, HSN split B2B/B2C, DOCS), sales
+register, credit-note register and HSN summary. **Month close** (admins with
+Settings access; reopening needs a super admin) blocks any invoice or credit
+note dated in a closed month. The page also shows output GST vs input credit
+for the period and turnover against the ₹5 crore e-invoicing limit (also on
+the main dashboard for GST/Settings users).
+
+**Accounting.** `Income.amount` is the gross received — for B2C now goods −
+coupon + delivery (+ GST on top) − processed refunds — and
+`Income.gst_amount` the GST inside it. Revenue/profit in Finance, the main
+dashboard and the analytics MCP are net of GST. After deploying, run
+`./venv/bin/python manage.py backfill_income` once to refresh existing rows.
+Expenses take the supplier GSTIN, invoice date and CGST/SGST/IGST; eligible
+input tax credit is not counted as a cost.
+
+**Database guard.** A PostgreSQL trigger refuses UPDATE/DELETE on issued
+invoices, credit notes and their lines, except the status / PDF / e-way bill
+/ IRN columns.
+
+Not built: automatic WhatsApp sending and scheduled reminders (need a
+WhatsApp Business Platform account), e-invoicing (IRN) and e-way bill
+generation, background ZIP export for very large periods.

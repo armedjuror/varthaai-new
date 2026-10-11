@@ -156,7 +156,9 @@ function renderPanels(d) {
   var month = $('#periodMonth').val();
   var closed = (d.closed_periods || []).map(function (p) { return p.period; });
   var html = closed.length ? '<div>Closed: ' + closed.slice(0, 6).map(escHtml).join(', ') + '</div>' : '<div style="color:var(--gray-400)">No month closed yet.</div>';
-  if (d.can_close && $('#periodType').val() === 'month' && month) {
+  var now = new Date();
+  var thisMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  if (d.can_close && $('#periodType').val() === 'month' && month && (month < thisMonth || closed.indexOf(month) !== -1)) {
     html += closed.indexOf(month) === -1
       ? '<button class="btn btn-sm btn-outline-primary mt-2" onclick="periodAction(\'close_period\')"><i class="fas fa-lock me-1"></i>Close ' + escHtml(month) + '</button>'
       : '<button class="btn btn-sm btn-outline-danger mt-2" onclick="periodAction(\'reopen_period\')"><i class="fas fa-lock-open me-1"></i>Reopen ' + escHtml(month) + '</button>';
