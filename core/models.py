@@ -9,6 +9,10 @@ class Brand(models.Model):
     instagram = models.CharField(max_length=255, blank=True)
     order_prefix = models.CharField(max_length=10, default='ORD')
     is_active = models.BooleanField(default=True)
+    # GST-registered entity this brand bills under (billing app).
+    legal_entity = models.ForeignKey(
+        'billing.LegalEntity', on_delete=models.SET_NULL, null=True, blank=True, related_name='brands',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

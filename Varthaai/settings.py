@@ -68,6 +68,7 @@ LOCAL_APPS = [
     'accounts',
     'products',
     'orders',
+    'billing',
     'crm',
     'finance',
     'marketing',

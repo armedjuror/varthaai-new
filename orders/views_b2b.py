@@ -10,6 +10,7 @@ here). B2B balances are always computed from `total_amount - paid_amount`, never
 the stored `balance_amount` column.
 """
 from datetime import date, timedelta
+from types import SimpleNamespace
 from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
@@ -21,6 +22,10 @@ from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.views import APIView
 
+from billing import services as billing
+from billing.gst_states import normalise_state_code, state_label
+from billing.gstin import validate_gstin
+from billing.models import Invoice
 from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
 from core.models import Brand, Setting
@@ -124,6 +129,8 @@ def _order_row(o):
         'has_returnable': 1 if any(it.quantity > it.returned_quantity for it in items) else 0,
         'due_date': o.due_date.isoformat() if o.due_date else None,
         'order_date': o.order_date.isoformat(),
+        'invoice_number': o.invoice_number,
+        'credit_note_pending': 1 if any(r.credit_note_pending for r in o.returns.all()) else 0,
     }
 
 
@@ -147,6 +154,24 @@ def _order_detail(o):
         'source_order_id': o.source_order_id,
         'notes': o.notes,
         'order_date': o.order_date.isoformat(),
+        'price_mode': o.price_mode,
+        'gst_amount': float(o.gst_amount),
+        'ship_to_same_as_bill_to': 1 if o.ship_to_same_as_bill_to else 0,
+        'ship_to_name': o.ship_to_name,
+        'ship_to_address': o.ship_to_address,
+        'ship_to_state_code': o.ship_to_state_code,
+        'ship_to_pincode': o.ship_to_pincode,
+        'ship_to_gstin': o.ship_to_gstin,
+        'place_of_supply_state': o.place_of_supply_state,
+        'place_of_supply': state_label(o.place_of_supply_state),
+        'customer_po_no': o.customer_po_no,
+        'customer_po_date': o.customer_po_date.isoformat() if o.customer_po_date else None,
+        'company_gst_number': o.company.gst_number,
+        'company_gst_legal_name': o.company.gst_legal_name,
+        'company_address': o.company.address,
+        'company_city': o.company.city,
+        'company_state_code': o.company.state_code,
+        'company_pincode': o.company.pincode,
     }
 
 
@@ -190,6 +215,9 @@ def _return_row(r):
         'items': r.items,
         'return_amount': float(r.return_amount),
         'refund_amount': float(r.refund_amount),
+        'credit_note_pending': 1 if r.credit_note_pending else 0,
+        'credit_note_id': r.credit_note_id,
+        'credit_note_number': r.credit_note.number if r.credit_note_id else None,
         'notes': r.notes,
         'created_by_name': r.created_by.name if r.created_by else '',
         'created_at': r.created_at.isoformat(),
@@ -329,12 +357,13 @@ class B2BOrdersAPI(APIView):
             return err('Order not found.')
         items = order.items.select_related('stock').order_by('id')
         payments = order.payments.select_related('created_by').order_by('-payment_date')
-        returns = order.returns.select_related('created_by').order_by('-created_at')
+        returns = order.returns.select_related('created_by', 'credit_note').order_by('-created_at')
         return ok({
             'order': _order_detail(order),
             'items': [_item_row(it) for it in items],
             'payments': [_payment_row(p) for p in payments],
             'returns': [_return_row(r) for r in returns],
+            'billing': _billing_payload(order),
         })
 
     def _applicable_offers(self, request, brand_id):
@@ -382,7 +411,7 @@ class B2BOrdersAPI(APIView):
         offset = (page - 1) * per_page
         rows = (
             qs.select_related('company')
-            .prefetch_related('items')
+            .prefetch_related('items', 'returns')
             .order_by('-order_date')[offset:offset + per_page]
         )
         # ok() nests data; add pagination alongside it so both this page and the
@@ -407,6 +436,10 @@ class B2BOrdersAPI(APIView):
             'return_items': self._return_items,
             'repeat_order': self._repeat_order,
             'delete_order': self._delete_order,
+            'generate_credit_note': self._generate_credit_note,
+            'gst_preview': self._gst_preview,
+            'set_eway_bill': self._set_eway_bill,
+            'cancel_reissue': self._cancel_reissue,
         }
         handler = handlers.get(action)
         if not handler:
@@ -495,6 +528,20 @@ class B2BOrdersAPI(APIView):
         disc_amt = self._compute_discount(disc_type, disc_val, subtotal)
         total = max(Decimal('0'), subtotal - disc_amt)
 
+        ship, ship_err = _ship_to_fields(body)
+        if ship_err:
+            return err(ship_err)
+        price_mode = billing.price_mode_setting('b2b') if billing.gst_active(brand_id) else ''
+        gst_amount = Decimal('0')
+        if price_mode:
+            try:
+                gst_amount, total, _result = billing.b2b_estimate(
+                    brand_id, company, valid, disc_amt, price_mode,
+                    ship['ship_to_same_as_bill_to'], ship['ship_to_state_code'],
+                )
+            except (billing.BillingError, ValueError) as exc:
+                return err(str(exc))
+
         initial_status = body.get('status') or B2BOrder.Status.DRAFT
         if initial_status not in B2BOrder.Status.values:
             initial_status = B2BOrder.Status.DRAFT
@@ -516,7 +563,13 @@ class B2BOrdersAPI(APIView):
             notes=(body.get('notes') or '').strip(),
             created_by=request.user,
             order_date=_parse_dt(body.get('order_date')) or timezone.now(),
+            price_mode=price_mode, gst_amount=gst_amount,
+            customer_po_no=(body.get('customer_po_no') or '').strip()[:100],
+            customer_po_date=billing.parse_iso_date(body.get('customer_po_date')),
+            **ship,
         )
+        order.place_of_supply_state = billing.b2b_place_of_supply(order, company)
+        order.save(update_fields=['place_of_supply_state'])
         self._save_items(order, valid)
         B2BActivity.objects.create(
             company=company, admin_user=request.user, order=order,
@@ -571,6 +624,9 @@ class B2BOrdersAPI(APIView):
             return err('Order ID, company and at least one item required.')
         if order.status != B2BOrder.Status.DRAFT:
             return err('Only draft orders can be edited.')
+        frozen = billing.freeze_error(order)
+        if frozen:
+            return err(frozen)
         company = B2BCompany.objects.filter(id=company_id, brand_id=brand_id).first()
         if not company:
             return err('Company not found.')
@@ -583,6 +639,25 @@ class B2BOrdersAPI(APIView):
         disc_val = _decimal_or_none(body.get('discount_value'))
         disc_amt = self._compute_discount(disc_type, disc_val, subtotal)
         total = max(Decimal('0'), subtotal - disc_amt)
+
+        ship, ship_err = _ship_to_fields(body)
+        if ship_err:
+            return err(ship_err)
+        gst_amount = Decimal('0')
+        if order.price_mode:
+            try:
+                gst_amount, total, _result = billing.b2b_estimate(
+                    brand_id, company, valid, disc_amt, order.price_mode,
+                    ship['ship_to_same_as_bill_to'], ship['ship_to_state_code'],
+                )
+            except (billing.BillingError, ValueError) as exc:
+                return err(str(exc))
+        for key, value in ship.items():
+            setattr(order, key, value)
+        order.gst_amount = gst_amount
+        order.customer_po_no = (body.get('customer_po_no') or '').strip()[:100]
+        order.customer_po_date = billing.parse_iso_date(body.get('customer_po_date'))
+        order.place_of_supply_state = billing.b2b_place_of_supply(order, company)
 
         order.company = company
         order.contact_id = _int_or_none(body.get('contact_id'))
@@ -720,6 +795,10 @@ class B2BOrdersAPI(APIView):
             return err('Order not found.')
         if target == order.status:
             return ok(None, 'No change.')
+        blocked = billing.status_change_error(order, target)
+        if blocked:
+            return err(blocked)
+        previous = order.status
 
         should_be_deducted = target in ('confirmed', 'dispatched', 'delivered')
         if should_be_deducted and not order.stock_deducted:
@@ -736,8 +815,21 @@ class B2BOrdersAPI(APIView):
             order.delivered_at = timezone.now()
             update_fields.append('delivered_at')
         order.save(update_fields=update_fields)
+        invoice = None
+        if previous not in billing.B2B_INVOICE_STATUSES and billing.needs_invoice(order, target):
+            try:
+                invoice = billing.ensure_invoice(order, request.user)
+            except billing.BillingError as exc:
+                transaction.set_rollback(True)
+                return err(str(exc))
+            order.refresh_from_db()
         sync_b2b_order_income(order)
-        return ok(None, f'Order status updated to {target}.')
+        message = f'Order status updated to {target}.'
+        if invoice:
+            message += f' GST invoice {invoice.number} issued.'
+            if billing.eway_bill_required(invoice.is_interstate, invoice.grand_total):
+                message += ' E-way bill required before the goods move.'
+        return ok({'invoice': billing.invoice_payload(invoice)}, message)
 
     def _revert_order_stock(self, order, user):
         for it in order.items.select_related('flavor', 'stock'):
@@ -805,12 +897,14 @@ class B2BOrdersAPI(APIView):
         )
         return ok(None, 'Payment recorded!')
 
-    # ── returns (partial or full; restocks the exact batch, refunds paid
-    #    money and/or reduces the outstanding bill) ──
+    # ── returns (partial or full; restocks the exact batch). Orders with a
+    #    GST invoice need a credit note: the return records the goods and
+    #    stock now, and the money side waits for `generate_credit_note`. ──
     @transaction.atomic
     def _return_items(self, request, brand_id, body):
         order = (
             B2BOrder.objects
+            .select_for_update()
             .filter(id=body.get('order_id'), brand_id=brand_id)
             .select_related('company')
             .first()
@@ -841,57 +935,55 @@ class B2BOrdersAPI(APIView):
                 return err(f'Cannot return {qty} of {item.flavor_name} — only {remaining} left to return.')
             weight = qty * item.weight_grams
             amount = (Decimal('0') if item.is_free_item else item.selling_price * qty)
-            lines.append({'item': item, 'quantity': qty, 'weight': weight, 'amount': amount})
+            restock = ri.get('restock', True) not in (False, 0, '0', 'false', 'False')
+            lines.append({'item': item, 'quantity': qty, 'weight': weight, 'amount': amount, 'restock': restock})
             return_amount += amount
 
         if not lines:
             return err('No valid items to return.')
+
+        invoice = billing.active_invoice(order)
+        preview = None
+        if invoice:
+            inv_lines = {ln.b2b_item_id: ln for ln in invoice.lines.filter(kind='GOODS')}
+            selections = []
+            for line in lines:
+                inv_line = inv_lines.get(line['item'].id)
+                if inv_line is None:
+                    return err(f'{line["item"].flavor_name} is not on invoice {invoice.number}.')
+                selections.append((inv_line, line['quantity'], line['restock']))
+            try:
+                preview = billing.preview_totals(billing.preview_credit_note(invoice, selections))
+            except billing.BillingError as exc:
+                return err(str(exc))
+            return_amount = preview['grand_total']
 
         refund_method = body.get('refund_method') or 'cash'
         notes = (body.get('notes') or '').strip()
 
         for line in lines:
             item = line['item']
-            if item.stock_id and item.stock:
-                restock_batch(
-                    item.stock, line['weight'],
-                    reference_type='b2b_return', reference_id=order.id,
-                    created_by=request.user, notes=f'Return — B2B order {order.id}',
-                )
-            else:
-                revert_stock(
-                    item.flavor, line['weight'],
-                    reference_type='b2b_return', reference_id=order.id,
-                    created_by=request.user, notes=f'Return — B2B order {order.id}',
-                )
+            if line['restock']:
+                if item.stock_id and item.stock:
+                    restock_batch(
+                        item.stock, line['weight'],
+                        reference_type='b2b_return', reference_id=order.id,
+                        created_by=request.user, notes=f'Return — B2B order {order.id}',
+                    )
+                else:
+                    revert_stock(
+                        item.flavor, line['weight'],
+                        reference_type='b2b_return', reference_id=order.id,
+                        created_by=request.user, notes=f'Return — B2B order {order.id}',
+                    )
             item.returned_quantity += line['quantity']
             item.save(update_fields=['returned_quantity'])
 
-        new_total = max(Decimal('0'), order.total_amount - return_amount)
-        order.total_amount = new_total
         refund_amount = Decimal('0')
-        if order.paid_amount > new_total:
-            refund_amount = order.paid_amount - new_total
-            order.paid_amount -= refund_amount
-            B2BPayment.objects.create(
-                company=order.company, b2b_order=order, amount=refund_amount,
-                payment_type=B2BPayment.PaymentType.REFUND, payment_method=refund_method,
-                notes=f'Refund for return on order {order.id}',
-                payment_date=date.today(), created_by=request.user,
-            )
-        order.balance_amount = order.total_amount - order.paid_amount
-        if order.paid_amount >= order.total_amount:
-            order.payment_status = B2BOrder.PaymentStatus.PAID
-        elif order.paid_amount > 0:
-            order.payment_status = B2BOrder.PaymentStatus.PARTIAL
-        else:
-            order.payment_status = B2BOrder.PaymentStatus.PENDING
-        order.save(update_fields=[
-            'total_amount', 'paid_amount', 'balance_amount', 'payment_status', 'updated_at',
-        ])
-        sync_b2b_order_income(order)
+        if not invoice:
+            refund_amount = _apply_return_money(order, return_amount, refund_method, request.user)
 
-        B2BReturn.objects.create(
+        ret = B2BReturn.objects.create(
             b2b_order=order,
             items=[{
                 'item_id': line['item'].id,
@@ -899,28 +991,173 @@ class B2BOrdersAPI(APIView):
                 'quantity': line['quantity'],
                 'weight_grams': line['weight'],
                 'amount': float(line['amount']),
+                'restock': line['restock'],
             } for line in lines],
             return_amount=return_amount,
             refund_amount=refund_amount,
             notes=notes,
+            needs_credit_note=invoice is not None,
             created_by=request.user,
         )
         summary = ', '.join(f"{line['item'].flavor_name} x{line['quantity']}" for line in lines)
+        not_restocked = [line['item'].flavor_name for line in lines if not line['restock']]
+        if invoice:
+            outcome = 'Credit note pending.'
+        elif refund_amount > 0:
+            outcome = f'Refunded {refund_amount:.2f} via {refund_method}.'
+        else:
+            outcome = 'Bill reduced, no refund due.'
         B2BActivity.objects.create(
             company=order.company, admin_user=request.user, order=order,
             type=B2BActivity.Type.RETURN,
             subject=f'Return of {return_amount:.2f} on order {order.id}',
             description=(
-                f'{summary}. ' +
-                (f'Refunded {refund_amount:.2f} via {refund_method}.' if refund_amount > 0 else 'Bill reduced, no refund due.')
+                f'{summary}. {outcome}'
+                + (f' Not restocked: {", ".join(not_restocked)}.' if not_restocked else '')
                 + (f' {notes}' if notes else '')
             ),
         )
+        if invoice:
+            return ok({
+                'return_id': ret.id,
+                'credit_note_pending': True,
+                'invoice_number': invoice.number,
+                'preview': {k: float(v) for k, v in preview.items()},
+            }, 'Return recorded. Generate the credit note to adjust the bill.')
         message = (
             f'Return processed. ₹{refund_amount:.2f} refunded.' if refund_amount > 0
             else f'Return processed. Bill reduced by ₹{return_amount:.2f}.'
         )
         return ok(None, message)
+
+    # ── credit note for a pending return (applies the money side) ──
+    @transaction.atomic
+    def _generate_credit_note(self, request, brand_id, body):
+        ret = (
+            B2BReturn.objects.select_for_update()
+            .filter(id=_int_or_none(body.get('return_id')), b2b_order__brand_id=brand_id)
+            .first()
+        )
+        if not ret:
+            return err('Return not found.')
+        if not ret.credit_note_pending:
+            return err('This return has no pending credit note.')
+        order = B2BOrder.objects.select_for_update().select_related('company').get(pk=ret.b2b_order_id)
+        invoice = billing.active_invoice(order)
+        if invoice is None:
+            return err('The order has no active GST invoice.')
+        inv_lines = {ln.b2b_item_id: ln for ln in invoice.lines.filter(kind='GOODS')}
+        selections = []
+        for row in ret.items:
+            inv_line = inv_lines.get(row.get('item_id'))
+            if inv_line is None:
+                return err(f'{row.get("flavor_name")} is not on invoice {invoice.number}.')
+            selections.append((inv_line, int(row.get('quantity') or 0), bool(row.get('restock', True))))
+        try:
+            cn = billing.issue_credit_note(invoice, selections, 'sales_return', request.user, notes=ret.notes)
+        except billing.BillingError as exc:
+            transaction.set_rollback(True)
+            return err(str(exc))
+
+        refund_method = body.get('refund_method') or 'cash'
+        refund = _apply_return_money(order, cn.grand_total, refund_method, request.user)
+        ret.credit_note = cn
+        ret.return_amount = cn.grand_total
+        ret.refund_amount = refund
+        ret.save(update_fields=['credit_note', 'return_amount', 'refund_amount'])
+        B2BActivity.objects.create(
+            company=order.company, admin_user=request.user, order=order,
+            type=B2BActivity.Type.RETURN,
+            subject=f'Credit note {cn.number} for ₹{cn.grand_total:.2f} on order {order.id}',
+            description=(f'Refunded {refund:.2f} via {refund_method}.' if refund > 0 else 'Bill reduced, no refund due.'),
+        )
+        message = f'Credit note {cn.number} generated.'
+        message += f' ₹{refund:.2f} refunded.' if refund > 0 else f' Bill reduced by ₹{cn.grand_total:.2f}.'
+        return ok({'credit_note': billing.credit_note_payload(cn)}, message)
+
+    # ── GST breakup for the order-create screen ──
+    def _gst_preview(self, request, brand_id, body):
+        company = B2BCompany.objects.filter(id=_int_or_none(body.get('company_id')), brand_id=brand_id).first()
+        valid, subtotal, _offer = self._parse_items(brand_id, body.get('items') or [])
+        if not company or not valid:
+            return ok({'enabled': False})
+        existing = B2BOrder.objects.filter(id=body.get('order_id') or '', brand_id=brand_id).first()
+        if existing:
+            price_mode = existing.price_mode
+        else:
+            price_mode = billing.price_mode_setting('b2b') if billing.gst_active(brand_id) else ''
+        if not price_mode:
+            return ok({'enabled': False})
+        disc_amt = self._compute_discount(
+            body.get('discount_type') or '', _decimal_or_none(body.get('discount_value')), subtotal,
+        )
+        ship, ship_err = _ship_to_fields(body, require_address=False)
+        try:
+            _gst, _total, result = billing.b2b_estimate(
+                brand_id, company, valid, disc_amt, price_mode,
+                ship['ship_to_same_as_bill_to'], ship['ship_to_state_code'],
+            )
+        except (billing.BillingError, ValueError) as exc:
+            return ok({'enabled': True, 'error': str(exc), 'price_mode': price_mode})
+        pos = billing.b2b_place_of_supply(SimpleNamespace(**ship), company)
+        payload = billing.tax_result_payload(result)
+        payload.update({
+            'enabled': True, 'place_of_supply': state_label(pos),
+            'eway_required': billing.eway_bill_required(result.is_interstate, result.grand_total),
+        })
+        return ok(payload)
+
+    def _set_eway_bill(self, request, brand_id, body):
+        order = B2BOrder.objects.filter(id=body.get('order_id'), brand_id=brand_id).first()
+        invoice = billing.active_invoice(order) if order else None
+        if not invoice:
+            return err('The order has no active GST invoice.')
+        billing.set_eway_bill(invoice, body.get('eway_bill_no'), billing.parse_iso_date(body.get('eway_bill_date')))
+        return ok(None, 'E-way bill saved.')
+
+    # ── cancel & reissue (wrong GSTIN / state / address on an issued invoice) ──
+    def _cancel_reissue(self, request, brand_id, body):
+        order = B2BOrder.objects.filter(id=body.get('order_id'), brand_id=brand_id).select_related('company').first()
+        if not order:
+            return err('Order not found.')
+        if any(r.credit_note_pending for r in order.returns.all()):
+            return err('Generate the pending credit note(s) on this order first.')
+        gstin, gstin_err = validate_gstin(body.get('gst_number'))
+        if gstin_err:
+            return err(gstin_err)
+        state_code = gstin[:2] if gstin else normalise_state_code(body.get('state_code'))
+        if not state_code:
+            return err('Enter a GSTIN or select the state of the invoice address.')
+        ship, ship_err = _ship_to_fields(body)
+        if ship_err:
+            return err(ship_err)
+
+        def apply_corrections(locked):
+            company = locked.company
+            company.gst_number = gstin
+            company.gst_legal_name = (body.get('gst_legal_name') or '').strip()[:255]
+            company.address = (body.get('address') if body.get('address') is not None else company.address).strip()
+            company.city = (body.get('city') if body.get('city') is not None else company.city).strip()
+            company.pincode = (body.get('pincode') if body.get('pincode') is not None else company.pincode).strip()
+            company.state_code = state_code
+            company.state = billing.state_name(state_code)
+            company.save()
+            for key, value in ship.items():
+                setattr(locked, key, value)
+            locked.place_of_supply_state = billing.b2b_place_of_supply(locked, company)
+            locked.save()
+
+        try:
+            cn, new_invoice = billing.cancel_and_reissue(order, request.user, apply_corrections)
+        except billing.BillingError as exc:
+            return err(str(exc))
+        B2BActivity.objects.create(
+            company=order.company, admin_user=request.user, order=order, type=B2BActivity.Type.NOTE,
+            subject=f'Invoice reissued as {new_invoice.number}',
+            description=f'Credit note {cn.number} cancels the earlier invoice.',
+        )
+        return ok({'invoice': billing.invoice_payload(new_invoice)},
+                  f'Credit note {cn.number} issued and new invoice {new_invoice.number} created.')
 
     # ── repeat / edit source ──
     def _repeat_order(self, request, brand_id, body):
@@ -945,6 +1182,14 @@ class B2BOrdersAPI(APIView):
             'order_date': order.order_date.isoformat(),
             'items': [_item_row(it) for it in items],
             'source_order_id': source_id,
+            'ship_to_same_as_bill_to': 1 if order.ship_to_same_as_bill_to else 0,
+            'ship_to_name': order.ship_to_name,
+            'ship_to_address': order.ship_to_address,
+            'ship_to_state_code': order.ship_to_state_code,
+            'ship_to_pincode': order.ship_to_pincode,
+            'ship_to_gstin': order.ship_to_gstin,
+            'customer_po_no': order.customer_po_no,
+            'customer_po_date': order.customer_po_date.isoformat() if order.customer_po_date else None,
         })
 
     # ── delete ──
@@ -955,6 +1200,8 @@ class B2BOrdersAPI(APIView):
         ).first()
         if not order:
             return err('Order not found.')
+        if order.invoices.exists():
+            return err(billing.freeze_error(order, 'delet') or 'This order has GST invoices and cannot be deleted.')
         if order.stock_deducted:
             self._revert_order_stock(order, request.user)
         order.payments.all().delete()
@@ -1045,6 +1292,96 @@ class B2BOffersAPI(APIView):
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
+def _apply_return_money(order, amount, refund_method, user):
+    """Reduce the order total by `amount` and refund anything paid above the
+    new total. Returns the refund amount."""
+    new_total = max(Decimal('0'), order.total_amount - amount)
+    order.total_amount = new_total
+    refund_amount = Decimal('0')
+    if order.paid_amount > new_total:
+        refund_amount = order.paid_amount - new_total
+        order.paid_amount -= refund_amount
+        B2BPayment.objects.create(
+            company=order.company, b2b_order=order, amount=refund_amount,
+            payment_type=B2BPayment.PaymentType.REFUND, payment_method=refund_method,
+            notes=f'Refund for return on order {order.id}',
+            payment_date=date.today(), created_by=user,
+        )
+    order.balance_amount = order.total_amount - order.paid_amount
+    if order.paid_amount >= order.total_amount:
+        order.payment_status = B2BOrder.PaymentStatus.PAID
+    elif order.paid_amount > 0:
+        order.payment_status = B2BOrder.PaymentStatus.PARTIAL
+    else:
+        order.payment_status = B2BOrder.PaymentStatus.PENDING
+    order.save(update_fields=[
+        'total_amount', 'paid_amount', 'balance_amount', 'payment_status', 'updated_at',
+    ])
+    sync_b2b_order_income(order)
+    return refund_amount
+
+
+def _truthy(value, default=True):
+    if value is None or value == '':
+        return default
+    return value not in (False, 0, '0', 'false', 'False', 'off')
+
+
+def _ship_to_fields(body, require_address=True):
+    """Delivery address from the order form. 'Same as invoice address' is
+    the default."""
+    same = _truthy(body.get('ship_to_same_as_bill_to'), True)
+    if same:
+        return {
+            'ship_to_same_as_bill_to': True, 'ship_to_name': '', 'ship_to_address': '',
+            'ship_to_state_code': '', 'ship_to_pincode': '', 'ship_to_gstin': '',
+        }, None
+    gstin, gstin_err = validate_gstin(body.get('ship_to_gstin'))
+    fields = {
+        'ship_to_same_as_bill_to': False,
+        'ship_to_name': (body.get('ship_to_name') or '').strip()[:255],
+        'ship_to_address': (body.get('ship_to_address') or '').strip(),
+        'ship_to_state_code': normalise_state_code(body.get('ship_to_state_code')),
+        'ship_to_pincode': (body.get('ship_to_pincode') or '').strip()[:10],
+        'ship_to_gstin': gstin if not gstin_err else '',
+    }
+    if not require_address:
+        return fields, None
+    if gstin_err:
+        return fields, f'Delivery address GSTIN: {gstin_err}'
+    if not fields['ship_to_address'] or not fields['ship_to_state_code']:
+        return fields, 'Enter the delivery address and state, or tick "Delivery address same as invoice address".'
+    return fields, None
+
+
+def _billing_payload(order):
+    """Invoice, credit notes and GST data for the order view modal."""
+    invoice = billing.active_invoice(order)
+    invoices = list(order.invoices.order_by('id'))
+    credit_notes = [cn for inv in invoices for cn in inv.credit_notes.order_by('id')]
+    summary = billing.order_gst_summary(order)
+    estimate = None
+    if summary and not summary.get('unavailable'):
+        estimate = {
+            'tax_total': float(summary['tax_total']), 'cgst': float(summary['cgst']),
+            'sgst': float(summary['sgst']), 'igst': float(summary['igst']),
+            'is_interstate': summary['is_interstate'], 'place_of_supply': summary['place_of_supply'],
+            'eway_required': billing.eway_bill_required(summary['is_interstate'], summary['grand_total']),
+        }
+    return {
+        'gst_enabled': bool(order.price_mode) or invoice is not None,
+        'invoice': billing.invoice_payload(invoice),
+        'invoice_lines': billing.invoice_lines_payload(invoice) if invoice else [],
+        'cancelled_invoices': [
+            {'id': i.id, 'number': i.number, 'date': i.invoice_date.isoformat()}
+            for i in invoices if i.status == Invoice.Status.CANCELLED
+        ],
+        'credit_notes': [billing.credit_note_payload(cn) for cn in credit_notes],
+        'gst': estimate,
+        'pending_returns': [r.id for r in order.returns.all() if r.credit_note_pending],
+    }
+
 
 def _int_or_none(value):
     try:

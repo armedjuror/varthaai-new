@@ -12,6 +12,7 @@ urlpatterns = [
     path('admin/', include('core.urls')),              # dashboard + dashboard API
     path('admin/', include('products.urls')),          # flavors, packs, stocks
     path('admin/', include('orders.urls')),            # B2C + B2B orders, coupons, offers
+    path('admin/', include('billing.urls')),          # GST invoices, credit notes, GST records
     path('admin/', include('crm.urls')),               # B2B pipeline
     path('admin/', include('finance.urls')),           # expenses, investments
     path('admin/', include('marketing.urls')),         # reviews, blogs
