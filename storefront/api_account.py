@@ -212,16 +212,26 @@ class TrackOrderAPI(StorefrontAPIView):
 
 
 class CancelOrderAPI(StorefrontAPIView):
-    """POST { order_id } -> cancel a still-pending order."""
+    """POST { order_id } -> cancel a still-pending order.
+
+    Only the order's owner may cancel: the logged-in customer it belongs to, or
+    the browser session that placed it (guest checkout cancels on payment
+    dismissal without logging in). Anyone else gets the same "not found"
+    response, so order IDs can't be probed.
+    """
 
     def post(self, request):
         body = request.data if isinstance(request.data, dict) else {}
         order_id = (body.get('order_id') or '').strip()
         if not order_id:
             return Response({'success': False, 'message': 'Order ID is required'})
-        updated = Order.objects.filter(id=order_id, payment_status='pending').update(
-            status='cancelled', payment_status='cancelled',
-        )
+        orders = Order.objects.filter(id=order_id, payment_status='pending')
+        if not services.placed_in_session(request, order_id):
+            user = services.current_user(request)
+            if not user:
+                return Response({'success': False, 'message': 'Order not found or cannot be cancelled'})
+            orders = orders.filter(user=user)
+        updated = orders.update(status='cancelled', payment_status='cancelled')
         if updated:
             return Response({'success': True, 'message': 'Order cancelled successfully'})
         return Response({'success': False, 'message': 'Order not found or cannot be cancelled'})

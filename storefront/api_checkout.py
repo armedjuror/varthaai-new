@@ -164,6 +164,7 @@ class PlaceOrderAPI(StorefrontAPIView):
             log.warning('place_order failed for %s: %s', order_id, e)
             return Response({'success': False, 'message': f'Payment gateway error: {e}'})
 
+        services.remember_placed_order(request, order_id)
         order.refresh_from_db()
         return Response({
             'success': True,

@@ -22,6 +22,10 @@ log = logging.getLogger(__name__)
 
 SESSION_USER_ID = 'storefront_user_id'
 SESSION_USER_NAME = 'storefront_user_name'
+# Order IDs placed from this browser session (guest checkout has no login, so
+# this is how we know the caller may cancel the order it just created).
+SESSION_PLACED_ORDERS = 'storefront_placed_orders'
+_MAX_PLACED_ORDERS = 20
 
 _HTTP_TIMEOUT = 10
 
@@ -42,6 +46,16 @@ def current_user(request):
     if not uid:
         return None
     return User.objects.filter(id=uid).first()
+
+
+def remember_placed_order(request, order_id):
+    placed = list(request.session.get(SESSION_PLACED_ORDERS) or [])
+    placed.append(order_id)
+    request.session[SESSION_PLACED_ORDERS] = placed[-_MAX_PLACED_ORDERS:]
+
+
+def placed_in_session(request, order_id):
+    return order_id in (request.session.get(SESSION_PLACED_ORDERS) or [])
 
 
 # ── brand ─────────────────────────────────────────────────────────────
