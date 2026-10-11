@@ -3,13 +3,16 @@ Service / view tests for GST billing: invoice issue on dispatch, numbering,
 freeze rules, credit notes, cancel & reissue, and the GST records login.
 """
 import hashlib
+import io
 import shutil
 import tempfile
 import threading
-from datetime import date
+import zipfile
+from datetime import date, datetime, timezone as dt_timezone
 from decimal import Decimal as D
 from unittest import mock
 
+from django.core.management import call_command
 from django.db import connection
 from django.test import TestCase, TransactionTestCase, override_settings
 
@@ -20,7 +23,7 @@ from billing.models import CreditNote, HSNCode, HSNRate, ImmutableDocumentError,
 from core.api import BRAND_SESSION_KEY
 from core.models import Brand, Setting
 from crm.models import B2BCompany, B2BContact
-from orders.models import B2BOrder, B2BReturn, Order, OrderItem
+from orders.models import B2BOrder, B2BOrderItem, B2BReturn, Order, OrderItem
 from products.models import Flavor, FlavorPack, Stock
 
 MEDIA = tempfile.mkdtemp(prefix='gst-test-media-')
@@ -62,7 +65,7 @@ def login(test, user=None):
     session.save()
 
 
-@override_settings(MEDIA_ROOT=MEDIA)
+@override_settings(MEDIA_ROOT=MEDIA, PRIVATE_MEDIA_ROOT=MEDIA)
 class B2CInvoiceTests(TestCase):
     def setUp(self):
         seed_gst(self)
@@ -251,7 +254,7 @@ class B2CInvoiceTests(TestCase):
             self.assertEqual(billing.fiscal_year(billing.ist_today()), '2027-28')
 
 
-@override_settings(MEDIA_ROOT=MEDIA)
+@override_settings(MEDIA_ROOT=MEDIA, PRIVATE_MEDIA_ROOT=MEDIA)
 class B2BInvoiceTests(TestCase):
     def setUp(self):
         seed_gst(self)
@@ -365,7 +368,7 @@ class B2BInvoiceTests(TestCase):
         self.assertEqual(res['data']['grand_total'], 420.0)
 
 
-@override_settings(MEDIA_ROOT=MEDIA)
+@override_settings(MEDIA_ROOT=MEDIA, PRIVATE_MEDIA_ROOT=MEDIA)
 class GSTRecordsAccessTests(TestCase):
     def setUp(self):
         seed_gst(self)
@@ -383,6 +386,116 @@ class GSTRecordsAccessTests(TestCase):
             self.assertEqual(self.client.get(url).status_code, 403, url)
         for url in ('/admin/api/orders/', '/admin/api/b2b-orders/', '/admin/api/gst/settings/'):
             self.assertEqual(self.client.get(url).status_code, 403, url)
+
+
+@override_settings(MEDIA_ROOT=MEDIA, PRIVATE_MEDIA_ROOT=MEDIA)
+class BackfillAndPagesTests(TestCase):
+    def setUp(self):
+        seed_gst(self)
+        login(self)
+        self.company = B2BCompany.objects.create(brand=self.brand, company_name='Bakery', stage='converted',
+                                                 state_code='32', address='Calicut')
+
+    def _b2c(self, oid, pincode='673001', state=''):
+        o = Order.objects.create(id=oid, brand=self.brand, name='Old', mobile='9876543210', address='x',
+                                 pincode=pincode, shipping_state_code=state, status='shipped')
+        OrderItem.objects.create(order=o, flavor=self.flavor, quantity=1000, price_per_kg=1000,
+                                 sale_price_per_kg=1000, flavor_name='Classic')
+        return o
+
+    def _b2b(self, oid, paid=0):
+        o = B2BOrder.objects.create(id=oid, brand=self.brand, company=self.company, status='delivered',
+                                    subtotal=D('500'), total_amount=D('500'), paid_amount=D(paid),
+                                    delivered_at=datetime(2026, 10, 5, 6, 0, tzinfo=dt_timezone.utc))
+        B2BOrderItem.objects.create(b2b_order=o, flavor=self.flavor, quantity=5, weight_grams=100,
+                                    total_weight_grams=500, selling_price=D('100'), flavor_name='Classic')
+        return o
+
+    def _run(self, *args):
+        out = io.StringIO()
+        call_command('backfill_invoices', '--from', '2026-01-01', *args, stdout=out)
+        return out.getvalue()
+
+    def test_dry_run_changes_nothing(self):
+        self._b2c('VO_old1')
+        out = self._run('--dry-run')
+        self.assertIn('would issue', out)
+        self.assertIn('state from pincode', out)
+        self.assertFalse(Invoice.objects.exists())
+        self.assertEqual(Order.objects.get().shipping_state_code, '')
+
+    def test_backfill_in_date_order_inclusive(self):
+        self._b2c('VO_late')
+        self._b2b('VOB_early')
+        self._run('--date', 'VO_late=2026-10-08')
+        early = Invoice.objects.get(b2b_order_id='VOB_early')
+        late = Invoice.objects.get(b2c_order_id='VO_late')
+        self.assertEqual(early.invoice_date, date(2026, 10, 5))
+        self.assertEqual(late.invoice_date, date(2026, 10, 8))
+        self.assertLess(early.number, late.number)
+        self.assertEqual(early.price_mode, 'inclusive')
+        self.assertEqual(early.grand_total, D('500.00'))
+        self.assertEqual(late.place_of_supply_state, '32')
+        self.assertIn('Nothing to backfill', self._run())
+
+    def test_exclusive_switch_for_unpaid_b2b(self):
+        self._b2b('VOB_x')
+        self._run('--exclusive', 'VOB_x')
+        order = B2BOrder.objects.get()
+        self.assertEqual(order.total_amount, D('525.00'))
+        self.assertEqual(Invoice.objects.get().grand_total, D('525.00'))
+
+    def test_pages_render(self):
+        o = self._b2c('VO_page', state='32')
+        b = self._b2b('VOB_page')
+        billing.ensure_invoice(o)
+        billing.ensure_invoice(b)
+        urls = [
+            '/admin/orders/', f'/admin/orders/{o.id}/', f'/admin/orders/{o.id}/edit/',
+            f'/admin/orders/{o.id}/invoice/', '/admin/b2b-orders/', '/admin/b2b-orders/create/',
+            f'/admin/b2b-orders/{b.id}/invoice/', '/admin/gst/settings/', '/admin/gst/records/',
+            f'/admin/gst/invoice/{Invoice.objects.get(b2b_order=b).id}/', '/admin/b2b/',
+            '/admin/api/gst/settings/', '/admin/api/gst/records/?tab=missing',
+            f'/admin/api/b2b-orders/?view=order&id={b.id}', f'/admin/api/gst/order/?order_id={o.id}',
+        ]
+        for url in urls:
+            res = self.client.get(url)
+            self.assertEqual(res.status_code, 200, url)
+        summary = self.client.get(f'/admin/orders/{o.id}/invoice/').content.decode()
+        self.assertIn('ORDER SUMMARY', summary)
+        self.assertIn('This is not a tax invoice', summary)
+        self.assertIn('Total GST', summary)
+        self.assertIn(Invoice.objects.get(b2c_order=o).number, summary)
+        res = self.client.get(f'/admin/gst/records/export/?fy=2026-27')
+        self.assertEqual(res['Content-Type'], 'application/zip')
+        names = zipfile.ZipFile(io.BytesIO(res.content)).namelist()
+        self.assertIn('invoices.csv', names)
+        self.assertEqual(len([n for n in names if n.endswith('.pdf')]), 2)
+
+    def test_storefront_downloads(self):
+        from accounts.models import User
+        from storefront import services as sf
+
+        customer = User.objects.create(brand=self.brand, mobile='9876543210', name='Asha')
+        o = self._b2c('VO_sf', state='32')
+        o.user = customer
+        o.save()
+        session = self.client.session
+        session[sf.SESSION_USER_ID] = customer.id
+        session.save()
+        self.assertEqual(self.client.get(f'/tax-invoice/{o.id}.pdf').status_code, 404)  # not issued yet
+        billing.ensure_invoice(o)
+        res = self.client.get(f'/tax-invoice/{o.id}.pdf')
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res['Cache-Control'], 'private, no-store')
+        res = self.client.get(f'/order-summary/{o.id}.pdf')
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.content.startswith(b'%PDF'))
+        data = self.client.get('/api/dashboard-data/').json()
+        self.assertEqual(data['orders'][0]['tax_invoice']['number'], Invoice.objects.get().number)
+        other = self._b2c('VO_other', state='32')
+        billing.ensure_invoice(other)
+        self.assertEqual(self.client.get(f'/tax-invoice/{other.id}.pdf').status_code, 404)
 
 
 class ConcurrentNumberingTests(TransactionTestCase):

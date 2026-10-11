@@ -208,6 +208,11 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# GST tax invoice / credit note PDFs (billing app). NOT under MEDIA_ROOT and
+# never served by nginx — only streamed by permission-checked views. Keep it
+# in backups: invoices must be retained for 6 years.
+PRIVATE_MEDIA_ROOT = Path(env('PRIVATE_MEDIA_ROOT', str(BASE_DIR / 'private_media')))
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 

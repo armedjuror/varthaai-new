@@ -7,7 +7,10 @@ immutable: `save()` on an existing row and `delete()` both raise. The few
 fields that may legitimately change after issue (status, PDF, e-way bill)
 are written with `QuerySet.update()` from billing.services, never `save()`.
 """
+import os
+
 from django.conf import settings
+from django.core.files.storage import FileSystemStorage
 from django.db import models
 from django.db.models import Q
 
@@ -16,6 +19,32 @@ from billing.gst_states import STATES
 
 class ImmutableDocumentError(Exception):
     pass
+
+
+class PrivateDocumentStorage(FileSystemStorage):
+    """Tax invoice / credit note PDFs live under PRIVATE_MEDIA_ROOT, which
+    nginx does NOT serve (unlike /media/). They are only ever streamed by the
+    permission-checked download views. The location is read from settings on
+    every access so tests can override it."""
+
+    @property
+    def base_location(self):
+        return str(getattr(settings, 'PRIVATE_MEDIA_ROOT', os.path.join(settings.BASE_DIR, 'private_media')))
+
+    @property
+    def location(self):
+        return os.path.abspath(self.base_location)
+
+    @property
+    def base_url(self):
+        return None
+
+    def url(self, name):
+        raise ValueError('Private GST documents have no public URL.')
+
+
+def private_document_storage():
+    return PrivateDocumentStorage()
 
 
 class ImmutableModel(models.Model):
@@ -198,7 +227,7 @@ class Invoice(ImmutableModel):
     eway_bill_no = models.CharField(max_length=20, blank=True)
     eway_bill_date = models.DateField(null=True, blank=True)
     # Stored PDF (generated once at issue)
-    pdf_file = models.FileField(upload_to='gst/invoices/', blank=True)
+    pdf_file = models.FileField(upload_to='gst/invoices/', storage=private_document_storage, blank=True)
     pdf_sha256 = models.CharField(max_length=64, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
@@ -307,7 +336,7 @@ class CreditNote(ImmutableModel):
     irn = models.CharField(max_length=64, blank=True)
     ack_no = models.CharField(max_length=30, blank=True)
     ack_date = models.DateTimeField(null=True, blank=True)
-    pdf_file = models.FileField(upload_to='gst/credit_notes/', blank=True)
+    pdf_file = models.FileField(upload_to='gst/credit_notes/', storage=private_document_storage, blank=True)
     pdf_sha256 = models.CharField(max_length=64, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',

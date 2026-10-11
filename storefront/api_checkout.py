@@ -33,6 +33,10 @@ from storefront.api_base import StorefrontAPIView
 
 log = logging.getLogger(__name__)
 
+# A payment confirmation only moves an order forward from these; a late
+# webhook must never pull a processing / shipped (GST-invoiced) order back.
+PRE_PAYMENT_STATUSES = ('pending', 'failed', 'cancelled')
+
 
 def _brand():
     return Brand.objects.filter(id=services.storefront_brand_id()).first()
@@ -214,7 +218,8 @@ class VerifyPaymentAPI(StorefrontAPIView):
             return Response({'success': False, 'message': 'Order not found'})
 
         order.payment_status = 'paid'
-        order.status = 'confirmed'
+        if order.status in PRE_PAYMENT_STATUSES:
+            order.status = 'confirmed'
         order.razorpay_payment_id = payment_id
         order.payment_date = timezone.now()
         order.save(update_fields=['payment_status', 'status', 'razorpay_payment_id', 'payment_date'])
@@ -272,7 +277,8 @@ class RazorpayWebhookAPI(StorefrontAPIView):
             return
         already_paid = order.payment_status == 'paid'
         order.payment_status = 'paid'
-        order.status = 'confirmed'
+        if order.status in PRE_PAYMENT_STATUSES:
+            order.status = 'confirmed'
         if not order.payment_date:
             order.payment_date = timezone.now()
         order.save(update_fields=['payment_status', 'status', 'payment_date'])
@@ -286,6 +292,7 @@ class RazorpayWebhookAPI(StorefrontAPIView):
     def _mark_failed(self, rzp_order_id):
         if not rzp_order_id:
             return
-        Order.objects.filter(razorpay_order_id=rzp_order_id).update(
-            payment_status='failed', status='cancelled',
-        )
+        # Never touch an order that has moved on (e.g. shipped and invoiced).
+        Order.objects.filter(
+            razorpay_order_id=rzp_order_id, status__in=PRE_PAYMENT_STATUSES,
+        ).exclude(payment_status='paid').update(payment_status='failed', status='cancelled')
