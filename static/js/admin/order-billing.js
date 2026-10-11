@@ -77,8 +77,51 @@
       showLoader('Issuing credit note…');
       apiPost(API, {
         action: 'credit_note', order_id: orderId, lines: selected,
-        reason: $('#cnReason').val(), notes: $('#cnNotes').val()
+        reason: $('#cnReason').val(), notes: $('#cnNotes').val(),
+        refund_method: $('#cnRefundMethod').val() || '', refund_reference: $('#cnRefundRef').val() || ''
       })
+        .done(function (res) {
+          showAlertModal(res.message, res.success ? 'success' : 'danger');
+          if (res.success) setTimeout(function () { window.location.reload(); }, 1200);
+        })
+        .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr), 'danger'); })
+        .always(hideLoader);
+    });
+  });
+
+  /* Share link, WhatsApp, refunds */
+  function renderRefunds(r) {
+    if (!r || (!r.refunds.length && r.refundable <= 0)) { $('#refundsPanel').empty(); return; }
+    var html = '<div style="font-weight:600;margin-bottom:4px">Refunds</div>';
+    r.refunds.forEach(function (x) {
+      html += '<div class="info-row"><span>' + escHtml(x.method) + (x.credit_note ? ' · ' + escHtml(x.credit_note) : '') +
+        '<div style="font-size:0.72rem;color:var(--gray-400)">' + formatDateTime(x.date) + (x.reference ? ' · ' + escHtml(x.reference) : '') + '</div></span>' +
+        '<span>' + formatCurrency(x.amount) + ' <span class="badge ' + (x.status === 'processed' ? 'bg-success' : x.status === 'failed' ? 'bg-danger' : 'bg-warning text-dark') + '">' + escHtml(x.status_label) + '</span></span></div>';
+    });
+    if (r.refundable > 0) {
+      html += '<button class="btn btn-sm btn-outline-primary mt-2" id="btnRefund"><i class="fas fa-rotate-left me-1"></i>Refund (' + formatCurrency(r.refundable) + ' refundable)</button>';
+    }
+    $('#refundsPanel').html(html);
+    $('#btnRefund').on('click', function () {
+      $('#rfAmount').val(r.refundable);
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('refundModal')).show();
+    });
+  }
+
+  function loadPanels() {
+    apiGet(API, { order_id: orderId }).done(function (res) {
+      if (!res.success) return;
+      OrderShare.render(document.getElementById('sharePanel'), 'b2c', orderId, res.data.share);
+      renderRefunds(res.data.refunds);
+    });
+  }
+  loadPanels();
+
+  $('#rfSubmit').on('click', function () {
+    confirmThen('Refund ' + formatCurrency($('#rfAmount').val()) + ' to the customer?', function () {
+      showLoader('Refunding…');
+      apiPost(API, { action: 'refund', order_id: orderId, amount: $('#rfAmount').val(), method: $('#rfMethod').val(),
+                     reference: $('#rfRef').val(), notes: $('#rfNotes').val() })
         .done(function (res) {
           showAlertModal(res.message, res.success ? 'success' : 'danger');
           if (res.success) setTimeout(function () { window.location.reload(); }, 1200);

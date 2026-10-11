@@ -6,11 +6,14 @@ nav section) and Packs (brand-wise pricing/packaging, its own top-menu page)
 are managed on separate pages with separate module permissions. See
 products/views.py for the Flavor/Stock APIs.
 """
+from decimal import Decimal
+
 from django.db import IntegrityError
 from django.shortcuts import render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.views import APIView
 
+from billing import services as billing
 from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
 from products.models import Flavor, FlavorPack
@@ -107,6 +110,11 @@ class PacksAPI(APIView):
         label = (data.get('label') or '').strip()
         if not flavor or not weight or not label:
             return err('Flavor, weight and label are required.')
+        probe = FlavorPack(flavor=flavor, label=label, mrp=Decimal(str(_float(data.get('mrp')))),
+                           selling_price=Decimal(str(_float(data.get('selling_price')))))
+        problems = billing.mrp_guard_for(brand_id, packs=[probe])
+        if problems:
+            return err('Selling price + GST must not exceed MRP: ' + problems[0])
         try:
             pack = FlavorPack.objects.create(
                 flavor=flavor, brand_id=brand_id, weight_grams=weight, label=label,
@@ -140,6 +148,11 @@ class PacksAPI(APIView):
         pack.cost_price = _float(data.get('cost_price'))
         pack.sku = (data.get('sku') or '').strip() or None
         pack.is_active = _int(data.get('is_active', 1)) == 1
+        pack.mrp = Decimal(str(pack.mrp))
+        pack.selling_price = Decimal(str(pack.selling_price))
+        problems = billing.mrp_guard_for(brand_id, packs=[pack])
+        if problems:
+            return err('Selling price + GST must not exceed MRP: ' + problems[0])
         try:
             pack.save()
         except IntegrityError:

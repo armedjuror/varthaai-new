@@ -19,6 +19,7 @@ urlpatterns = [
     path('admin/', include('content.urls')),           # Content Studio (Phase 0/1/2/3 — see content-generator-plan.md)
     path('admin/', include('debugger.urls')),          # Debugger Agent (super_admin)
     path('admin/', include('sessions_tracking.urls')), # Employee sessions + performance dashboard
+    path('o/', include('billing.public_urls')),         # public order link (token)
     path('sitemap.xml', sitemap, {'sitemaps': SITEMAPS}, name='sitemap'),
     path('robots.txt', robots_txt, name='robots_txt'),
     path('', include('storefront.urls')),              # Phase 15 — public storefront

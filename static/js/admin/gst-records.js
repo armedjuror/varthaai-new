@@ -55,6 +55,7 @@ function load() {
         $('#gapAlert').addClass('d-none');
       }
       render(d);
+      renderPanels(d);
     })
     .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Failed to load records.'), 'danger'); });
 }
@@ -123,4 +124,54 @@ function exportZip() {
   var p = filters();
   delete p.search;
   window.location.href = '/admin/gst/records/export/?' + $.param(p);
+}
+
+function downloadReport(kind) {
+  var p = filters();
+  delete p.search;
+  delete p.supply_type;
+  if (!p.month && !p.fy && !(p.from && p.to)) { showAlertModal('Choose a month, financial year or date range first.', 'warning'); return; }
+  var url = kind === 'gstr1' ? '/admin/gst/records/gstr1/' : '/admin/gst/records/report/' + kind + '.csv';
+  window.location.href = url + '?' + $.param(p);
+}
+
+function renderPanels(d) {
+  var g = d.gst_position;
+  $('#gstPosition').html(g
+    ? '<div class="d-flex justify-content-between"><span>Output GST</span><strong>' + money(g.output_tax) + '</strong></div>' +
+      '<div class="d-flex justify-content-between"><span>Input credit (purchases)</span><strong>-' + money(g.input_tax) + '</strong></div>' +
+      '<div class="d-flex justify-content-between" style="border-top:1px solid var(--gray-200);margin-top:4px;padding-top:4px"><span>≈ GST payable</span><strong>' + money(g.payable) + '</strong></div>' +
+      '<div style="font-size:0.72rem;color:var(--gray-400)">Estimate — CGST/SGST/IGST set-off order is applied by the portal.</div>'
+    : '<span style="color:var(--gray-400)">Pick a period.</span>');
+
+  var t = d.turnover;
+  if (t) {
+    var pct = Math.min(100, t.percent);
+    $('#turnoverWatch').html(
+      '<div>' + money(t.turnover) + ' of ' + money(t.threshold) + ' (FY ' + escHtml(t.fiscal_year) + ')</div>' +
+      '<div class="progress mt-1" style="height:8px"><div class="progress-bar ' + (t.warning ? 'bg-warning' : 'bg-success') + '" style="width:' + pct + '%"></div></div>' +
+      '<div style="font-size:0.72rem;color:var(--gray-400);margin-top:4px">' + escHtml(t.note) + '</div>');
+  }
+
+  var month = $('#periodMonth').val();
+  var closed = (d.closed_periods || []).map(function (p) { return p.period; });
+  var html = closed.length ? '<div>Closed: ' + closed.slice(0, 6).map(escHtml).join(', ') + '</div>' : '<div style="color:var(--gray-400)">No month closed yet.</div>';
+  if (d.can_close && $('#periodType').val() === 'month' && month) {
+    html += closed.indexOf(month) === -1
+      ? '<button class="btn btn-sm btn-outline-primary mt-2" onclick="periodAction(\'close_period\')"><i class="fas fa-lock me-1"></i>Close ' + escHtml(month) + '</button>'
+      : '<button class="btn btn-sm btn-outline-danger mt-2" onclick="periodAction(\'reopen_period\')"><i class="fas fa-lock-open me-1"></i>Reopen ' + escHtml(month) + '</button>';
+  }
+  $('#monthClose').html(html);
+}
+
+function periodAction(action) {
+  var month = $('#periodMonth').val();
+  var label = action === 'close_period'
+    ? 'Close ' + month + '? After this no invoice or credit note can be dated in it.'
+    : 'Reopen ' + month + '?';
+  confirmThen(label, function () {
+    apiPost('/admin/api/gst/records/', { action: action, period: month })
+      .done(function (res) { showAlertModal(res.message, res.success ? 'success' : 'danger'); load(); })
+      .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr), 'danger'); });
+  });
 }

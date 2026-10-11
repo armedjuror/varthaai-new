@@ -151,7 +151,7 @@ def _order_summary_ctx(request, order, for_pdf=False):
             'item_total': item_total,
         })
     discount = order.coupon_discount or 0.0
-    total = subtotal - discount + order.delivery_charge
+    total = float(billing.b2c_order_total(order))
     loyalty = (
         PointsTransaction.objects.filter(user=order.user, status='credited')
         .aggregate(s=Sum('points'))['s'] or 0

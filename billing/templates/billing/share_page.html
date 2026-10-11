@@ -1,0 +1,169 @@
+{% load static billing_tags %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Order {{ order.pk }}{% if brand %} — {{ brand.name }}{% endif %}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; background: white; }
+  .invoice-container { max-width: 800px; margin: 0 auto; padding: 20px; }
+  .invoice-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 26px; border-bottom: 2px solid #85aa4e; padding-bottom: 18px; }
+  .company-info .tagline { color: #666; font-style: italic; }
+  .company-details { font-size: 0.9rem; color: #666; }
+  .invoice-info { text-align: right; }
+  .invoice-number { font-size: 1.2rem; font-weight: bold; margin-bottom: 8px; }
+  .invoice-date { color: #666; }
+  .billing-info h3 { color: #85aa4e; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+  .customer-name { font-weight: bold; font-size: 1.1rem; }
+  .items-table { width: 100%; border-collapse: collapse; margin: 24px 0; }
+  .items-table th, .items-table td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; }
+  .items-table th { background: #f8f9fa; font-weight: 600; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.5px; }
+  .items-table .r { text-align: right; }
+  .free-tag { font-size: 0.72rem; background: #dcfce7; color: #16a34a; padding: 1px 6px; border-radius: 8px; }
+  .totals { margin-left: auto; width: 320px; max-width: 100%; margin-bottom: 24px; }
+  .totals-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+  .totals-row.total { border-bottom: 2px solid #85aa4e; font-weight: bold; font-size: 1.1rem; color: #85aa4e; }
+  .totals-row.balance { color: #dc2626; font-weight: 600; }
+  .pay-box { text-align: center; margin: 10px 0 26px; }
+  .pay-btn { background: #85aa4e; color: #fff; border: none; padding: 14px 34px; border-radius: 30px; font-size: 1.05rem; font-weight: 700; cursor: pointer; }
+  .pay-btn:disabled { opacity: .6; cursor: default; }
+  .pay-msg { margin-top: 10px; font-size: 0.9rem; }
+  .downloads a { display: inline-block; margin: 0 10px 8px 0; color: #4b6b23; }
+  .footer { margin-top: 36px; text-align: center; font-size: 0.85rem; color: #666; border-top: 1px solid #eee; padding-top: 18px; }
+  {% include 'billing/_summary_styles.html' %}
+  @media (max-width: 600px) {
+    .invoice-header { flex-direction: column; }
+    .invoice-info { text-align: left; margin-top: 14px; }
+    .items-table { font-size: 0.85rem; }
+  }
+  @media print { .no-print { display: none !important; } }
+</style>
+</head>
+<body>
+<div class="invoice-container">
+  <div class="invoice-header">
+    <div class="company-info">
+      {% if brand and brand.logo %}
+        <img src="{{ brand.logo.url }}" alt="{{ brand.name }}" style="max-width: 150px">
+      {% else %}
+        <img src="{% static 'images/logo.png' %}" alt="{{ brand.name|default:'' }}" style="max-width: 150px">
+      {% endif %}
+      <div class="tagline">{{ settings_map.business_tagline|default:'' }}</div>
+      <div class="company-details">
+        {% if settings_map.business_phone %}<div>Phone: {{ settings_map.business_phone }}</div>{% endif %}
+        {% if settings_map.business_email %}<div>Email: {{ settings_map.business_email }}</div>{% endif %}
+      </div>
+    </div>
+    <div class="invoice-info">
+      <div class="invoice-number">ORDER SUMMARY</div>
+      <div class="invoice-date">Order #{{ order.pk }}</div>
+      <div class="invoice-date">Date: {{ order.order_date|date:"d/m/Y" }}</div>
+      {% if due_date %}<div class="invoice-date">Due: {{ due_date|date:"d/m/Y" }}</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="billing-info">
+    <h3>Bill To:</h3>
+    <div class="customer-name">{{ customer_name }}</div>
+    {% if masked_mobile %}<div>{{ masked_mobile }}</div>{% endif %}
+    {% if delivery_area %}<div style="color:#666">Delivery: {{ delivery_area }}</div>{% endif %}
+  </div>
+
+  <table class="items-table">
+    <thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Total</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        <td>{{ r.name }}{% if r.free %} <span class="free-tag">FREE</span>{% endif %}{% if r.returned %} <span style="color:#dc2626;font-size:0.8rem">({{ r.returned }} returned)</span>{% endif %}</td>
+        <td class="r">{{ r.qty }}</td>
+        <td class="r">{{ r.rate }}</td>
+        <td class="r">₹{{ r.total|inr }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="totals">
+    <div class="totals-row"><span>Subtotal:</span><span>₹{{ subtotal|inr }}</span></div>
+    {% for label, amount in discounts %}
+      <div class="totals-row"><span>{{ label }}:</span><span>-₹{{ amount|inr }}</span></div>
+    {% endfor %}
+    {% if kind == 'b2c' %}
+      <div class="totals-row"><span>Delivery Charge:</span><span>{% if delivery %}₹{{ delivery|inr }}{% else %}FREE{% endif %}</span></div>
+    {% endif %}
+    {% include 'billing/_summary_gst_rows.html' %}
+    <div class="totals-row total"><span>TOTAL AMOUNT:</span><span>₹{{ total|inr }}</span></div>
+    {% if paid %}<div class="totals-row"><span>Paid:</span><span style="color:#16a34a">₹{{ paid|inr }}</span></div>{% endif %}
+    {% if due %}<div class="totals-row balance"><span>Balance Due:</span><span>₹{{ due|inr }}</span></div>{% endif %}
+  </div>
+
+  {% if can_pay %}
+  <div class="pay-box no-print">
+    <button class="pay-btn" id="payBtn">Pay ₹{{ due|inr }}</button>
+    <div class="pay-msg" id="payMsg"></div>
+  </div>
+  {% endif %}
+
+  {% include 'billing/_summary_documents.html' %}
+
+  {% if not for_pdf %}
+  <div class="downloads no-print">
+    <a href="/o/{{ link.token }}/summary.pdf">Download order summary (PDF)</a>
+  </div>
+  {% endif %}
+
+  <div class="footer">
+    <div style="margin-bottom: 8px;"><strong>Thank you for choosing {% if brand %}{{ brand.name }}{% else %}us{% endif %}!</strong></div>
+    {% if settings_map.business_phone %}<div>For any queries, contact us at {{ settings_map.business_phone }}{% if settings_map.business_email %} or {{ settings_map.business_email }}{% endif %}</div>{% endif %}
+    <div style="margin-top: 8px; font-size: 0.75rem;">This is not a tax invoice.</div>
+  </div>
+</div>
+
+{% if can_pay %}
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script>
+(function () {
+  var base = '/o/{{ link.token|escapejs }}/';
+  var btn = document.getElementById('payBtn');
+  var msg = document.getElementById('payMsg');
+  function csrf() {
+    var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function post(url, data) {
+    return fetch(url, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
+      body: JSON.stringify(data || {})
+    }).then(function (r) { return r.json(); });
+  }
+  function say(text, ok) { msg.textContent = text; msg.style.color = ok ? '#16a34a' : '#dc2626'; }
+  btn.addEventListener('click', function () {
+    btn.disabled = true; say('Opening payment…', true);
+    post(base + 'pay/').then(function (res) {
+      if (!res.success) { say(res.message, false); btn.disabled = false; return; }
+      var rzp = new Razorpay({
+        key: res.key_id, amount: res.amount, currency: res.currency, name: res.name,
+        description: res.description, order_id: res.razorpay_order_id,
+        theme: { color: '#85aa4e' },
+        handler: function (r) {
+          say('Confirming payment…', true);
+          post(base + 'pay/verify/', r).then(function (v) {
+            say(v.message, v.success);
+            if (v.success) setTimeout(function () { window.location.reload(); }, 1200);
+            else btn.disabled = false;
+          }).catch(function () { say('Could not confirm yet — refresh in a minute.', false); });
+        },
+        modal: { ondismiss: function () { btn.disabled = false; say('', true); } }
+      });
+      rzp.open();
+    }).catch(function () { say('Something went wrong. Please try again.', false); btn.disabled = false; });
+  });
+})();
+</script>
+{% endif %}
+</body>
+</html>

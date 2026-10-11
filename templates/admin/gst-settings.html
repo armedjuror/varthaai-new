@@ -71,9 +71,9 @@
             <label class="form-label">B2C / website prices</label>
             <select class="form-select" id="gstModeB2C">
               <option value="inclusive">GST included in price (inclusive)</option>
-              <option value="exclusive" disabled>GST on top (exclusive) — Phase 2</option>
+              <option value="exclusive">GST on top (exclusive)</option>
             </select>
-            <div class="form-text">Applies to orders created after saving. Existing orders keep the mode they were created with.</div>
+            <div class="form-text">Applies to orders created after saving. Existing orders keep the mode they were created with. GST on top is refused while any price + GST would exceed its MRP.</div>
           </div>
           <div class="mb-3">
             <label class="form-label">Copies printed by default</label>
@@ -81,6 +81,16 @@
             <div class="form-check"><input class="form-check-input gst-copy" type="checkbox" value="duplicate" id="copyDuplicate"><label class="form-check-label" for="copyDuplicate">Duplicate for Transporter</label></div>
             <div class="form-check"><input class="form-check-input gst-copy" type="checkbox" value="triplicate" id="copyTriplicate"><label class="form-check-label" for="copyTriplicate">Triplicate for Supplier</label></div>
           </div>
+          <div class="text-end"><button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Save</button></div>
+        </form>
+      </div>
+
+      <div class="data-card">
+        <div class="data-card-header"><h3><i class="fab fa-whatsapp me-2" style="color:var(--primary-color)"></i>WhatsApp messages</h3></div>
+        <form id="messagesForm" style="padding:20px">
+          <div class="form-text mb-2">Placeholders: {name} {order_id} {amount} {due_date} {link} {brand}</div>
+          <div class="mb-3"><label class="form-label">Order details (delivery)</label><textarea class="form-control" rows="3" id="msgDelivery"></textarea></div>
+          <div class="mb-3"><label class="form-label">Payment reminder</label><textarea class="form-control" rows="3" id="msgReminder"></textarea></div>
           <div class="text-end"><button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save me-1"></i>Save</button></div>
         </form>
       </div>

@@ -156,6 +156,13 @@ def next_number(entity, on_date, doc_type):
     """Allocate the next number in the (entity, FY, type) series. Must be
     called inside transaction.atomic(): the series row is locked until the
     transaction ends, so a rollback gives the number back (no gaps)."""
+    from billing.models import GSTPeriodClose
+
+    if GSTPeriodClose.objects.filter(entity=entity, period=on_date.strftime('%Y-%m')).exists():
+        raise BillingError(
+            f'GST period {on_date:%m/%Y} is closed — no invoice or credit note can be dated in it. '
+            'Reopen it on the GST Records page if this is intended.'
+        )
     fy = fiscal_year(on_date)
     InvoiceSeries.objects.get_or_create(
         entity=entity, fiscal_year=fy, doc_type=doc_type,
@@ -215,6 +222,12 @@ def b2c_lines(order, on_date):
     return lines
 
 
+def b2c_place_of_supply(order):
+    """Delivery state, or the GSTIN's state when the buyer gave a GSTIN."""
+    gstin = getattr(order, 'billing_gstin', '')
+    return state_code_from_gstin(gstin) if gstin else order.shipping_state_code
+
+
 def b2c_tax(order, on_date=None, interstate=None):
     on_date = on_date or ist_today()
     entity = entity_for_brand(order.brand_id)
@@ -222,7 +235,7 @@ def b2c_tax(order, on_date=None, interstate=None):
     if not lines:
         raise BillingError('The order has no items.')
     if interstate is None:
-        pos = order.shipping_state_code
+        pos = b2c_place_of_supply(order)
         interstate = bool(pos) and entity is not None and pos != entity.state_code
     goods = sum((ln.gross for ln in lines), ZERO)
     discount = min(q2(order.coupon_discount or 0), goods)
@@ -232,12 +245,57 @@ def b2c_tax(order, on_date=None, interstate=None):
     )
 
 
+def b2c_order_total(order):
+    """What the customer pays for a B2C order: goods at sale price, less
+    coupon, plus delivery, plus GST when the order is GST-on-top."""
+    goods = sum((q2(Decimal(str(it.sale_price_per_kg)) * it.quantity / 1000) for it in order.items.all()), ZERO)
+    total = goods - q2(order.coupon_discount or 0) + q2(order.delivery_charge or 0)
+    if order.price_mode == EXCLUSIVE:
+        total += order.gst_amount or ZERO
+    return max(ZERO, total)
+
+
+def current_gst_rate(flavor, on_date=None):
+    rate = rate_for(getattr(flavor, 'hsn', None), on_date or ist_today())
+    return rate.gst_rate + rate.cess_rate if rate else None
+
+
+def mrp_guard_errors(on_date=None, flavors=None, packs=None):
+    """MRP includes all taxes, so with GST on top a selling price may not
+    exceed MRP / (1 + rate). Returns human-readable violations for flavors
+    (per-kg web prices) and packs; [] when everything fits."""
+    from products.models import Flavor, FlavorPack
+
+    errors = []
+    flavors = flavors if flavors is not None else Flavor.objects.filter(is_active=True).select_related('hsn')
+    packs = packs if packs is not None else FlavorPack.objects.filter(is_active=True).select_related('flavor__hsn')
+    for f in flavors:
+        rate = current_gst_rate(f, on_date)
+        if rate is None or not f.price_per_kg:
+            continue
+        with_gst = q2(Decimal(str(f.sale_price_per_kg)) * (100 + rate) / 100)
+        if with_gst > q2(Decimal(str(f.price_per_kg))):
+            errors.append(f'{f.name}: ₹{f.sale_price_per_kg:g}/kg + {rate.normalize()}% GST = ₹{with_gst}/kg '
+                          f'is above the MRP ₹{f.price_per_kg:g}/kg')
+    for p in packs:
+        rate = current_gst_rate(p.flavor, on_date)
+        if rate is None or not p.mrp:
+            continue
+        with_gst = q2(p.selling_price * (100 + rate) / 100)
+        if with_gst > p.mrp:
+            errors.append(f'{p.flavor.name} {p.label}: ₹{p.selling_price} + {rate.normalize()}% GST = ₹{with_gst} '
+                          f'is above the MRP ₹{p.mrp}')
+    return errors
+
+
 def refresh_b2c_gst(order):
     """Pin price mode (at creation) and refresh the GST estimate on a B2C
     order that has no invoice yet. Never blocks: a missing HSN just leaves
     the estimate at 0 until the order is dispatched."""
     if active_invoice(order):
         return
+    if order.price_mode == EXCLUSIVE and order.payment_status == 'paid':
+        return  # the GST the customer paid is pinned
     fields = []
     if not order.price_mode and gst_active(order.brand_id):
         order.price_mode = price_mode_setting('b2c')
@@ -412,17 +470,24 @@ def _seller_snapshot(entity, brand):
 
 
 def _b2c_parties(order):
-    pos = order.shipping_state_code
+    pos = b2c_place_of_supply(order)
     if not pos:
         raise BillingError(
             f'Order {order.id} has no delivery state. Set the state on the order before dispatch '
             '(needed for the GST invoice).'
         )
-    return {
+    parties = {
         'bill_to_name': order.name, 'bill_to_gstin': '', 'bill_to_address': order.address,
         'bill_to_state_code': pos, 'bill_to_pincode': order.pincode,
         'ship_to_same': True, 'place_of_supply_state': pos,
     }
+    if order.billing_gstin:
+        parties.update({
+            'bill_to_name': order.billing_legal_name or order.name, 'bill_to_gstin': order.billing_gstin,
+            'ship_to_same': False, 'ship_to_name': order.name, 'ship_to_address': order.address,
+            'ship_to_state_code': order.shipping_state_code, 'ship_to_pincode': order.pincode,
+        })
+    return parties
 
 
 def _b2b_parties(order):
@@ -478,9 +543,16 @@ def _issue_invoice(order, user, on_date, reissue_of=None):
     if config_err:
         raise BillingError(config_err)
 
+    round_off = ZERO
     if kind == 'b2c':
         parties = _b2c_parties(order)
+        expected = b2c_order_total(order)
         result = b2c_tax(order, on_date, interstate=parties['place_of_supply_state'] != entity.state_code)
+        # A paid GST-on-top order must invoice exactly what was charged; a
+        # state change after payment can move the tax split by a paisa.
+        if (result.price_mode == EXCLUSIVE and order.payment_status == 'paid'
+                and abs(expected - result.grand_total) <= Decimal('0.10')):
+            round_off = expected - result.grand_total
     else:
         parties = _b2b_parties(order)
         result = b2b_tax(order, on_date)
@@ -500,7 +572,7 @@ def _issue_invoice(order, user, on_date, reissue_of=None):
         gross_total=result.gross_total, discount_total=result.discount_total,
         taxable_total=result.taxable_total, cgst_total=result.cgst_total,
         sgst_total=result.sgst_total, igst_total=result.igst_total, cess_total=result.cess_total,
-        grand_total=result.grand_total, created_by=user if getattr(user, 'pk', None) else None,
+        round_off=round_off, grand_total=result.grand_total + round_off, created_by=user if getattr(user, 'pk', None) else None,
         **_seller_snapshot(entity, brand), **parties,
     )
     InvoiceLine.objects.bulk_create([
@@ -519,7 +591,8 @@ def _issue_invoice(order, user, on_date, reissue_of=None):
     ])
 
     if kind == 'b2c':
-        type(order).objects.filter(pk=order.pk).update(gst_amount=result.tax_total, price_mode=result.price_mode)
+        if result.price_mode == INCLUSIVE or order.payment_status != 'paid':
+            type(order).objects.filter(pk=order.pk).update(gst_amount=result.tax_total, price_mode=result.price_mode)
     else:
         _sync_b2b_totals_to_invoice(order, invoice)
 
@@ -779,7 +852,7 @@ def order_gst_summary(order):
     try:
         if _order_kind(order) == 'b2c':
             result = b2c_tax(order)
-            pos = order.shipping_state_code
+            pos = b2c_place_of_supply(order)
         else:
             result = b2b_tax(order)
             pos = b2b_place_of_supply(order)
@@ -918,3 +991,10 @@ def order_summary_context(order, invoice_url, credit_note_url, order_total):
         'gst': gst, 'paid_seal': seal, 'net_after_credit': net,
         'cancelled': order.status in ('cancelled', 'failed', 'deleted'),
     }
+
+
+def mrp_guard_for(brand_id, flavors=(), packs=()):
+    """Violations for these (unsaved) objects when B2C is GST-on-top."""
+    if not (gst_active(brand_id) and price_mode_setting('b2c') == EXCLUSIVE):
+        return []
+    return mrp_guard_errors(flavors=list(flavors), packs=list(packs))

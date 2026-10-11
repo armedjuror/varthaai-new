@@ -12,11 +12,41 @@
       <p>Tax invoices and credit notes issued by the business (all brands). Read-only.</p>
     </div>
     <div class="page-header-actions">
-      <button class="btn btn-primary btn-sm" onclick="exportZip()"><i class="fas fa-file-zipper me-1"></i>Export ZIP</button>
+      <div class="btn-group">
+        <button class="btn btn-primary btn-sm" onclick="exportZip()"><i class="fas fa-file-zipper me-1"></i>PDFs + registers (ZIP)</button>
+        <button class="btn btn-outline-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown">Reports</button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item" href="#" onclick="downloadReport('gstr1');return false">GSTR-1 data (ZIP of CSVs)</a></li>
+          <li><a class="dropdown-item" href="#" onclick="downloadReport('sales-register');return false">Sales register (CSV)</a></li>
+          <li><a class="dropdown-item" href="#" onclick="downloadReport('credit-note-register');return false">Credit-note register (CSV)</a></li>
+          <li><a class="dropdown-item" href="#" onclick="downloadReport('hsn-summary');return false">HSN summary (CSV)</a></li>
+        </ul>
+      </div>
     </div>
   </div>
 
   <div class="alert alert-danger d-none" id="gapAlert" style="font-size:0.875rem"></div>
+
+  <div class="row g-3 mb-3">
+    <div class="col-md-4">
+      <div class="data-card" style="padding:14px 18px;height:100%">
+        <div style="font-size:0.78rem;color:var(--gray-400);text-transform:uppercase">GST position (selected period)</div>
+        <div id="gstPosition" style="font-size:0.875rem;margin-top:6px">—</div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="data-card" style="padding:14px 18px;height:100%">
+        <div style="font-size:0.78rem;color:var(--gray-400);text-transform:uppercase">E-invoicing turnover watch</div>
+        <div id="turnoverWatch" style="font-size:0.875rem;margin-top:6px">—</div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="data-card" style="padding:14px 18px;height:100%">
+        <div style="font-size:0.78rem;color:var(--gray-400);text-transform:uppercase">Month close</div>
+        <div id="monthClose" style="font-size:0.875rem;margin-top:6px">—</div>
+      </div>
+    </div>
+  </div>
 
   <!-- Filters -->
   <div class="filter-bar mb-3">

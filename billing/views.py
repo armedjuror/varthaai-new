@@ -17,7 +17,7 @@ from django.shortcuts import get_object_or_404, render
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.views import APIView
 
-from billing import pdf
+from billing import links, pdf, refunds, reports
 from billing import services as billing
 from billing.gst_states import STATES, normalise_state_code, state_label
 from billing.gstin import validate_gstin
@@ -129,6 +129,8 @@ def b2c_billing_payload(order):
         ],
         'credit_notes': [billing.credit_note_payload(cn) for cn in credit_notes],
         'reasons': CreditNote.Reason.choices,
+        'share': links.share_payload(order),
+        'refunds': refunds.refunds_payload(order),
     }
 
 
@@ -170,6 +172,20 @@ class B2COrderBillingAPI(APIView):
             return self._credit_note(request, order, body)
         if action == 'cancel_reissue':
             return self._cancel_reissue(request, order, body)
+        if action in ('share_link', 'regenerate_link'):
+            if action == 'regenerate_link':
+                links.regenerate_link(order, request.user)
+            else:
+                links.get_or_create_link(order, request.user)
+            return ok(links.share_payload(order, request), 'Link ready.')
+        if action == 'refund':
+            return self._refund(request, order, body)
+        if action == 'whatsapp':
+            try:
+                data = links.prepare_whatsapp(order, body.get('kind') or 'delivery', request.user, request)
+            except billing.BillingError as exc:
+                return err(str(exc))
+            return ok(data, 'Opening WhatsApp…')
         return err('Unknown action.')
 
     def _preview(self, order, body):
@@ -200,9 +216,29 @@ class B2COrderBillingAPI(APIView):
         message = f'Credit note {cn.number} issued for ₹{cn.grand_total:,.2f}.'
         if order.status == 'cancelled':
             message += ' The order is fully credited and has been cancelled.'
-            if order.payment_status == 'refund_initiated':
-                message += ' Refund the customer and mark the payment refunded.'
+        refund_method = body.get('refund_method') or ''
+        if refund_method in ('razorpay', 'manual') and refunds.refundable(order) > 0:
+            amount = min(cn.grand_total, refunds.refundable(order))
+            try:
+                refund = refunds.issue_refund(order, amount, refund_method, request.user, credit_note=cn,
+                                              reference=(body.get('refund_reference') or '').strip())
+                message += f' Refund of ₹{refund.amount:,.2f} {refund.get_status_display().lower()}.'
+            except billing.BillingError as exc:
+                message += f' Refund not done: {exc} You can refund it from the order page.'
+        elif order.payment_status == 'refund_initiated':
+            message += ' Refund the customer from the order page.'
         return ok({'credit_note': billing.credit_note_payload(cn)}, message)
+
+    def _refund(self, request, order, body):
+        try:
+            refund = refunds.issue_refund(
+                order, body.get('amount') or 0, body.get('method') or '', request.user,
+                reference=(body.get('reference') or '').strip(), notes=(body.get('notes') or '').strip(),
+            )
+        except (billing.BillingError, ArithmeticError, ValueError) as exc:
+            return err(str(exc))
+        return ok(refunds.refunds_payload(order),
+                  f'Refund of ₹{refund.amount:,.2f} {refund.get_status_display().lower()}.')
 
     def _cancel_reissue(self, request, order, body):
         name = (body.get('name') or '').strip()
@@ -275,6 +311,7 @@ class GSTSettingsAPI(APIView):
                 'id': f.id, 'name': f.name, 'is_active': f.is_active, 'hsn_id': f.hsn_id,
             } for f in Flavor.objects.order_by('-is_active', 'name')],
             'gst_active': billing.gst_active(current_brand_id(request)),
+            'messages': {k: links.message_template(k.replace('wa_message_', '')) for k in links.DEFAULT_MESSAGES},
         })
 
     def post(self, request):
@@ -286,6 +323,7 @@ class GSTSettingsAPI(APIView):
             'add_rate': self._add_rate,
             'delete_rate': self._delete_rate,
             'map_flavor': self._map_flavor,
+            'save_messages': self._save_messages,
         }
         handler = handlers.get(body.get('action'))
         if not handler:
@@ -328,8 +366,10 @@ class GSTSettingsAPI(APIView):
                 return err(f'Invalid {kind.upper()} price mode.')
             values[f'gst_price_mode_{kind}'] = mode
         if values['gst_price_mode_b2c'] == 'exclusive':
-            return err('GST on top for B2C (exclusive) needs the storefront checkout changes planned for '
-                       'Phase 2; keep B2C on inclusive for now.')
+            problems = billing.mrp_guard_errors()
+            if problems:
+                return err('GST on top would take these prices above MRP — lower the selling price or raise the '
+                           'MRP first: ' + '; '.join(problems[:10]))
         eff = billing.parse_iso_date(data.get('gst_effective_date'))
         if not eff:
             return err('Enter a valid GST effective date.')
@@ -342,6 +382,17 @@ class GSTSettingsAPI(APIView):
             )
         billing._activity(request.user, 'GST settings updated', str(values))
         return ok(None, 'GST settings saved. Price modes apply to orders created from now on.')
+
+    def _save_messages(self, request, body):
+        data = body.get('messages') or {}
+        for key in links.DEFAULT_MESSAGES:
+            text = (data.get(key) or '').strip()
+            if not text:
+                return err('Message texts cannot be empty.')
+            if '{link}' not in text:
+                return err('Each message must contain {link}.')
+            Setting.objects.update_or_create(setting_key=key, defaults={'setting_value': text, 'category': 'gst'})
+        return ok(None, 'WhatsApp messages saved.')
 
     def _save_hsn(self, request, body):
         code = ''.join(ch for ch in str(body.get('code') or '') if ch.isdigit())
@@ -576,12 +627,86 @@ class GSTRecordsAPI(APIView):
             totals = _totals(qs, {'taxable': 'taxable_total', 'cgst': 'cgst_total', 'sgst': 'sgst_total',
                                   'igst': 'igst_total', 'total': 'grand_total'})
             count = qs.count()
+        entity = billing.entity_for_brand(current_brand_id(request))
+        start, end = _period(params)
         return ok({
             'rows': rows, 'totals': totals, 'count': count, 'page': page, 'per_page': per_page,
+            'closed_periods': reports.closed_periods(entity) if entity else [],
+            'can_close': has_module_permission(request.user, current_brand_id(request), 'settings'),
+            'turnover': reports.turnover(entity) if entity else None,
+            'gst_position': gst_position(start, end) if start and end else None,
             'gaps': number_gaps(),
             'pending_count': len(pending_credit_notes()),
             'missing_count': len(dispatched_without_invoice()),
         })
+
+
+    def post(self, request):
+        body = request.data if isinstance(request.data, dict) else {}
+        brand_id = current_brand_id(request)
+        if not has_module_permission(request.user, brand_id, 'settings'):
+            return err('Only admins with Settings access can close or reopen a GST period.', status=403)
+        entity = billing.entity_for_brand(brand_id)
+        period = str(body.get('period') or '')
+        try:
+            reports.month_bounds(period)
+        except (ValueError, TypeError):
+            return err('Choose a month (YYYY-MM).')
+        try:
+            if body.get('action') == 'close_period':
+                reports.close_period(entity, period, request.user)
+                return ok(None, f'{period} closed. No invoice or credit note can be dated in it now.')
+            if body.get('action') == 'reopen_period':
+                if not getattr(request.user, 'is_super_admin', False):
+                    return err('Only a super admin can reopen a closed period.', status=403)
+                reports.reopen_period(entity, period, request.user)
+                return ok(None, f'{period} reopened.')
+        except billing.BillingError as exc:
+            return err(str(exc))
+        return err('Unknown action.')
+
+
+def gst_position(start, end):
+    """Output tax (invoices less credit notes) vs input tax credit from
+    purchase bills in the period: a rough "GST payable"."""
+    from finance.models import Expense
+
+    out = reports.period_totals(start, end)
+    output_tax = sum(Decimal(out[f'net_{k}']) for k in ('cgst', 'sgst', 'igst', 'cess'))
+    itc = Expense.objects.filter(
+        itc_eligible=True, supplier_gstin__gt='',
+        expense_date__gte=start, expense_date__lte=end,
+    ).aggregate(c=Sum('cgst_amount'), s=Sum('sgst_amount'), i=Sum('igst_amount'))
+    input_tax = (itc['c'] or 0) + (itc['s'] or 0) + (itc['i'] or 0)
+    return {
+        'output_tax': float(output_tax), 'input_tax': float(input_tax),
+        'payable': float(output_tax - input_tax),
+        'input_split': {'cgst': float(itc['c'] or 0), 'sgst': float(itc['s'] or 0), 'igst': float(itc['i'] or 0)},
+    }
+
+
+@admin_login_required
+@require_module('gst_records')
+def gst_report_csv(request, kind):
+    report = reports.REPORTS.get(kind)
+    start, end = _period(request.GET)
+    if report is None or not start or not end:
+        return HttpResponse('Choose a report and a period.', status=400)
+    header, rows = report(start, end)
+    response = HttpResponse(reports.csv_bytes(header, rows), content_type='text/csv')
+    response['Content-Disposition'] = f'attachment; filename="{kind}_{start}_{end}.csv"'
+    return response
+
+
+@admin_login_required
+@require_module('gst_records')
+def gstr1_export(request):
+    start, end = _period(request.GET)
+    if not start or not end:
+        return HttpResponse('Choose a period.', status=400)
+    response = HttpResponse(reports.gstr1_zip(start, end), content_type='application/zip')
+    response['Content-Disposition'] = f'attachment; filename="gstr1_{start}_{end}.zip"'
+    return response
 
 
 def _csv(rows, header):

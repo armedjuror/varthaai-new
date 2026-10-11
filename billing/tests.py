@@ -466,7 +466,7 @@ class BackfillAndPagesTests(TestCase):
         self.assertIn('This is not a tax invoice', summary)
         self.assertIn('Total GST', summary)
         self.assertIn(Invoice.objects.get(b2c_order=o).number, summary)
-        res = self.client.get(f'/admin/gst/records/export/?fy=2026-27')
+        res = self.client.get('/admin/gst/records/export/?fy=2026-27')
         self.assertEqual(res['Content-Type'], 'application/zip')
         names = zipfile.ZipFile(io.BytesIO(res.content)).namelist()
         self.assertIn('invoices.csv', names)

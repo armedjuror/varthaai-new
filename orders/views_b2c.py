@@ -162,6 +162,11 @@ def _validate_coupon(coupon, sale_total, item_count, flavor_ids):
     return round(discount, 2), None
 
 
+def _gst_on_top(order):
+    """GST added to the bill for GST-on-top (exclusive) orders, else 0."""
+    return float(order.gst_amount or 0) if order.price_mode == 'exclusive' else 0.0
+
+
 def _pack_prices(pack):
     """Convert a pack's absolute prices to per-kg (grams basis)."""
     sale = float(pack.selling_price) / pack.weight_grams * 1000
@@ -259,7 +264,7 @@ def view_order(request, pk):
 
     items, subtotal = _view_items(order)
     discount = order.coupon_discount or 0
-    total = subtotal - discount + (order.delivery_charge or 0)
+    total = subtotal - discount + (order.delivery_charge or 0) + _gst_on_top(order)
 
     is_cancelled = order.status in ('cancelled', 'failed', 'deleted')
     timeline = [
@@ -311,7 +316,7 @@ def edit_order(request, pk):
             'item_total': total,
         })
     discount = order.coupon_discount or 0
-    final_total = subtotal + (order.delivery_charge or 0) - discount
+    final_total = subtotal + (order.delivery_charge or 0) - discount + _gst_on_top(order)
 
     flavors = Flavor.objects.filter(is_active=True).order_by('name')
     packs = list(
@@ -360,7 +365,7 @@ def print_invoice(request, pk):
     items, subtotal = _view_items(order)
     total_quantity = sum(it['quantity'] for it in items)
     discount = order.coupon_discount or 0
-    total = subtotal - discount + (order.delivery_charge or 0)
+    total = subtotal - discount + (order.delivery_charge or 0) + _gst_on_top(order)
 
     settings_map = {s.setting_key: s.setting_value for s in Setting.objects.all()}
     brand = Brand.objects.filter(id=current_brand_id(request)).first()
@@ -448,7 +453,7 @@ class OrdersAPI(APIView):
         offset = (page - 1) * per_page
 
         orders = list(
-            qs.select_related('user').prefetch_related('items')
+            qs.select_related('user').prefetch_related('items', 'invoices')
             .order_by('-order_date')[offset:offset + per_page]
         )
         user_ids = [o.user_id for o in orders if o.user_id]
@@ -486,7 +491,10 @@ class OrdersAPI(APIView):
             'current_loyalty_points': loyalty.get(o.user_id, 0),
             'subtotal': subtotal,
             'discount_amount': discount,
-            'total_price': subtotal + delivery - discount,
+            'total_price': subtotal + delivery - discount + _gst_on_top(o),
+            'gst_amount': float(o.gst_amount or 0),
+            'price_mode': o.price_mode,
+            'invoice_number': next((i.number for i in o.invoices.all() if i.status == 'active'), ''),
             'items': ', '.join(f'{it.flavor_name} ({it.quantity}g)' for it in items),
             'item_count': len(items),
         }
@@ -814,6 +822,7 @@ class CreateOrderAPI(APIView):
                 for it in items
             ])
             billing.refresh_b2c_gst(order)
+        final_amount = float(billing.b2c_order_total(order))
 
         return ok(
             {'order_id': order_id},

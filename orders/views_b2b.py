@@ -22,7 +22,9 @@ from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.views import APIView
 
+from billing import links
 from billing import services as billing
+from billing.links import apply_b2b_payment
 from billing.gst_states import STATES, normalise_state_code, state_label
 from billing.gstin import validate_gstin
 from billing.models import Invoice
@@ -444,6 +446,9 @@ class B2BOrdersAPI(APIView):
             'gst_preview': self._gst_preview,
             'set_eway_bill': self._set_eway_bill,
             'cancel_reissue': self._cancel_reissue,
+            'share_link': self._share_link,
+            'regenerate_link': self._share_link,
+            'whatsapp': self._whatsapp,
         }
         handler = handlers.get(action)
         if not handler:
@@ -869,36 +874,29 @@ class B2BOrdersAPI(APIView):
         if order_id:
             order = B2BOrder.objects.filter(id=order_id, brand_id=brand_id).first()
 
-        B2BPayment.objects.create(
-            company=company, b2b_order=order, amount=amount,
-            payment_type=pay_type, payment_method=method,
-            reference_number=(body.get('reference_number') or '').strip(),
-            notes=(body.get('notes') or '').strip(),
-            payment_date=body.get('payment_date') or date.today(),
-            created_by=request.user,
-        )
-
         if order:
-            sign = Decimal('-1') if pay_type == 'refund' else Decimal('1')
-            order.paid_amount = order.paid_amount + sign * amount
-            order.balance_amount = order.total_amount - order.paid_amount
-            if order.paid_amount >= order.total_amount:
-                order.payment_status = B2BOrder.PaymentStatus.PAID
-            elif order.paid_amount > 0:
-                order.payment_status = B2BOrder.PaymentStatus.PARTIAL
-            else:
-                order.payment_status = B2BOrder.PaymentStatus.PENDING
-            order.save(update_fields=[
-                'paid_amount', 'balance_amount', 'payment_status', 'updated_at',
-            ])
-            sync_b2b_order_income(order)
-
-        B2BActivity.objects.create(
-            company=company, admin_user=request.user, order=order,
-            type=B2BActivity.Type.PAYMENT,
-            subject=f'{pay_type.capitalize()} of {amount:.2f} via {method}',
-            description=f'Against order {order_id}' if order_id else 'General payment',
-        )
+            apply_b2b_payment(
+                order, amount, method=method, payment_type=pay_type,
+                reference=(body.get('reference_number') or '').strip(),
+                notes=(body.get('notes') or '').strip(),
+                payment_date=billing.parse_iso_date(body.get('payment_date')) or date.today(),
+                user=request.user,
+            )
+        else:
+            B2BPayment.objects.create(
+                company=company, b2b_order=None, amount=amount,
+                payment_type=pay_type, payment_method=method,
+                reference_number=(body.get('reference_number') or '').strip(),
+                notes=(body.get('notes') or '').strip(),
+                payment_date=body.get('payment_date') or date.today(),
+                created_by=request.user,
+            )
+            B2BActivity.objects.create(
+                company=company, admin_user=request.user, order=None,
+                type=B2BActivity.Type.PAYMENT,
+                subject=f'{pay_type.capitalize()} of {amount:.2f} via {method}',
+                description='General payment',
+            )
         return ok(None, 'Payment recorded!')
 
     # ── returns (partial or full; restocks the exact batch). Orders with a
@@ -1118,6 +1116,28 @@ class B2BOrdersAPI(APIView):
             return err('The order has no active GST invoice.')
         billing.set_eway_bill(invoice, body.get('eway_bill_no'), billing.parse_iso_date(body.get('eway_bill_date')))
         return ok(None, 'E-way bill saved.')
+
+    # ── share link + WhatsApp ──
+    def _share_link(self, request, brand_id, body):
+        order = B2BOrder.objects.filter(id=body.get('order_id'), brand_id=brand_id).select_related('company').first()
+        if not order:
+            return err('Order not found.')
+        if body.get('action') == 'regenerate_link':
+            links.regenerate_link(order, request.user)
+        else:
+            links.get_or_create_link(order, request.user)
+        return ok(links.share_payload(order, request), 'Link ready.')
+
+    def _whatsapp(self, request, brand_id, body):
+        order = (B2BOrder.objects.filter(id=body.get('order_id'), brand_id=brand_id)
+                 .select_related('company', 'contact').first())
+        if not order:
+            return err('Order not found.')
+        try:
+            data = links.prepare_whatsapp(order, body.get('kind') or 'delivery', request.user, request)
+        except billing.BillingError as exc:
+            return err(str(exc))
+        return ok(data, 'Opening WhatsApp…')
 
     # ── cancel & reissue (wrong GSTIN / state / address on an issued invoice) ──
     def _cancel_reissue(self, request, brand_id, body):
@@ -1384,6 +1404,7 @@ def _billing_payload(order):
         'credit_notes': [billing.credit_note_payload(cn) for cn in credit_notes],
         'gst': estimate,
         'pending_returns': [r.id for r in order.returns.all() if r.credit_note_pending],
+        'share': links.share_payload(order),
     }
 
 

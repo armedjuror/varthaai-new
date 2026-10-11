@@ -225,6 +225,15 @@
         </div>
       </div>
 
+      <!-- Share & payments -->
+      <div class="data-card">
+        <div class="data-card-header"><h3>Share &amp; Payments</h3></div>
+        <div style="padding:16px 20px;font-size:0.875rem">
+          <div id="sharePanel" style="color:var(--gray-400)">Loading…</div>
+          <div id="refundsPanel" style="margin-top:14px"></div>
+        </div>
+      </div>
+
       <!-- Customer -->
       <div class="data-card">
         <div class="data-card-header">
@@ -343,6 +352,20 @@
             <label class="form-label">Notes</label>
             <input type="text" class="form-control" id="cnNotes">
           </div>
+          {% if order.payment_status == 'paid' %}
+          <div class="col-md-6">
+            <label class="form-label">Refund the customer</label>
+            <select class="form-select" id="cnRefundMethod">
+              <option value="">No refund now</option>
+              {% if order.razorpay_payment_id %}<option value="razorpay" selected>Refund via Razorpay</option>{% endif %}
+              <option value="manual">Manual refund (cash / UPI / bank)</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Manual refund reference</label>
+            <input type="text" class="form-control" id="cnRefundRef" placeholder="UPI ref…">
+          </div>
+          {% endif %}
         </div>
         <div id="cnPreview" style="margin-top:14px;font-size:0.9rem"></div>
       </div>
@@ -385,6 +408,27 @@
   </div>
 </div>
 {% endif %}
+
+<!-- Refund modal -->
+<div class="modal fade" id="refundModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Refund — {{ order.id }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-2"><label class="form-label">Amount (₹)</label><input type="number" step="0.01" min="0.01" class="form-control" id="rfAmount"></div>
+        <div class="mb-2"><label class="form-label">Method</label>
+          <select class="form-select" id="rfMethod">
+            {% if order.razorpay_payment_id %}<option value="razorpay">Razorpay (original payment)</option>{% endif %}
+            <option value="manual">Manual (cash / UPI / bank)</option>
+          </select>
+        </div>
+        <div class="mb-2"><label class="form-label">Reference (manual)</label><input class="form-control" id="rfRef"></div>
+        <div class="mb-2"><label class="form-label">Notes</label><input class="form-control" id="rfNotes"></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button><button class="btn btn-primary btn-sm" id="rfSubmit">Refund</button></div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}

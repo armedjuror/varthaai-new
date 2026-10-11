@@ -379,3 +379,138 @@ class CreditNoteLine(ImmutableModel):
     @property
     def tax_amount(self):
         return self.cgst_amount + self.sgst_amount + self.igst_amount + self.cess_amount
+
+
+# ── Phase 2: share links, link payments, messages, refunds, month close ──
+
+def _one_order_constraint(name):
+    return models.CheckConstraint(
+        condition=(
+            Q(b2c_order__isnull=False, b2b_order__isnull=True)
+            | Q(b2c_order__isnull=True, b2b_order__isnull=False)
+        ),
+        name=name,
+    )
+
+
+class OrderRefMixin(models.Model):
+    """Points at exactly one B2C or B2B order."""
+    b2c_order = models.ForeignKey('orders.Order', on_delete=models.CASCADE, null=True, blank=True, related_name='+')
+    b2b_order = models.ForeignKey('orders.B2BOrder', on_delete=models.CASCADE, null=True, blank=True, related_name='+')
+
+    class Meta:
+        abstract = True
+
+    @property
+    def order(self):
+        return self.b2c_order if self.b2c_order_id else self.b2b_order
+
+    @property
+    def order_id(self):
+        return self.b2c_order_id or self.b2b_order_id
+
+
+class ShareLink(OrderRefMixin):
+    """Open link with a secret token: Order Summary, PAID seal / Pay button,
+    Tax Invoice and credit-note downloads. One live link per order;
+    regenerating revokes the old one."""
+    token = models.CharField(max_length=64, unique=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    last_viewed_at = models.DateTimeField(null=True, blank=True)
+    view_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = 'share_links'
+        constraints = [_one_order_constraint('share_link_exactly_one_order')]
+
+    def __str__(self):
+        return f'Share link for {self.order_id}'
+
+
+class PaymentAttempt(OrderRefMixin):
+    class Status(models.TextChoices):
+        CREATED = 'created', 'Created'
+        PAID = 'paid', 'Paid'
+        FAILED = 'failed', 'Failed'
+
+    share_link = models.ForeignKey(ShareLink, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    razorpay_order_id = models.CharField(max_length=100, unique=True)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.CREATED)
+    razorpay_payment_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'payment_attempts'
+        constraints = [_one_order_constraint('payment_attempt_exactly_one_order')]
+
+
+class MessageLog(OrderRefMixin):
+    class Kind(models.TextChoices):
+        DELIVERY = 'delivery', 'Order details sent'
+        REMINDER = 'reminder', 'Payment reminder sent'
+
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    channel = models.CharField(max_length=20, default='whatsapp')
+    recipient = models.CharField(max_length=20)
+    message = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'message_logs'
+        ordering = ['-created_at']
+        constraints = [_one_order_constraint('message_log_exactly_one_order')]
+
+
+class Refund(models.Model):
+    """Money returned to a B2C customer (Razorpay refund or manual)."""
+    class Method(models.TextChoices):
+        RAZORPAY = 'razorpay', 'Razorpay (original payment)'
+        MANUAL = 'manual', 'Manual (cash / UPI / bank)'
+
+    class Status(models.TextChoices):
+        INITIATED = 'initiated', 'Initiated'
+        PROCESSED = 'processed', 'Processed'
+        FAILED = 'failed', 'Failed'
+
+    order = models.ForeignKey('orders.Order', on_delete=models.CASCADE, related_name='refunds')
+    credit_note = models.ForeignKey('billing.CreditNote', on_delete=models.PROTECT, null=True, blank=True,
+                                    related_name='refunds')
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    method = models.CharField(max_length=10, choices=Method.choices)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.INITIATED)
+    razorpay_refund_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    reference = models.CharField(max_length=100, blank=True)
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'refunds'
+        ordering = ['-created_at']
+
+
+class GSTPeriodClose(models.Model):
+    """A closed month: no invoice or credit note may be dated in it."""
+    entity = models.ForeignKey(LegalEntity, on_delete=models.PROTECT, related_name='closed_periods')
+    period = models.CharField(max_length=7, help_text="'2026-10'")
+    totals = models.JSONField(default=dict, blank=True)
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+    )
+    closed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'gst_period_closes'
+        constraints = [models.UniqueConstraint(fields=['entity', 'period'], name='uniq_gst_period_close')]

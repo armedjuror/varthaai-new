@@ -14,6 +14,7 @@ from django.utils.dateformat import format as dj_format
 from rest_framework.response import Response
 
 from accounts.models import PointsTransaction, User
+from billing import services as billing
 from marketing.models import Review
 from orders.models import Order
 
@@ -68,7 +69,11 @@ def _order_summary(order):
         'order_date': dj_format(order.order_date, _DATE_FMT),
         'coupon_code': order.coupon_code, 'coupon_discount': discount,
         'subtotal': subtotal, 'discount_amount': discount,
-        'total_price': subtotal + order.delivery_charge - discount,
+        'total_price': float(billing.b2c_order_total(order)),
+        'price_mode': order.price_mode,
+        'refunds': [{
+            'amount': float(r.amount), 'status': r.get_status_display(), 'date': r.created_at.isoformat(),
+        } for r in order.refunds.all()],
         'items': items, 'item_count': len(items),
     }
 
@@ -83,7 +88,7 @@ class DashboardDataAPI(StorefrontAPIView):
 
         orders = (
             Order.objects.filter(user=user).exclude(status='deleted')
-            .prefetch_related('items', 'items__flavor', 'invoices__credit_notes').order_by('-order_date')
+            .prefetch_related('items', 'items__flavor', 'invoices__credit_notes', 'refunds').order_by('-order_date')
         )
         order_ids = set()
         order_list = []
@@ -215,7 +220,7 @@ class TrackOrderAPI(StorefrontAPIView):
                 'order_id': order.id,
                 'status': _STATUS_MESSAGES.get(order.status, order.status),
                 'order_date': dj_format(order.order_date, _DATE_FMT),
-                'total': sale_total + order.delivery_charge,
+                'total': float(billing.b2c_order_total(order)),
                 'delivery_charge': order.delivery_charge,
                 'payment_status': (order.payment_status or '').capitalize(),
                 'items': items,

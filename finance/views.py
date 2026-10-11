@@ -24,6 +24,7 @@ from datetime import date
 
 from dateutil.relativedelta import relativedelta
 from django.db.models import (
+    Case,
     Count,
     DecimalField,
     ExpressionWrapper,
@@ -31,6 +32,7 @@ from django.db.models import (
     Q,
     Sum,
     Value,
+    When,
 )
 from django.db.models.functions import Coalesce, TruncMonth
 from django.shortcuts import render
@@ -39,6 +41,7 @@ from django.utils.dateparse import parse_date
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.views import APIView
 
+from billing.gstin import validate_gstin
 from core.api import HasModulePermission, err, ok
 from core.auth import admin_login_required, require_module
 from core.models import Brand
@@ -47,6 +50,15 @@ from products.models import Stock
 
 PER_PAGE_CHOICES = (10, 20, 50)
 INVEST_PER_PAGE = 20
+
+# Revenue excludes the GST collected (it is owed to the government), and
+# eligible input tax credit on purchases is not a cost.
+NET_INCOME = ExpressionWrapper(F('amount') - F('gst_amount'), output_field=DecimalField(max_digits=12, decimal_places=2))
+ELIGIBLE_ITC = Case(
+    When(Q(itc_eligible=True) & ~Q(supplier_gstin=''),
+         then=F('cgst_amount') + F('sgst_amount') + F('igst_amount')),
+    default=Value(0), output_field=DecimalField(max_digits=12, decimal_places=2),
+)
 
 
 @admin_login_required
@@ -82,6 +94,13 @@ def _serialize_expense(e):
         'payment_method': e.payment_method,
         'payment_status': e.payment_status,
         'invoice_number': e.invoice_number,
+        'supplier_gstin': e.supplier_gstin,
+        'supplier_invoice_date': e.supplier_invoice_date.isoformat() if e.supplier_invoice_date else '',
+        'taxable_value': _fnum(e.taxable_value),
+        'cgst_amount': _fnum(e.cgst_amount),
+        'sgst_amount': _fnum(e.sgst_amount),
+        'igst_amount': _fnum(e.igst_amount),
+        'itc_eligible': 1 if e.itc_eligible else 0,
         'is_recurring': 1 if e.is_recurring else 0,
         'recurring_period': e.recurring_period,
         'tags': e.tags,
@@ -295,22 +314,28 @@ class ExpensesAPI(APIView):
     def _income(self, request):
         qs = self._income_qs(request)
         order_count = qs.count()
-        total_revenue = qs.aggregate(r=Coalesce(Sum('amount'), Value(0, output_field=DecimalField())))['r']
+        totals = qs.aggregate(
+            r=Coalesce(Sum(NET_INCOME), Value(0, output_field=DecimalField())),
+            g=Coalesce(Sum('amount'), Value(0, output_field=DecimalField())),
+            t=Coalesce(Sum('gst_amount'), Value(0, output_field=DecimalField())),
+        )
+        total_revenue = totals['r']
 
         monthly = (
             qs.annotate(m=TruncMonth('income_date'))
             .values('m')
-            .annotate(orders=Count('id'), revenue=Sum('amount'))
+            .annotate(orders=Count('id'), revenue=Sum(NET_INCOME))
             .order_by('-m')[:12]
         )
         by_brand = (
             qs.values('brand__name', 'brand_id')
-            .annotate(orders=Count('id'), revenue=Sum('amount'))
+            .annotate(orders=Count('id'), revenue=Sum(NET_INCOME))
             .order_by('-revenue')
         )
 
         return ok({
-            'summary': {'order_count': order_count, 'total_revenue': _fnum(total_revenue)},
+            'summary': {'order_count': order_count, 'total_revenue': _fnum(total_revenue),
+                        'gross_received': _fnum(totals['g']), 'gst_collected': _fnum(totals['t'])},
             'monthly': [
                 {
                     'month': r['m'].strftime('%Y-%m'),
@@ -363,8 +388,10 @@ class ExpensesAPI(APIView):
         )['t']
         income_base = Income.objects.all()
         total_income = income_base.aggregate(
-            t=Coalesce(Sum('amount'), Value(0, output_field=DecimalField())),
+            t=Coalesce(Sum(NET_INCOME), Value(0, output_field=DecimalField())),
         )['t']
+        itc = base.aggregate(t=Coalesce(Sum(ELIGIBLE_ITC), Value(0, output_field=DecimalField())))['t']
+        total_expenses = total_expenses - itc
 
         months = []
         first_of_month = timezone.localdate().replace(day=1)
@@ -373,9 +400,12 @@ class ExpensesAPI(APIView):
             exp = base.filter(expense_date__year=m.year, expense_date__month=m.month).aggregate(
                 t=Coalesce(Sum(total_field), Value(0, output_field=DecimalField())),
             )['t']
+            exp -= base.filter(expense_date__year=m.year, expense_date__month=m.month).aggregate(
+                t=Coalesce(Sum(ELIGIBLE_ITC), Value(0, output_field=DecimalField())),
+            )['t']
             inc = income_base.filter(
                 income_date__year=m.year, income_date__month=m.month,
-            ).aggregate(t=Coalesce(Sum('amount'), Value(0, output_field=DecimalField())))['t']
+            ).aggregate(t=Coalesce(Sum(NET_INCOME), Value(0, output_field=DecimalField())))['t']
             inv = Investment.objects.filter(
                 investment_date__year=m.year, investment_date__month=m.month,
             ).aggregate(t=Coalesce(Sum('amount'), Value(0, output_field=DecimalField())))['t']
@@ -391,6 +421,7 @@ class ExpensesAPI(APIView):
             'total_expenses': _fnum(total_expenses),
             'total_investments': _fnum(total_investments),
             'total_income': _fnum(total_income),
+            'input_tax_credit': _fnum(itc),
             'net_profit': _fnum(total_income) - _fnum(total_expenses),
             'monthly': months,
         })
@@ -434,14 +465,41 @@ class ExpensesAPI(APIView):
             'payment_method': body.get('payment_method') or 'cash',
             'payment_status': body.get('payment_status') or 'pending',
             'invoice_number': (body.get('invoice_number') or '').strip(),
+            'supplier_gstin': (body.get('supplier_gstin') or '').strip().upper(),
+            'supplier_invoice_date': (body.get('supplier_invoice_date') or None),
+            'cgst_amount': float(body.get('cgst_amount') or 0),
+            'sgst_amount': float(body.get('sgst_amount') or 0),
+            'igst_amount': float(body.get('igst_amount') or 0),
+            'itc_eligible': bool(int(body.get('itc_eligible', 1) or 0)),
             'is_recurring': is_recurring,
             'recurring_period': (body.get('recurring_period') or None) if is_recurring else None,
             'tags': (body.get('tags') or '').strip(),
             'notes': (body.get('notes') or '').strip(),
         }
 
+    @staticmethod
+    def _apply_gst(f):
+        """Validate the supplier GSTIN; when GST is entered, Amount is the
+        taxable value and Tax Amount = CGST + SGST + IGST."""
+        gstin, gstin_err = validate_gstin(f['supplier_gstin'])
+        if gstin_err:
+            return f'Supplier GSTIN: {gstin_err}'
+        f['supplier_gstin'] = gstin
+        gst = f['cgst_amount'] + f['sgst_amount'] + f['igst_amount']
+        if gst > 0:
+            if f['igst_amount'] and (f['cgst_amount'] or f['sgst_amount']):
+                return 'Enter either IGST or CGST + SGST, not both.'
+            f['tax_amount'] = round(gst, 2)
+            f['taxable_value'] = f['amount']
+        else:
+            f['taxable_value'] = 0
+        return None
+
     def _create_expense(self, request, body):
         f = self._expense_fields(body)
+        gst_error = self._apply_gst(f)
+        if gst_error:
+            return err(gst_error)
         if not f['category_id'] or not f['title'] or f['amount'] <= 0 or not f['expense_date']:
             return err('Category, title, amount and date are required.')
         e = Expense.objects.create(created_by=request.user, **f)
@@ -450,6 +508,9 @@ class ExpensesAPI(APIView):
     def _update_expense(self, request, body):
         exp_id = int(body.get('id') or 0)
         f = self._expense_fields(body)
+        gst_error = self._apply_gst(f)
+        if gst_error:
+            return err(gst_error)
         if not exp_id or not f['category_id'] or not f['title'] or f['amount'] <= 0 or not f['expense_date']:
             return err('Required fields missing.')
         e = self._base_expense_qs(request).filter(id=exp_id).first()

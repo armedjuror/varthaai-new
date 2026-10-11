@@ -6,6 +6,10 @@ $(function () {
   load();
   $('#entityForm').on('submit', function (e) { e.preventDefault(); saveEntity(); });
   $('#gstSettingsForm').on('submit', function (e) { e.preventDefault(); saveSettings(); });
+  $('#messagesForm').on('submit', function (e) {
+    e.preventDefault();
+    post({ action: 'save_messages', messages: { wa_message_delivery: $('#msgDelivery').val(), wa_message_reminder: $('#msgReminder').val() } });
+  });
 });
 
 function post(data, then) {
@@ -33,6 +37,8 @@ function load() {
     var copies = (s.gst_invoice_copies || '').split(',');
     $('.gst-copy').each(function () { this.checked = copies.indexOf(this.value) !== -1; });
     $('#hsnUqc').html(gstData.uqc_choices.map(function (c) { return '<option value="' + c[0] + '">' + escHtml(c[1]) + '</option>'; }).join(''));
+    $('#msgDelivery').val(gstData.messages.wa_message_delivery);
+    $('#msgReminder').val(gstData.messages.wa_message_reminder);
     renderHsn();
     renderFlavors();
   }).fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Failed to load GST settings.'), 'danger'); });

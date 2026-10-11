@@ -33,6 +33,15 @@
               {% gst_state_options %}
             </select>
           </div>
+          <div class="mb-2">
+            <a href="#" id="gstin-toggle" style="font-size:0.85rem">Buying for a business? Add GSTIN for a GST invoice</a>
+          </div>
+          <div class="mb-3 d-none" id="gstin-fields">
+            <label for="checkout-gstin" class="form-label">GSTIN <span class="text-muted">(optional)</span></label>
+            <input type="text" class="form-control text-uppercase" id="checkout-gstin" maxlength="15" placeholder="e.g. 32ABCDE1234F1Z5">
+            <label for="checkout-gst-name" class="form-label mt-2">Business legal name</label>
+            <input type="text" class="form-control" id="checkout-gst-name">
+          </div>
           <div class="mb-3 d-none" id="delivery-note"></div>
         </form>
       </div>
@@ -183,4 +192,10 @@
 <!-- Custom JS -->
 {% pin_state_script %}
 <script src="{% static 'js/main.js' %}"></script>
-<script>bindStateFromPincode(document.getElementById('pincode'), document.getElementById('delivery-state'));</script>
+<script>
+bindStateFromPincode(document.getElementById('pincode'), document.getElementById('delivery-state'));
+(function () {
+  var t = document.getElementById('gstin-toggle');
+  if (t) t.addEventListener('click', function (e) { e.preventDefault(); document.getElementById('gstin-fields').classList.toggle('d-none'); });
+})();
+</script>

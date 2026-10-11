@@ -239,6 +239,10 @@ function renderOrderDetail(order, items, payments, returns, billing) {
   '</div>';
 
   html += gstInvoiceSection(order, billing);
+  if (billing.share) {
+    html += '<div class="col-12"><h6 style="font-size:0.82rem;color:var(--gray-400);text-transform:uppercase;margin-bottom:8px">Share &amp; WhatsApp</h6>' +
+      '<div id="b2bSharePanel" style="border:1px solid var(--gray-200);border-radius:10px;padding:14px;font-size:0.875rem"></div></div>';
+  }
 
   // Items table
   html += '<div class="col-12">' +
@@ -310,6 +314,7 @@ function renderOrderDetail(order, items, payments, returns, billing) {
 
   html += '</div>';
   $('#orderDetailBody').html(html);
+  if (billing.share) OrderShare.render(document.getElementById('b2bSharePanel'), 'b2b', order.id, billing.share);
 }
 
 /* ── Actions ── */

@@ -11,7 +11,7 @@ from `total_amount - paid_amount` (never the stored `balance_amount`):
 """
 from datetime import datetime, timedelta
 
-from django.db.models import Case, Count, DecimalField, F, Q, Sum, Value, When
+from django.db.models import Case, Count, DecimalField, F, Max, Q, Sum, Value, When
 from django.db.models.functions import Coalesce, TruncDate
 from django.shortcuts import render
 from django.utils import timezone
@@ -23,6 +23,7 @@ from core.auth import admin_login_required, require_module
 from core.models import Brand
 from crm.models import B2BActivity, B2BCompany
 from orders import reports_b2b
+from billing.models import MessageLog
 from orders.models import B2BOrder, B2BOrderItem, B2BReturn
 
 ACTIVE_STATUSES = ['draft', 'confirmed', 'dispatched']
@@ -320,6 +321,11 @@ class B2BDashboardStatsAPI(APIView):
             .select_related('company')
             .order_by(F('due_date').asc(nulls_last=True))
         )
+        orders = list(orders)
+        reminded = dict(
+            MessageLog.objects.filter(kind=MessageLog.Kind.REMINDER, b2b_order__in=orders)
+            .values('b2b_order_id').annotate(last=Max('created_at')).values_list('b2b_order_id', 'last')
+        )
         return [
             {
                 'id': o.id,
@@ -330,6 +336,7 @@ class B2BDashboardStatsAPI(APIView):
                 'balance': _f(o.balance),
                 'due_date': o.due_date.isoformat() if o.due_date else None,
                 'status': o.status,
+                'last_reminded': reminded[o.id].isoformat() if o.id in reminded else None,
             }
             for o in orders
         ]

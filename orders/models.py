@@ -80,6 +80,10 @@ class Order(models.Model):
     # (treated as inclusive).
     price_mode = models.CharField(max_length=10, blank=True)
     gst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Optional business GSTIN given at checkout: makes the invoice a B2B-type
+    # invoice and fixes the place of supply to the GSTIN's state.
+    billing_gstin = models.CharField(max_length=15, blank=True)
+    billing_legal_name = models.CharField(max_length=255, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
