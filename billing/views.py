@@ -78,6 +78,7 @@ def invoice_print(request, pk):
 
 
 @admin_login_required
+@pdf.pdf_guard(admin=True)
 def invoice_pdf(request, pk):
     invoice = get_object_or_404(Invoice, pk=pk)
     if not _can_view_document(request, invoice):
@@ -100,6 +101,7 @@ def credit_note_print(request, pk):
 
 
 @admin_login_required
+@pdf.pdf_guard(admin=True)
 def credit_note_pdf(request, pk):
     cn = get_object_or_404(CreditNote.objects.select_related('invoice'), pk=pk)
     if not _can_view_document(request, cn.invoice):

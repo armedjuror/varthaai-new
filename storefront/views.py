@@ -20,6 +20,7 @@ from accounts.models import PointsTransaction
 from billing import links
 from billing import services as billing
 from billing.models import CreditNote
+from billing.pdf import pdf_guard
 from core.models import Setting
 from marketing.models import Blog
 from orders.models import Order
@@ -201,6 +202,7 @@ def _private_pdf(data_or_file, filename):
     return response
 
 
+@pdf_guard()
 def order_summary_pdf(request, order_id):
     """Order Summary as a PDF, rendered on demand."""
     from billing.pdf import render_html_pdf
@@ -212,6 +214,7 @@ def order_summary_pdf(request, order_id):
     return _private_pdf(data, f'order-summary-{order.id}.pdf')
 
 
+@pdf_guard()
 def tax_invoice_pdf(request, order_id):
     """The stored Tax Invoice PDF — never regenerated once it exists."""
     order = _customer_order(request, order_id)
@@ -223,6 +226,7 @@ def tax_invoice_pdf(request, order_id):
     return _private_pdf(invoice.pdf_file.open('rb'), invoice.number.replace('/', '-') + '.pdf')
 
 
+@pdf_guard()
 def credit_note_pdf(request, pk):
     user = services.current_user(request)
     cn = CreditNote.objects.filter(pk=pk, invoice__b2c_order__user=user).first() if user else None

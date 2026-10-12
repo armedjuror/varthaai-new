@@ -4,6 +4,7 @@ browser print view and the stored PDF (WeasyPrint), always driven from the
 stored document — never recomputed from the order.
 """
 from decimal import Decimal
+from functools import wraps
 
 from django.conf import settings
 from django.template.loader import render_to_string
@@ -135,8 +136,39 @@ def _fetcher():
     return LocalFetcher()
 
 
+PANGO_INSTALL = ('sudo apt install libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b '
+                 'libharfbuzz-subset0 fonts-dejavu-core')
+
+
+class PdfEngineMissing(RuntimeError):
+    """WeasyPrint is installed but the Pango system libraries are not."""
+
+
+def pdf_guard(admin=False):
+    """Turn a missing PDF engine into a 503 instead of a server error. Admins
+    get the install command; customers get a plain 'try later'."""
+    def decorator(view):
+        @wraps(view)
+        def wrapped(request, *args, **kwargs):
+            try:
+                return view(request, *args, **kwargs)
+            except PdfEngineMissing as exc:
+                from django.http import HttpResponse
+
+                text = (f'PDF engine not installed on the server: {exc}\n\n'
+                        f'Fix (on the server):\n  {PANGO_INSTALL}\n  sudo systemctl restart varthaai\n\n'
+                        'The print view (Print button) works without it.') if admin else \
+                    'This document is temporarily unavailable. Please try again later.'
+                return HttpResponse(text, status=503, content_type='text/plain; charset=utf-8')
+        return wrapped
+    return decorator
+
+
 def _write_pdf(html):
-    from weasyprint import HTML
+    try:
+        from weasyprint import HTML
+    except OSError as exc:  # Pango & co. missing — see deploy/GST_BILLING.md
+        raise PdfEngineMissing(str(exc)) from exc
 
     return HTML(string=html, base_url='http://pdf.local/', url_fetcher=_fetcher()).write_pdf()
 

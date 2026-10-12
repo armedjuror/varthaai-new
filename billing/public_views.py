@@ -16,6 +16,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_POST
 
 from billing import links
+from billing.pdf import pdf_guard
 from billing import services as billing
 from billing.models import CreditNote
 from billing.tax import ZERO, q2
@@ -144,6 +145,7 @@ def order_page(request, link):
 
 
 @public_link
+@pdf_guard()
 def summary_pdf(request, link):
     from billing.pdf import render_html_pdf
 
@@ -154,6 +156,7 @@ def summary_pdf(request, link):
 
 
 @public_link
+@pdf_guard()
 def invoice_pdf(request, link):
     invoice = billing.active_invoice(link.order)
     if invoice is None or not links.customer_docs_allowed(link.order):
@@ -166,6 +169,7 @@ def invoice_pdf(request, link):
 
 
 @public_link
+@pdf_guard()
 def credit_note_pdf(request, link, pk):
     flt = {'invoice__b2c_order_id': link.b2c_order_id} if link.b2c_order_id else {
         'invoice__b2b_order_id': link.b2b_order_id}

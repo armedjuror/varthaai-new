@@ -567,3 +567,22 @@ class VisibilityTests(Phase2Base):
                                                       'status': 'shipped'}, content_type='application/json')
         self.assertIn('No GST invoice', res.json()['message'])
         self.assertContains(self.client.get(f'/admin/orders/{c.id}/'), 'GSTIN is not saved')
+
+
+class PdfEngineMissingTests(TestCase):
+    def test_missing_pango_is_a_503_with_install_hint_for_admin(self):
+        from django.http import HttpResponse
+
+        from billing.pdf import PdfEngineMissing, pdf_guard
+
+        def broken(request):
+            raise PdfEngineMissing("cannot load library 'libpango-1.0-0'")
+
+        admin = pdf_guard(admin=True)(broken)(None)
+        self.assertEqual(admin.status_code, 503)
+        self.assertIn(b'apt install libpango-1.0-0', admin.content)
+        public = pdf_guard()(broken)(None)
+        self.assertEqual(public.status_code, 503)
+        self.assertNotIn(b'apt', public.content)
+        ok = pdf_guard()(lambda request: HttpResponse('fine'))(None)
+        self.assertEqual(ok.status_code, 200)
