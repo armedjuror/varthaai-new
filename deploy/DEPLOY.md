@@ -24,6 +24,7 @@ git clone <repo-url> varthaai-new
 cd varthaai-new
 python3.12 -m venv venv
 ./venv/bin/pip install -r requirements.txt   # includes gunicorn
+./venv/bin/pip install --no-deps -r requirements-nodeps.txt   # litellm (see file)
 ```
 
 ## 2. Environment
@@ -90,6 +91,7 @@ and consider adding to settings.py: `SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_
 cd /home/ubuntu/varthaai-new
 git pull
 ./venv/bin/pip install -r requirements.txt
+./venv/bin/pip install --no-deps -r requirements-nodeps.txt
 ./venv/bin/python manage.py migrate
 ./venv/bin/python manage.py collectstatic --noinput
 sudo systemctl restart varthaai

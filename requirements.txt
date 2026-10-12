@@ -9,27 +9,24 @@ gunicorn==23.0.0
 # Needed only by content/agents/designer.py's generate_poster_image() (Gemini
 # 3 Pro Image / "Nano Banana Pro" calls). Version verified against PyPI
 # directly (Sept 2026) — this is genuinely current, not a guess.
-# KNOWN CONFLICT: this version requires httpx>=0.28.1; litellm==1.55.8 below
-# (Blog AI assistant) declares httpx<0.28.0, so pip's resolver will warn on
-# install. Verified empirically that litellm 1.55.8 still imports and its
-# `completion` entrypoint is reachable under httpx 0.28.1 (basic client API
-# is stable across that bump), but this was NOT verified against a live
-# streaming call — deploy/BLOG_AI.md's SSE path is untested under this
-# combination. The real fix is bumping litellm (current PyPI: 1.100.1, a
-# 45-release jump from what's pinned here) — deliberately NOT done in this
-# pass: that's a production-live feature this session didn't test, and a
-# jump that size needs its own verification pass, not a drive-by bump.
+# It requires httpx>=0.28.1, which conflicts with litellm's declared
+# httpx<0.28 — that is why litellm lives in requirements-nodeps.txt.
 google-genai==2.23.0
 idna==3.18
-# MCP Python SDK — used to build the Debugger Agent's custom tool server
-# (debugger/mcp_server.py), spoken to over stdio by the `claude` CLI via
-# --mcp-config. Previously a transitive dependency of claude-agent-sdk (now
-# removed — see core/claude_cli.py); now pinned explicitly since we use it
-# directly.
-mcp==1.29.0
-# TODO: verify current litellm version before merge — no PyPI/web access was
-# available to confirm it in this session.
-litellm==1.55.8
+# litellm (Blog AI assistant) is pinned in requirements-nodeps.txt and
+# installed with --no-deps: litellm 1.55.8 declares httpx<0.28 but
+# google-genai above needs httpx>=0.28.1, so pip cannot resolve both in one
+# file (litellm 1.55.8 imports and works under httpx 0.28.1).
+# These are litellm's own runtime dependencies:
+aiohttp
+click
+importlib-metadata>=6.8.0
+jinja2>=3.1.2,<4.0.0
+jsonschema>=4.22.0,<5.0.0
+openai>=1.55.3
+pydantic>=2.0.0,<3.0.0
+tiktoken>=0.7.0
+tokenizers
 Markdown==3.10.3
 # GST billing (billing app): tax invoice / credit note PDFs and amount in
 # words. WeasyPrint needs Pango system libraries — see deploy/GST_BILLING.md.
@@ -37,8 +34,9 @@ Markdown==3.10.3
 # API changed in recent majors.
 weasyprint==70.0
 num2words==0.5.14
-# bizmcp app's MCP server. Version constrained by claude-agent-sdk's own
-# `mcp<2.0.0,>=1.23.0` requirement (verified by resolving both together).
+# MCP Python SDK — used by the bizmcp app's MCP server and the Debugger
+# Agent's custom tool server (debugger/mcp_server.py). Pinned once (it was
+# previously listed twice, 1.29.0 and 1.30.0, which pip cannot install).
 mcp==1.30.0
 uvicorn==0.34.0
 pillow==12.3.0

@@ -1,0 +1,8 @@
+# Installed AFTER requirements.txt, without dependency resolution:
+#   pip install -r requirements.txt
+#   pip install --no-deps -r requirements-nodeps.txt
+# litellm 1.55.8 pins httpx<0.28, which conflicts with google-genai's
+# httpx>=0.28.1; its other dependencies are listed in requirements.txt.
+# Bumping litellm to a release that accepts httpx 0.28 is the proper fix
+# but needs its own test of the Blog AI assistant (deploy/BLOG_AI.md).
+litellm==1.55.8

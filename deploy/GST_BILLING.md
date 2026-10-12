@@ -11,6 +11,7 @@ WeasyPrint renders the stored PDFs and needs Pango:
 ```bash
 sudo apt install libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libharfbuzz-subset0 fonts-dejavu-core
 ./venv/bin/pip install -r requirements.txt
+./venv/bin/pip install --no-deps -r requirements-nodeps.txt
 ./venv/bin/python -c "from weasyprint import HTML; HTML(string='<p>ok ₹</p>').write_pdf()"
 ```
 
