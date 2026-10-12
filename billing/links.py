@@ -80,6 +80,14 @@ def paid_on(order):
             .values_list('payment_date', flat=True).first()) or billing.ist_date(order.updated_at)
 
 
+def customer_docs_allowed(order):
+    """Customers (order link, storefront dashboard) get the Tax Invoice and
+    credit-note downloads only once the order is paid. Admins always can."""
+    if kind_of(order) == 'b2c':
+        return order.payment_status in ('paid', 'refund_initiated', 'refunded')
+    return order.paid_amount > 0 and order.paid_amount >= order.total_amount
+
+
 # ── share links ──────────────────────────────────────────────────────────
 
 def live_link(order):

@@ -204,10 +204,12 @@
               <button class="btn btn-sm btn-outline-warning" id="btnReissue"><i class="fas fa-arrows-rotate me-1"></i>Cancel &amp; reissue</button>
               {% endif %}
             </div>
-          {% elif gst %}
-            <div style="color:var(--gray-400)">Tax invoice will be issued when the order is shipped.</div>
+          {% elif gst_off_reason %}
+            <div class="alert alert-secondary py-2 mb-0" style="font-size:0.82rem"><i class="fas fa-circle-info me-1"></i>{{ gst_off_reason }}</div>
+          {% elif order.status == 'shipped' or order.status == 'delivered' %}
+            <div style="color:var(--gray-400)">Shipped before GST invoicing was on — use the backfill command to invoice it.</div>
           {% else %}
-            <div style="color:var(--gray-400)">No GST invoice (order outside GST billing).</div>
+            <div style="color:var(--gray-400)">Tax invoice will be issued when the order is shipped.</div>
           {% endif %}
           {% if gst.credit_notes %}
             <div style="margin-top:14px;font-weight:600">Credit notes</div>

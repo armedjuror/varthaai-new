@@ -83,8 +83,11 @@ add a nginx `location` for it. Include it in backups: records are kept for
 - **Order Summary** (renamed old invoice pages, admin + storefront) shows the
   GST, the tax invoice number, credit notes and a PAID seal. It says "This
   is not a tax invoice".
-- Customers download the Order Summary PDF and, once shipped, the stored Tax
-  Invoice PDF (and credit notes) from their dashboard.
+- Customers download the Order Summary PDF and, once the order is shipped
+  and paid, the stored Tax Invoice PDF (and credit notes) from their dashboard.
+- If GST billing is off for an order (no GSTIN saved yet, before the start
+  date, or not in the pilot list), dispatching says so ("No GST invoice: …")
+  and the order screen shows the reason.
 
 ## Trying it on the live site (pilot mode)
 
@@ -114,7 +117,10 @@ add a nginx `location` for it. Include it in backups: records are kept for
 
 **Order links** (`/o/<token>/`). Every order (B2C and B2B) can be shared as an
 open link: Order Summary, PAID / PART PAID seal or a **Pay** button for the
-balance, and the Tax Invoice / credit-note PDFs. The page shows the name,
+balance, and the Tax Invoice / credit-note PDFs. Customers (link and
+storefront dashboard) can download the Tax Invoice and credit notes only once
+the order is paid; before that the link shows the invoice number with
+"available once paid". Admins can always print / download from dispatch. The page shows the name,
 items, amounts and delivery state/pincode only; the phone is masked. Links
 are `noindex`, `no-referrer`, `no-store`, rate-limited per IP, and expire 60
 days after the order is fully paid. **New link** on the order revokes the

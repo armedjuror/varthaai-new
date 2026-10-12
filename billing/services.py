@@ -188,6 +188,24 @@ def gst_active(brand_id, on_date=None, company=None, mobile=None):
     return _pilot_allows(company, mobile)
 
 
+def gst_inactive_reason(order, on_date=None):
+    """Why dispatching `order` would NOT issue a GST invoice (None when it would)."""
+    eff = effective_date()
+    if eff is None:
+        return 'GST billing has no start date. Set it in Settings → GST & Invoicing.'
+    on_date = on_date or ist_today()
+    if on_date < eff:
+        return f'GST billing starts on {eff:%d-%m-%Y}.'
+    entity = entity_for_brand(order.brand_id)
+    if entity is None or not entity.gstin:
+        return ('GST billing is off: the business GSTIN is not saved yet '
+                '(Settings → GST & Invoicing). No tax invoice is issued until it is.')
+    if not gst_active_for(order, on_date):
+        return ('Pilot mode is on and this order is not in the pilot list '
+                '(Settings → GST & Invoicing), so no tax invoice is issued for it.')
+    return None
+
+
 def gst_active_for(order, on_date=None):
     if _order_kind(order) == 'b2b':
         return gst_active(order.brand_id, on_date, company=order.company_id)

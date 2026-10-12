@@ -834,6 +834,11 @@ class B2BOrdersAPI(APIView):
             order.refresh_from_db()
         sync_b2b_order_income(order)
         message = f'Order status updated to {target}.'
+        if (not invoice and target in billing.B2B_INVOICE_STATUSES
+                and previous not in billing.B2B_INVOICE_STATUSES):
+            reason = billing.gst_inactive_reason(order)
+            if reason:
+                message += ' No GST invoice: ' + reason
         if invoice:
             message += f' GST invoice {invoice.number} issued.'
             if billing.eway_bill_required(invoice.is_interstate, invoice.grand_total):
@@ -1395,6 +1400,7 @@ def _billing_payload(order):
         }
     return {
         'gst_enabled': bool(order.price_mode) or invoice is not None,
+        'gst_off_reason': None if invoice else billing.gst_inactive_reason(order),
         'invoice': billing.invoice_payload(invoice),
         'invoice_lines': billing.invoice_lines_payload(invoice) if invoice else [],
         'cancelled_invoices': [

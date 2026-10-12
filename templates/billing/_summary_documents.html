@@ -7,7 +7,7 @@
   <div class="tax-invoice-line">
     {% if gst.invoice %}
       Tax Invoice No. <strong>{{ gst.invoice.number }}</strong> dated {{ gst.invoice.invoice_date|date:"d-m-Y" }}
-      {% if gst.invoice_url %}<a class="no-print" href="{{ gst.invoice_url }}" target="_blank">Download</a>{% endif %}
+      {% if gst.invoice_url %}<a class="no-print" href="{{ gst.invoice_url }}" target="_blank">Download</a>{% elif docs_locked %}<span class="no-print" style="color:#666">— available to download once the order is paid</span>{% endif %}
     {% elif not cancelled %}
       Tax invoice will be issued when your order is dispatched.
     {% endif %}

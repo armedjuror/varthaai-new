@@ -17,6 +17,7 @@ from django.utils.safestring import mark_safe
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 from accounts.models import PointsTransaction
+from billing import links
 from billing import services as billing
 from billing.models import CreditNote
 from core.models import Setting
@@ -168,9 +169,12 @@ def _order_summary_ctx(request, order, for_pdf=False):
         referral_name=order.referral.name if order.referral else '',
         settings_map=dict(Setting.objects.values_list('setting_key', 'setting_value')),
         for_pdf=for_pdf,
+        docs_locked=not links.customer_docs_allowed(order),
         **billing.order_summary_context(
-            order, lambda inv: f'/tax-invoice/{order.id}.pdf',
-            lambda cn: f'/credit-note/{cn.id}.pdf', total,
+            order,
+            lambda inv: f'/tax-invoice/{order.id}.pdf' if links.customer_docs_allowed(order) else None,
+            lambda cn: f'/credit-note/{cn.id}.pdf' if links.customer_docs_allowed(order) else None,
+            total,
         ),
     )
 
@@ -212,7 +216,7 @@ def tax_invoice_pdf(request, order_id):
     """The stored Tax Invoice PDF — never regenerated once it exists."""
     order = _customer_order(request, order_id)
     invoice = billing.active_invoice(order) if order else None
-    if not invoice:
+    if not invoice or not links.customer_docs_allowed(order):
         raise Http404
     if not invoice.pdf_file:
         invoice = billing.store_pdf(invoice.pk, 'invoice')
@@ -222,7 +226,7 @@ def tax_invoice_pdf(request, order_id):
 def credit_note_pdf(request, pk):
     user = services.current_user(request)
     cn = CreditNote.objects.filter(pk=pk, invoice__b2c_order__user=user).first() if user else None
-    if not cn:
+    if not cn or not links.customer_docs_allowed(cn.invoice.b2c_order):
         raise Http404
     if not cn.pdf_file:
         cn = billing.store_pdf(cn.pk, 'credit_note')

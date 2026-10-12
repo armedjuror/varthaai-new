@@ -485,6 +485,12 @@ class BackfillAndPagesTests(TestCase):
         session.save()
         self.assertEqual(self.client.get(f'/tax-invoice/{o.id}.pdf').status_code, 404)  # not issued yet
         billing.ensure_invoice(o)
+        # Issued, but the customer gets it only once the order is paid.
+        self.assertEqual(self.client.get(f'/tax-invoice/{o.id}.pdf').status_code, 404)
+        data = self.client.get('/api/dashboard-data/').json()
+        self.assertIsNone(data['orders'][0]['tax_invoice'])
+        self.assertTrue(data['orders'][0]['tax_invoice_awaiting_payment'])
+        Order.objects.filter(pk=o.pk).update(payment_status='paid')
         res = self.client.get(f'/tax-invoice/{o.id}.pdf')
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res['Cache-Control'], 'private, no-store')

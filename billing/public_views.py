@@ -106,8 +106,12 @@ def _context(request, link, for_pdf=False):
     order = link.order
     token = link.token
     rows, subtotal, discounts, delivery, total, paid = _rows_and_totals(order)
+    docs_ok = links.customer_docs_allowed(order)
     summary = billing.order_summary_context(
-        order, lambda inv: f'/o/{token}/invoice.pdf', lambda cn: f'/o/{token}/credit-note/{cn.id}.pdf', total,
+        order,
+        lambda inv: f'/o/{token}/invoice.pdf' if docs_ok else None,
+        lambda cn: f'/o/{token}/credit-note/{cn.id}.pdf' if docs_ok else None,
+        total,
     )
     kind = links.kind_of(order)
     due = links.amount_due(order)
@@ -125,6 +129,7 @@ def _context(request, link, for_pdf=False):
         'can_pay': due > 0 and links.payments_enabled() and not for_pdf,
         'razorpay_key': settings.RAZORPAY_KEY_ID,
         'for_pdf': for_pdf,
+        'docs_locked': not docs_ok,
         **summary,
     }
 
@@ -151,7 +156,7 @@ def summary_pdf(request, link):
 @public_link
 def invoice_pdf(request, link):
     invoice = billing.active_invoice(link.order)
-    if invoice is None:
+    if invoice is None or not links.customer_docs_allowed(link.order):
         raise Http404
     if not invoice.pdf_file:
         invoice = billing.store_pdf(invoice.pk, 'invoice')
@@ -165,7 +170,7 @@ def credit_note_pdf(request, link, pk):
     flt = {'invoice__b2c_order_id': link.b2c_order_id} if link.b2c_order_id else {
         'invoice__b2b_order_id': link.b2b_order_id}
     cn = CreditNote.objects.filter(pk=pk, **flt).first()
-    if cn is None:
+    if cn is None or not links.customer_docs_allowed(link.order):
         raise Http404
     if not cn.pdf_file:
         cn = billing.store_pdf(cn.pk, 'credit_note')

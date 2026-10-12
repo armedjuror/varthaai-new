@@ -501,7 +501,12 @@ function gstSummaryRows(gst, priceMode) {
 }
 
 function gstInvoiceSection(order, billing) {
-  if (!billing || !billing.gst_enabled) return '';
+  if (!billing) return '';
+  if (!billing.gst_enabled && !billing.invoice) {
+    if (!billing.gst_off_reason) return '';
+    return '<div class="col-12"><div class="alert alert-secondary py-2 mb-0" style="font-size:0.85rem">' +
+      '<i class="fas fa-circle-info me-1"></i><strong>No GST invoice for this order.</strong> ' + escHtml(billing.gst_off_reason) + '</div></div>';
+  }
   var inv = billing.invoice;
   var h = '<div class="col-12"><h6 style="font-size:0.82rem;color:var(--gray-400);text-transform:uppercase;margin-bottom:8px">GST Invoice</h6>' +
     '<div style="border:1px solid var(--gray-200);border-radius:10px;padding:14px;font-size:0.875rem">';
@@ -525,7 +530,11 @@ function gstInvoiceSection(order, billing) {
   } else if (billing.gst && billing.gst.eway_required && order.status !== 'cancelled') {
     h += '<div class="alert alert-warning py-2 mb-2"><i class="fas fa-triangle-exclamation me-1"></i><strong>E-way bill required before dispatch</strong> — inter-state consignment above ₹50,000.</div>';
   }
-  if (!inv) h += '<div style="color:var(--gray-400)">Tax invoice will be issued when the order is dispatched.</div>';
+  if (!inv) h += '<div style="color:var(--gray-400)">' + (billing.gst_off_reason
+    ? escHtml(billing.gst_off_reason)
+    : (['dispatched', 'delivered'].indexOf(order.status) !== -1
+        ? 'This order was dispatched before GST invoicing was on — use the backfill command to invoice it.'
+        : 'Tax invoice will be issued when the order is dispatched.')) + '</div>';
   (billing.cancelled_invoices || []).forEach(function (c) {
     h += '<div style="font-size:0.78rem;color:var(--gray-400);margin-top:6px">Cancelled invoice <a target="_blank" href="/admin/gst/invoice/' + c.id + '/">' + escHtml(c.number) + '</a> (' + formatDate(c.date) + ')</div>';
   });

@@ -277,6 +277,7 @@ def view_order(request, pk):
 
     return render(request, 'admin/view-order.html', {
         'gst': gst,
+        'gst_off_reason': None if gst and gst.get('invoice') else billing.gst_inactive_reason(order),
         'states': STATES,
         'state_label': billing.state_label(order.shipping_state_code),
         'order': order,
@@ -531,11 +532,21 @@ class OrdersAPI(APIView):
             stock_err = _check_stock_for_order(order)
             if stock_err:
                 return err(f"Cannot move to '{status}': {stock_err}")
+        previous = order.status
         try:
             _apply_status(order, status, request.user)
         except billing.BillingError as exc:
             return err(str(exc))
-        return ok(message='Order status updated successfully!')
+        message = 'Order status updated successfully!'
+        if status in DEDUCT_STATUSES and previous not in DEDUCT_STATUSES:
+            invoice = billing.active_invoice(order)
+            if invoice:
+                message += f' GST invoice {invoice.number} issued.'
+            else:
+                reason = billing.gst_inactive_reason(order)
+                if reason:
+                    message += ' No GST invoice: ' + reason
+        return ok(message=message)
 
     def _update_payment_status(self, request):
         data = request.data

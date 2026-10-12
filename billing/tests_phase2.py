@@ -532,3 +532,38 @@ class PilotAndCleanupTests(Phase2Base):
         # The immutability trigger is back on.
         with self.assertRaises(DatabaseError), transaction.atomic():
             Invoice.objects.filter(b2c_order_id='VO_real2').update(grand_total=0)
+
+
+class VisibilityTests(Phase2Base):
+    def test_link_hides_tax_invoice_until_paid(self):
+        o = self.b2b()
+        inv = billing.ensure_invoice(o)
+        link = links.get_or_create_link(o)
+        page = self.client.get(f'/o/{link.token}/')
+        self.assertContains(page, inv.number)
+        self.assertContains(page, 'available to download once the order is paid')
+        self.assertNotContains(page, f'/o/{link.token}/invoice.pdf')
+        self.assertEqual(self.client.get(f'/o/{link.token}/invoice.pdf').status_code, 404)
+        # The admin always sees it.
+        self.assertEqual(self.client.get(f'/admin/gst/invoice/{inv.id}/').status_code, 200)
+        o.refresh_from_db()
+        links.apply_b2b_payment(o, o.total_amount, method='upi', user=self.admin)
+        page = self.client.get(f'/o/{link.token}/')
+        self.assertContains(page, f'/o/{link.token}/invoice.pdf')
+        self.assertEqual(self.client.get(f'/o/{link.token}/invoice.pdf').status_code, 200)
+
+    def test_dispatch_explains_missing_invoice(self):
+        self.entity.gstin = ''
+        self.entity.save()
+        o = self.b2b()
+        res = self.client.post('/admin/api/b2b-orders/', {'action': 'update_status', 'order_id': o.id,
+                                                          'status': 'dispatched'}, content_type='application/json')
+        self.assertTrue(res.json()['success'])
+        self.assertIn('GSTIN is not saved', res.json()['message'])
+        detail = self.client.get(f'/admin/api/b2b-orders/?view=order&id={o.id}').json()['data']
+        self.assertIn('GSTIN is not saved', detail['billing']['gst_off_reason'])
+        c = self.b2c()
+        res = self.client.post('/admin/api/orders/', {'action': 'update_status', 'order_id': c.id,
+                                                      'status': 'shipped'}, content_type='application/json')
+        self.assertIn('No GST invoice', res.json()['message'])
+        self.assertContains(self.client.get(f'/admin/orders/{c.id}/'), 'GSTIN is not saved')
