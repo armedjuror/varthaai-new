@@ -28,6 +28,7 @@ from billing.links import apply_b2b_payment
 from billing.gst_states import STATES, normalise_state_code, state_label
 from billing.gstin import validate_gstin
 from billing.models import Invoice
+from billing.tax import PRICE_MODES
 from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
 from core.models import Brand, Setting
@@ -540,9 +541,9 @@ class B2BOrdersAPI(APIView):
         ship, ship_err = _ship_to_fields(body)
         if ship_err:
             return err(ship_err)
-        price_mode = billing.price_mode_setting('b2b') if billing.gst_active(brand_id, company=company) else ''
+        price_mode = _resolve_price_mode(brand_id, company, body.get('gst_mode'))
         gst_amount = Decimal('0')
-        if price_mode:
+        if price_mode in PRICE_MODES:
             try:
                 gst_amount, total, _result = billing.b2b_estimate(
                     brand_id, company, valid, disc_amt, price_mode,
@@ -652,8 +653,10 @@ class B2BOrdersAPI(APIView):
         ship, ship_err = _ship_to_fields(body)
         if ship_err:
             return err(ship_err)
+        if 'gst_mode' in body:
+            order.price_mode = _resolve_price_mode(brand_id, company, body.get('gst_mode'), order.price_mode)
         gst_amount = Decimal('0')
-        if order.price_mode:
+        if order.price_mode in PRICE_MODES:
             try:
                 gst_amount, total, _result = billing.b2b_estimate(
                     brand_id, company, valid, disc_amt, order.price_mode,
@@ -1089,12 +1092,16 @@ class B2BOrdersAPI(APIView):
         if not company or not valid:
             return ok({'enabled': False})
         existing = B2BOrder.objects.filter(id=body.get('order_id') or '', brand_id=brand_id).first()
-        if existing:
+        live = billing.gst_active(brand_id, company=company)
+        if existing and not body.get('gst_mode'):
             price_mode = existing.price_mode
         else:
-            price_mode = billing.price_mode_setting('b2b') if billing.gst_active(brand_id, company=company) else ''
-        if not price_mode:
-            return ok({'enabled': False})
+            price_mode = _resolve_price_mode(brand_id, company, body.get('gst_mode'),
+                                             existing.price_mode if existing else None)
+        mode_info = {'gst_live': live, 'price_mode': price_mode,
+                     'default_mode': billing.price_mode_setting('b2b')}
+        if price_mode not in PRICE_MODES:
+            return ok({'enabled': False, **mode_info})
         disc_amt = self._compute_discount(
             body.get('discount_type') or '', _decimal_or_none(body.get('discount_value')), subtotal,
         )
@@ -1105,11 +1112,11 @@ class B2BOrdersAPI(APIView):
                 ship['ship_to_same_as_bill_to'], ship['ship_to_state_code'],
             )
         except (billing.BillingError, ValueError) as exc:
-            return ok({'enabled': True, 'error': str(exc), 'price_mode': price_mode})
+            return ok({'enabled': True, 'error': str(exc), **mode_info})
         pos = billing.b2b_place_of_supply(SimpleNamespace(**ship), company)
         payload = billing.tax_result_payload(result)
         payload.update({
-            'enabled': True, 'place_of_supply': state_label(pos),
+            'enabled': True, 'place_of_supply': state_label(pos), **mode_info,
             'eway_required': billing.eway_bill_required(result.is_interstate, result.grand_total),
         })
         return ok(payload)
@@ -1217,6 +1224,7 @@ class B2BOrdersAPI(APIView):
             'ship_to_state_code': order.ship_to_state_code,
             'ship_to_pincode': order.ship_to_pincode,
             'ship_to_gstin': order.ship_to_gstin,
+            'price_mode': order.price_mode,
             'customer_po_no': order.customer_po_no,
             'customer_po_date': order.customer_po_date.isoformat() if order.customer_po_date else None,
         })
@@ -1357,6 +1365,20 @@ def _truthy(value, default=True):
     return value not in (False, 0, '0', 'false', 'False', 'off')
 
 
+def _resolve_price_mode(brand_id, company, requested, current=None):
+    """GST mode for a B2B order: 'inclusive' / 'exclusive' (GST billing),
+    'none' (admin chose "No GST") or '' (GST billing not live: priced as
+    entered and treated as inclusive if it is ever invoiced). `requested` is
+    the admin's choice from the order form; when blank the B2B setting is
+    the default. `current` is the saved mode when editing."""
+    requested = (requested or '').strip().lower()
+    if requested == billing.NO_GST:
+        return billing.NO_GST
+    if billing.gst_active(brand_id, company=company):
+        return requested if requested in PRICE_MODES else billing.price_mode_setting('b2b')
+    return '' if current in (None, billing.NO_GST) else current
+
+
 def _ship_to_fields(body, require_address=True):
     """Delivery address from the order form. 'Same as invoice address' is
     the default."""
@@ -1399,7 +1421,7 @@ def _billing_payload(order):
             'eway_required': billing.eway_bill_required(summary['is_interstate'], summary['grand_total']),
         }
     return {
-        'gst_enabled': bool(order.price_mode) or invoice is not None,
+        'gst_enabled': order.price_mode in PRICE_MODES or invoice is not None,
         'gst_off_reason': None if invoice else billing.gst_inactive_reason(order),
         'invoice': billing.invoice_payload(invoice),
         'invoice_lines': billing.invoice_lines_payload(invoice) if invoice else [],

@@ -384,6 +384,25 @@ function recalculate() {
 /* ── GST breakup (server-computed: rates, place of supply, price mode) ── */
 var gstPreviewTimer = null;
 var gstPreviewSeq = 0;
+// The admin's GST choice for this order (inclusive / exclusive / none).
+// null = not chosen: the server uses the B2B setting (or, when editing,
+// keeps the order's saved mode).
+var gstMode = null;
+
+function onGstModeChange() {
+  gstMode = $('#gstMode').val();
+  recalculate();
+}
+
+function gstModePayload() {
+  return gstMode ? { gst_mode: gstMode } : {};
+}
+
+function showGstMode(g) {
+  var visible = !!(g.gst_live || gstMode);
+  $('#gstModeRow').toggle(visible);
+  if (visible && !gstMode && g.price_mode) $('#gstMode').val(g.price_mode);
+}
 
 function scheduleGstPreview() {
   clearTimeout(gstPreviewTimer);
@@ -428,18 +447,23 @@ function itemsPayload() {
 
 function loadGstPreview() {
   var companyId = parseInt($('#orderCompany').val());
-  if (!companyId || !orderItems.length) { $('#summGst').hide(); $('#summGstNote').text(''); return; }
+  if (!companyId || !orderItems.length) { $('#summGst').hide(); $('#summGstNote').text(''); $('#gstModeRow').hide(); return; }
   var seq = ++gstPreviewSeq;
   apiPost('/admin/api/b2b-orders/', $.extend({
     action: 'gst_preview', company_id: companyId, order_id: EDIT_ORDER_ID || null,
     discount_type: $('#discountType').val() || null,
     discount_value: parseFloat($('#discountValue').val()) || null,
     items: itemsPayload()
-  }, shipToPayload()))
+  }, shipToPayload(), gstModePayload()))
     .done(function (res) {
       if (seq !== gstPreviewSeq || !res.success) return;
       var g = res.data || {};
-      if (!g.enabled) { $('#summGst').hide(); $('#summGstNote').text(''); return; }
+      showGstMode(g);
+      if (!g.enabled) {
+        $('#summGst').hide();
+        $('#summGstNote').text(g.price_mode === 'none' ? 'No GST — no tax invoice will be issued for this order.' : '');
+        return;
+      }
       if (g.error) {
         $('#summGst').html('<div class="summary-row" style="color:#dc2626"><span>GST</span><span>—</span></div>').show();
         $('#summGstNote').html('<span style="color:#dc2626">' + escHtml(g.error) + '</span>');
@@ -494,7 +518,7 @@ function submitOrder() {
     customer_po_date: $('#poDate').val() || null,
     items: itemsPayload()
   };
-  $.extend(data, shipToPayload());
+  $.extend(data, shipToPayload(), gstModePayload());
   if (isEdit) data.order_id = EDIT_ORDER_ID;
   if (!isEdit) data.status = $('#orderStatus').val() || 'draft';
 
@@ -536,6 +560,8 @@ function loadEditOrder() {
       $('#orderDueDate').val(res.due_date || '');
       $('#orderDate').val(res.order_date ? _toLocalDatetimeInput(res.order_date) : '');
       applyShipTo(res, true);
+      gstMode = res.price_mode || null;
+      if (gstMode) $('#gstMode').val(gstMode);
 
       (res.items || []).forEach(function (it) {
         itemCounter++;

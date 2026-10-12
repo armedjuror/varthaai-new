@@ -69,6 +69,12 @@ add a nginx `location` for it. Include it in backups: records are kept for
   exclusive orders carry the GST in `total_amount`; B2C stays inclusive in
   Phase 1 (the settings page refuses exclusive for B2C until the storefront
   checkout supports it).
+- **Per-order GST (B2B)**: the order form's Summary card has a GST
+  dropdown — Exclusive, Inclusive or No GST — defaulting to the B2B
+  setting. It can be changed while the order is a draft. A *No GST* order
+  (`price_mode = 'none'`) is priced as entered and never gets a tax
+  invoice, even on dispatch. A GST-registered business normally owes a
+  tax invoice on every taxable sale, so use it only where your CA agrees.
 - **Freeze**: once invoiced, items, prices, discount, coupon, delivery
   charge and addresses are locked, and the order can only be
   dispatched/delivered (B2B) or shipped/delivered (B2C). Corrections go

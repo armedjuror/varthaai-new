@@ -268,6 +268,14 @@
               <span style="color:#3b82f6">Discount</span>
               <span id="summDiscount" style="color:#3b82f6">-₹0</span>
             </div>
+            <div id="gstModeRow" class="summary-row" style="display:none;align-items:center">
+              <span>GST</span>
+              <select class="form-select form-select-sm" id="gstMode" style="width:auto" onchange="onGstModeChange()">
+                <option value="exclusive">Exclusive (added on top)</option>
+                <option value="inclusive">Inclusive (prices include GST)</option>
+                <option value="none">No GST</option>
+              </select>
+            </div>
             <div id="summGst" style="display:none"></div>
             <div class="summary-row total">
               <span>Total</span>

@@ -91,6 +91,10 @@ def get_setting(key):
     return value
 
 
+# A B2B order the admin marked "No GST": never invoiced, priced as entered.
+NO_GST = 'none'
+
+
 def price_mode_setting(kind):
     """kind: 'b2b' or 'b2c'."""
     mode = (get_setting(f'gst_price_mode_{kind}') or '').strip().lower()
@@ -190,6 +194,8 @@ def gst_active(brand_id, on_date=None, company=None, mobile=None):
 
 def gst_inactive_reason(order, on_date=None):
     """Why dispatching `order` would NOT issue a GST invoice (None when it would)."""
+    if getattr(order, 'price_mode', '') == NO_GST:
+        return 'This order is marked "No GST", so no tax invoice is issued for it.'
     eff = effective_date()
     if eff is None:
         return 'GST billing has no start date. Set it in Settings → GST & Invoicing.'
@@ -207,6 +213,8 @@ def gst_inactive_reason(order, on_date=None):
 
 
 def gst_active_for(order, on_date=None):
+    if getattr(order, 'price_mode', '') == NO_GST:
+        return False
     if _order_kind(order) == 'b2b':
         return gst_active(order.brand_id, on_date, company=order.company_id)
     return gst_active(order.brand_id, on_date, mobile=order.mobile)
@@ -437,7 +445,7 @@ def b2b_tax(order, on_date=None):
     lines = b2b_lines(order, on_date)
     if not lines:
         raise BillingError('The order has no items left to invoice.')
-    mode = order.price_mode or INCLUSIVE
+    mode = order.price_mode if order.price_mode in PRICE_MODES else INCLUSIVE
     pos = b2b_place_of_supply(order)
     interstate = bool(pos) and entity is not None and pos != entity.state_code
     goods = sum((ln.gross for ln in lines if not ln.is_free), ZERO)
@@ -895,7 +903,7 @@ def order_gst_summary(order):
     invoices = list(Invoice.objects.filter(**_order_filter(order)).order_by('id'))
     invoice = next((i for i in invoices if i.status == Invoice.Status.ACTIVE), None)
     credit_notes = list(CreditNote.objects.filter(invoice__in=invoices).order_by('id'))
-    if invoice is None and not order.price_mode:
+    if invoice is None and order.price_mode not in PRICE_MODES:
         return None
     data = {
         'invoice': invoice, 'invoices': invoices, 'credit_notes': credit_notes,

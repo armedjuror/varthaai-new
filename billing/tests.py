@@ -367,6 +367,54 @@ class B2BInvoiceTests(TestCase):
         self.assertEqual(res['data']['igst'], 20.0)
         self.assertEqual(res['data']['grand_total'], 420.0)
 
+    def test_per_order_inclusive_overrides_setting(self):
+        order = self._create(gst_mode='inclusive')
+        self.assertEqual(order.price_mode, 'inclusive')
+        self.assertEqual(order.total_amount, D('1000.00'))
+        self.assertEqual(order.gst_amount, D('47.62'))
+        self._post({'action': 'update_status', 'order_id': order.id, 'status': 'dispatched'})
+        inv = Invoice.objects.get(b2b_order=order)
+        self.assertEqual(inv.price_mode, 'inclusive')
+        self.assertEqual(inv.grand_total, D('1000.00'))
+
+    def test_no_gst_order_is_never_invoiced(self):
+        order = self._create(gst_mode='none')
+        self.assertEqual(order.price_mode, 'none')
+        self.assertEqual(order.gst_amount, D('0'))
+        self.assertEqual(order.total_amount, D('1000.00'))
+        res = self._post({'action': 'update_status', 'order_id': order.id, 'status': 'dispatched'})
+        self.assertTrue(res['success'], res)
+        self.assertFalse(Invoice.objects.filter(b2b_order=order).exists())
+        self.assertIn('No GST', billing.gst_inactive_reason(order))
+        self.assertIsNone(billing.order_gst_summary(order))
+
+    def test_edit_draft_switches_gst_mode(self):
+        order = self._create()
+        items = [{'flavor_id': self.flavor.id, 'flavor_pack_id': self.pack.id, 'weight_grams': 250,
+                  'quantity': 10, 'selling_price': 100, 'flavor_name': 'Classic', 'pack_label': '250g'}]
+        base = {'action': 'update_order', 'order_id': order.id, 'company_id': self.company.id, 'items': items}
+        self.assertTrue(self._post({**base, 'gst_mode': 'none'})['success'])
+        order.refresh_from_db()
+        self.assertEqual((order.price_mode, order.total_amount), ('none', D('1000.00')))
+        self.assertTrue(self._post({**base, 'gst_mode': 'exclusive'})['success'])
+        order.refresh_from_db()
+        self.assertEqual((order.price_mode, order.total_amount), ('exclusive', D('1050.00')))
+        # No gst_mode sent (older form): the saved mode is kept.
+        self.assertTrue(self._post(base)['success'])
+        order.refresh_from_db()
+        self.assertEqual(order.price_mode, 'exclusive')
+
+    def test_gst_preview_reports_mode_choice(self):
+        body = {'action': 'gst_preview', 'company_id': self.company.id,
+                'items': [{'flavor_id': self.flavor.id, 'weight_grams': 250, 'quantity': 4,
+                           'selling_price': 100, 'flavor_name': 'Classic'}]}
+        res = self._post(body)['data']
+        self.assertEqual((res['gst_live'], res['price_mode'], res['default_mode']), (True, 'exclusive', 'exclusive'))
+        res = self._post({**body, 'gst_mode': 'inclusive'})['data']
+        self.assertEqual((res['price_mode'], res['grand_total']), ('inclusive', 400.0))
+        res = self._post({**body, 'gst_mode': 'none'})['data']
+        self.assertEqual((res['enabled'], res['price_mode']), (False, 'none'))
+
 
 @override_settings(MEDIA_ROOT=MEDIA, PRIVATE_MEDIA_ROOT=MEDIA)
 class GSTRecordsAccessTests(TestCase):
