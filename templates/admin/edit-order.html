@@ -1,5 +1,5 @@
 {% extends 'admin/base.html' %}
-{% load static %}
+{% load static billing_tags %}
 
 {% block title %}Edit Order {{ order.id }} — Varthaai Admin{% endblock %}
 
@@ -38,6 +38,14 @@
     </div>
   </div>
 
+  {% if invoice %}
+  <div class="alert alert-warning" style="font-size:0.875rem">
+    <i class="fas fa-lock me-1"></i>
+    GST invoice <strong>{{ invoice.number }}</strong> has been issued. Items, prices, coupon, delivery charge,
+    name and address are locked — use <a href="{% url 'orders:view_order' order.id %}">Return / Credit note or Cancel &amp; reissue</a> on the order page.
+  </div>
+  {% endif %}
+
   <form id="editOrderForm">
     <div class="row g-4">
 
@@ -75,16 +83,23 @@
                 <label class="form-label">Delivery Address <span class="text-danger">*</span></label>
                 <textarea class="form-control" name="address" rows="2" required>{{ order.address }}</textarea>
               </div>
-              <div class="col-md-4">
+              <div class="col-md-3">
                 <label class="form-label">Pincode</label>
-                <input type="text" class="form-control" name="pincode" value="{{ order.pincode }}">
+                <input type="text" class="form-control" name="pincode" id="pincodeInput" value="{{ order.pincode }}">
               </div>
-              <div class="col-md-4">
+              <div class="col-md-3">
+                <label class="form-label">State <span class="text-danger">*</span></label>
+                <select class="form-select" name="shipping_state_code" id="stateSelect">
+                  <option value="">Select state…</option>
+                  {% for code, name in states %}<option value="{{ code }}" {% if code == order.shipping_state_code %}selected{% endif %}>{{ name }}</option>{% endfor %}
+                </select>
+              </div>
+              <div class="col-md-3">
                 <label class="form-label">Delivery Charge (₹)</label>
                 <input type="number" class="form-control" name="delivery_charge" id="deliveryCharge"
                        value="{{ order.delivery_charge }}" min="0" step="0.01">
               </div>
-              <div class="col-md-4">
+              <div class="col-md-3">
                 <label class="form-label">Coupon</label>
                 <select class="form-select" name="coupon_id" id="couponSelect">
                   <option value="">No Coupon</option>
@@ -305,6 +320,7 @@
 {% endblock %}
 
 {% block extra_js %}
+{% pin_state_script %}
 <script>
 var _orderId = "{{ order.id|escapejs }}";
 var _editPacks = {{ packs_json|safe }};
@@ -374,6 +390,7 @@ $('#editOrderForm').on('submit', function (e) {
     mobile:          $('[name="mobile"]').val().trim(),
     address:         $('[name="address"]').val().trim(),
     pincode:         $('[name="pincode"]').val().trim(),
+    shipping_state_code: $('#stateSelect').val(),
     status:          $('[name="status"]').val(),
     payment_status:  $('[name="payment_status"]').val(),
     delivery_charge: parseFloat($('#deliveryCharge').val()) || 0,
@@ -382,9 +399,10 @@ $('#editOrderForm').on('submit', function (e) {
     item_quantities: quantities
   })
     .done(function (res) { showAlertModal(res.message, res.success ? 'success' : 'danger'); })
-    .fail(function ()    { showAlertModal('Request failed.', 'danger'); })
+    .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Request failed.'), 'danger'); })
     .always(hideLoader);
 });
+bindStateFromPincode(document.getElementById('pincodeInput'), document.getElementById('stateSelect'));
 
 /* ── Remove item ── */
 function removeItem(btn, itemId) {

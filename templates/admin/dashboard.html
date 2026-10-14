@@ -207,6 +207,20 @@
   {% endfor %}
 </div>
 
+{% if turnover %}
+<!-- GST: e-invoicing turnover watch -->
+<div class="data-card mb-3" style="padding:12px 18px">
+  <div class="d-flex flex-wrap align-items-center gap-3" style="font-size:0.85rem">
+    <span><i class="fas fa-file-invoice me-1" style="color:var(--primary-color)"></i><strong>GST turnover FY {{ turnover.fiscal_year }}:</strong>
+      ₹{{ turnover.turnover|floatformat:0 }} of ₹5 crore e-invoicing limit ({{ turnover.percent }}%)</span>
+    <div class="progress flex-grow-1" style="height:8px;min-width:160px">
+      <div class="progress-bar {% if turnover.warning %}bg-warning{% else %}bg-success{% endif %}" style="width:{% if turnover.percent > 100 %}100{% else %}{{ turnover.percent }}{% endif %}%"></div>
+    </div>
+    {% if turnover.warning %}<span class="text-warning fw-semibold">Approaching the limit — plan e-invoicing (IRN).</span>{% endif %}
+  </div>
+</div>
+{% endif %}
+
 <!-- Revenue Chart + Order Status -->
 <div class="row g-3 mb-3">
   <div class="col-lg-8">

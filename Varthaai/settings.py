@@ -68,6 +68,7 @@ LOCAL_APPS = [
     'accounts',
     'products',
     'orders',
+    'billing',
     'crm',
     'finance',
     'marketing',
@@ -207,6 +208,11 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+# GST tax invoice / credit note PDFs (billing app). NOT under MEDIA_ROOT and
+# never served by nginx — only streamed by permission-checked views. Keep it
+# in backups: invoices must be retained for 6 years.
+PRIVATE_MEDIA_ROOT = Path(env('PRIVATE_MEDIA_ROOT', str(BASE_DIR / 'private_media')))
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
@@ -248,6 +254,10 @@ RECAPTCHA_SECRET = env('RECAPTCHA_SECRET', '')
 # crashing other Celery jobs.
 TELEGRAM_BOT_TOKEN = env('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_GROUP_CHAT_ID = env('TELEGRAM_GROUP_CHAT_ID', '')
+
+# Public base URL used in order links sent on WhatsApp when there is no
+# request to take the host from.
+SITE_URL = env('SITE_URL', 'https://varthaai.com')
 
 WHATSAPP_BUSINESS_NUMBER = env('WHATSAPP_BUSINESS_NUMBER', '919400557445')
 

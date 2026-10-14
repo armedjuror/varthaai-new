@@ -181,6 +181,7 @@
                   <div class="price-line"><span>Subtotal:</span><span id="desktop-subtotal">₹0</span></div>
                   <div class="price-line d-none" id="desktop-coupon-discount-line"><span>Coupon Discount:</span><span class="text-success" id="desktop-coupon-discount">-₹0</span></div>
                   <div class="price-line d-none" id="desktop-delivery-charge-line"><span>Delivery Charge:</span><span class="text-danger" id="desktop-delivery-charge">+₹0</span></div>
+                  <div class="price-line d-none" id="desktop-gst-line"><span>GST:</span><span id="desktop-gst">+₹0</span></div>
                   <div class="price-line d-none" id="desktop-delivery-charge-info-line"><span>Free delivery for orders above ₹300</span></div>
                   <div class="price-line d-none" id="desktop-total-saving-line" style="border-top: 1px solid #eee;padding-top: 1.5rem"><span>You saved:</span><span class="text-success" id="desktop-total-saving">₹0</span></div>
                 </div>
@@ -252,6 +253,7 @@
           <div class="price-line"><span>Subtotal:</span><span id="mobile-subtotal">₹0</span></div>
           <div class="price-line d-none" id="mobile-coupon-discount-line"><span>Coupon Discount:</span><span class="text-success" id="mobile-coupon-discount">-₹0</span></div>
           <div class="price-line d-none" id="mobile-delivery-charge-line"><span>Delivery Charge:</span><span class="text-danger" id="mobile-delivery-charge">-₹0</span></div>
+          <div class="price-line d-none" id="mobile-gst-line"><span>GST:</span><span id="mobile-gst">+₹0</span></div>
           <div class="price-line d-none" id="mobile-delivery-charge-info-line"><span>Free delivery for orders above ₹300</span></div>
           <div class="price-line d-none" id="mobile-total-saving-line" style="border-top: 1px solid #eee;padding-top: 1.5rem"><span>You saved:</span><span class="text-success" id="mobile-total-saving">-₹0</span></div>
         </div>
@@ -539,6 +541,8 @@
     $('#mobile-delivery-charge').text('+₹' + order.deliveryCharge);
     $('#mobile-total').text('₹' + order.final);
     $('#mobile-total-preview').text('₹' + order.final);
+    $('#desktop-gst, #mobile-gst').text('+₹' + (order.gst || 0).toFixed(2));
+    $('#desktop-gst-line, #mobile-gst-line').toggleClass('d-none', !(order.gst > 0));
     if (savings > 0) {
       $('#desktop-total-saving-line, #mobile-total-saving-line').removeClass('d-none');
     } else {
@@ -623,6 +627,7 @@
     if (!formData.mobile || !formData.mobile.match(/^\d{10}$/)) { showValidationError('#mobile', 'Please enter a valid 10-digit mobile number'); isValid = false; }
     if (!formData.address) { showValidationError('#address', 'Please enter your delivery address'); isValid = false; }
     if (!formData.pincode || !formData.pincode.match(/^\d{6}$/)) { showValidationError('#pincode', 'Please enter a valid 6-digit pincode'); isValid = false; }
+    if (!$('#delivery-state').val()) { showValidationError('#delivery-state', 'Please select your state'); isValid = false; }
     return isValid;
   }
 

@@ -20,6 +20,10 @@ from django.utils import timezone
 from rest_framework.response import Response
 
 from accounts.models import User
+from billing import links, refunds
+from billing import services as billing
+from billing.gst_states import normalise_state_code, state_from_pincode
+from billing.gstin import validate_gstin
 from core.models import Brand
 from finance.services import sync_b2c_order_income
 from orders.models import Coupon, Order, OrderItem
@@ -30,6 +34,10 @@ from storefront import services
 from storefront.api_base import StorefrontAPIView
 
 log = logging.getLogger(__name__)
+
+# A payment confirmation only moves an order forward from these; a late
+# webhook must never pull a processing / shipped (GST-invoiced) order back.
+PRE_PAYMENT_STATUSES = ('pending', 'failed', 'cancelled')
 
 
 def _brand():
@@ -80,6 +88,9 @@ class PlaceOrderAPI(StorefrontAPIView):
         mobile = (body.get('mobile') or '').strip()
         address = (body.get('address') or '').strip()
         pincode = (body.get('pincode') or '').strip()
+        # Delivery state = GST place of supply. Older cached pages may not send
+        # it, so fall back to the pincode prefix.
+        state_code = normalise_state_code(body.get('state')) or state_from_pincode(pincode)
         referral_code = (body.get('referral') or '').strip()
         coupon_code = (body.get('coupon') or '').strip()
         items = body.get('items') or []
@@ -92,6 +103,12 @@ class PlaceOrderAPI(StorefrontAPIView):
         clean = services.clean_mobile(mobile)
         if not clean:
             return Response({'success': False, 'message': 'Please enter a valid 10-digit mobile number'})
+        # Optional: a business buying through the site can get a GST (B2B)
+        # invoice in its own name.
+        billing_gstin, gstin_error = validate_gstin(body.get('gstin'))
+        if gstin_error:
+            return Response({'success': False, 'message': f'GSTIN: {gstin_error}'})
+        billing_legal_name = (body.get('gst_name') or '').strip()[:255]
 
         brand = _brand()
         user, _ = User.objects.get_or_create(
@@ -130,6 +147,14 @@ class PlaceOrderAPI(StorefrontAPIView):
 
         delivery_charge = 50 if sale_total < 300 else 0
         final_amount = sale_total - coupon_discount + delivery_charge
+        gst_on_top = (billing.gst_active(brand.id, mobile=clean)
+                      and billing.price_mode_setting('b2c') == 'exclusive')
+        if gst_on_top:
+            problems = billing.mrp_guard_errors(flavors=[f for f, _ in line_items], packs=[])
+            if problems:
+                log.error('MRP guard blocked checkout: %s', problems)
+                return Response({'success': False, 'message': 'This item cannot be ordered online right now. '
+                                 'Please contact us on WhatsApp.'})
 
         referral_user = None
         if referral_code:
@@ -143,7 +168,8 @@ class PlaceOrderAPI(StorefrontAPIView):
                     name=name, mobile=clean, address=address, pincode=pincode,
                     referral=referral_user, coupon=coupon, coupon_code=coupon_code,
                     coupon_discount=coupon_discount, delivery_charge=delivery_charge,
-                    status='pending', payment_status='pending',
+                    status='pending', payment_status='pending', shipping_state_code=state_code,
+                    billing_gstin=billing_gstin, billing_legal_name=billing_legal_name,
                 )
                 OrderItem.objects.bulk_create([
                     OrderItem(
@@ -152,6 +178,11 @@ class PlaceOrderAPI(StorefrontAPIView):
                         quantity=qty,
                     ) for f, qty in line_items
                 ])
+                billing.refresh_b2c_gst(order)
+                order.refresh_from_db()
+                if order.price_mode == 'exclusive':
+                    # GST on top: the customer pays goods + GST (exact paise).
+                    final_amount = float(billing.b2c_order_total(order))
                 rzp = _razorpay_client().order.create({
                     'receipt': order_id,
                     'amount': int(round(final_amount * 100)),
@@ -175,6 +206,8 @@ class PlaceOrderAPI(StorefrontAPIView):
             'customer_email': '',
             'customer_mobile': clean,
             'delivery_charge': delivery_charge,
+            'gst_amount': float(order.gst_amount),
+            'price_mode': order.price_mode,
             'order_details': _order_details(order),
         })
 
@@ -208,7 +241,8 @@ class VerifyPaymentAPI(StorefrontAPIView):
             return Response({'success': False, 'message': 'Order not found'})
 
         order.payment_status = 'paid'
-        order.status = 'confirmed'
+        if order.status in PRE_PAYMENT_STATUSES:
+            order.status = 'confirmed'
         order.razorpay_payment_id = payment_id
         order.payment_date = timezone.now()
         order.save(update_fields=['payment_status', 'status', 'razorpay_payment_id', 'payment_date'])
@@ -248,11 +282,18 @@ class RazorpayWebhookAPI(StorefrontAPIView):
         payment = (data.get('payload', {}).get('payment', {}) or {}).get('entity')
         order_entity = (data.get('payload', {}).get('order', {}) or {}).get('entity')
 
+        refund = (data.get('payload', {}).get('refund', {}) or {}).get('entity')
+
         if event in ('payment.captured', 'order.paid'):
             rzp_order_id = (payment or {}).get('order_id') or (order_entity or {}).get('id')
-            self._mark_paid(rzp_order_id)
+            # Payments started from an order share link (B2C or B2B).
+            if links.complete_payment(rzp_order_id, (payment or {}).get('id')) is None:
+                self._mark_paid(rzp_order_id)
         elif event == 'payment.failed':
+            links.fail_payment((payment or {}).get('order_id'))
             self._mark_failed((payment or {}).get('order_id'))
+        elif event in ('refund.processed', 'refund.failed'):
+            refunds.on_refund_event((refund or {}).get('id'), event == 'refund.processed')
         else:
             log.info('Unhandled webhook event: %s', event)
 
@@ -266,7 +307,8 @@ class RazorpayWebhookAPI(StorefrontAPIView):
             return
         already_paid = order.payment_status == 'paid'
         order.payment_status = 'paid'
-        order.status = 'confirmed'
+        if order.status in PRE_PAYMENT_STATUSES:
+            order.status = 'confirmed'
         if not order.payment_date:
             order.payment_date = timezone.now()
         order.save(update_fields=['payment_status', 'status', 'payment_date'])
@@ -280,6 +322,7 @@ class RazorpayWebhookAPI(StorefrontAPIView):
     def _mark_failed(self, rzp_order_id):
         if not rzp_order_id:
             return
-        Order.objects.filter(razorpay_order_id=rzp_order_id).update(
-            payment_status='failed', status='cancelled',
-        )
+        # Never touch an order that has moved on (e.g. shipped and invoiced).
+        Order.objects.filter(
+            razorpay_order_id=rzp_order_id, status__in=PRE_PAYMENT_STATUSES,
+        ).exclude(payment_status='paid').update(payment_status='failed', status='cancelled')

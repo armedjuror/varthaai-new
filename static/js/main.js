@@ -84,6 +84,7 @@ async function loadProducts() {
         type: 'GET',
         dataType: 'json',
         success: function(data) {
+            window.GST_PRICE_MODE = data.gst_price_mode || 'inclusive';
             if (data.flavors && data.flavors.length > 0) {
               data.flavors.forEach(function (flavor) {
                 products[flavor.id] = flavor;
@@ -231,7 +232,22 @@ function processOrder(){
     }else{
       order.deliveryCharge = 0;
     }
-    order.final = Math.round(order.saleTotal - order.couponDiscount + order.deliveryCharge);
+    // GST on top (exclusive pricing): an estimate for display — the server
+    // computes the exact amount (and the Razorpay amount) when the order is placed.
+    order.gst = 0;
+    if (window.GST_PRICE_MODE === 'exclusive' && order.saleTotal > 0) {
+        let weighted = 0;
+        order.items.forEach(function (it) {
+            const p = products[it.id] || {};
+            weighted += it.salePrice * (parseFloat(p.gst_rate) || 0);
+        });
+        const rate = weighted / order.saleTotal;
+        const base = order.saleTotal - order.couponDiscount + order.deliveryCharge;
+        order.gst = Math.round(base * rate) / 100;
+        order.final = Math.round((base + order.gst) * 100) / 100;
+    } else {
+        order.final = Math.round(order.saleTotal - order.couponDiscount + order.deliveryCharge);
+    }
     return Promise.resolve(order);
 }
 
@@ -349,7 +365,7 @@ function getUserData(userId) {
                 $('#name').val(data.user.name);
                 $('#mobile').val(data.user.mobile);
                 $('#address').val(data.user.address);
-                $('#pincode').val(data.user.pincode);
+                $('#pincode').val(data.user.pincode).trigger('change');
             }
             $('#loader').fadeOut()
         },
@@ -387,7 +403,7 @@ function checkUserByMobile(mobile) {
                     $('#address').val(response.user.address);
                 }
                 if (response.user.pincode) {
-                    $('#pincode').val(response.user.pincode);
+                    $('#pincode').val(response.user.pincode).trigger('change');
                 }
             }
             // If user not found, do nothing - let user enter details manually
@@ -412,6 +428,9 @@ function placeOrder(recaptchaToken) {
     order.mobile = $('#mobile').val()
     order.address = $('#address').val()
     order.pincode = $('#pincode').val()
+    order.state = $('#delivery-state').val()
+    order.gstin = ($('#checkout-gstin').val() || '').trim()
+    order.gst_name = ($('#checkout-gst-name').val() || '').trim()
     order.referral = localStorage.getItem('referral') || null
     order.recaptcha_token = recaptchaToken || ''
     $('#loader').fadeIn()
@@ -441,7 +460,7 @@ function placeOrder(recaptchaToken) {
 function initiateRazorpayPayment(orderData) {
   const options = {
     key: orderData.key_id,
-    amount: orderData.amount * 100, // Amount in paise
+    amount: Math.round(orderData.amount * 100), // Amount in paise
     currency: 'INR',
     name: 'Varthaai',
     description: "The banana chips everyone's talking about!",
@@ -907,6 +926,13 @@ function validateDeliveryForm() {
         isValid = false;
     } else {
         removeError('#pincode');
+    }
+
+    if ($('#delivery-state').length && !$('#delivery-state').val()) {
+        showError('#delivery-state', 'Please select your state');
+        isValid = false;
+    } else {
+        removeError('#delivery-state');
     }
     
     return isValid;

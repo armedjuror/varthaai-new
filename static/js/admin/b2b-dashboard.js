@@ -397,6 +397,9 @@ function renderStats(stats, pipeline) {
     { icon: 'fa-clock',              bg: '#fef2f2', color: '#dc2626', value: formatCurrency(stats.total_overdue), label: 'Overdue' },
     { icon: 'fa-wallet',             bg: '#f0fdf4', color: '#16a34a', value: formatCurrency(stats.total_advance), label: 'Advance Credit' }
   ];
+  if (parseInt(stats.credit_notes_pending) > 0) {
+    cards.push({ icon: 'fa-file-circle-exclamation', bg: '#fffbeb', color: '#b45309', value: parseInt(stats.credit_notes_pending), label: 'Credit Notes Pending' });
+  }
 
   var html = '';
   cards.forEach(function (c) {
@@ -467,7 +470,7 @@ function renderOverdue(items, target) {
     $(target).html('<div class="text-center py-4" style="color:var(--gray-400)"><i class="fas fa-check-circle fa-2x mb-2 d-block" style="color:#16a34a"></i>No overdue payments</div>');
     return;
   }
-  var html = '<div class="table-responsive"><table class="table table-sm dash-table mb-0"><thead><tr><th>Order</th><th>Company</th><th>Balance</th><th>Due</th></tr></thead><tbody>';
+  var html = '<div class="table-responsive"><table class="table table-sm dash-table mb-0"><thead><tr><th>Order</th><th>Company</th><th>Balance</th><th>Due</th><th>Last reminded</th><th></th></tr></thead><tbody>';
   items.forEach(function (o) {
     var dueTd = '';
     if (o.due_date) {
@@ -481,10 +484,18 @@ function renderOverdue(items, target) {
       '<td><a href="/admin/b2b/' + o.company_id + '/">' + escHtml(o.company_name) + '</a></td>' +
       '<td style="font-weight:600;color:#dc2626">' + formatCurrency(o.balance) + '</td>' +
       '<td>' + dueTd + '</td>' +
+      '<td style="font-size:0.75rem;color:var(--gray-400)">' + (o.last_reminded ? formatDate(o.last_reminded) : '—') + '</td>' +
+      '<td><button class="btn btn-sm btn-outline-success py-0 send-reminder" data-order="' + escHtml(o.id) + '" title="Send payment reminder on WhatsApp"><i class="fab fa-whatsapp"></i></button></td>' +
     '</tr>';
   });
   html += '</tbody></table></div>';
   $(target).html(html);
+  $(target).find('.send-reminder').on('click', function () {
+    var btn = $(this);
+    OrderShare.sendWhatsApp('b2b', btn.data('order'), 'reminder', function () {
+      btn.closest('tr').find('td').eq(4).text(formatDate(new Date().toISOString()));
+    });
+  });
 }
 
 function renderPendingOrders(items, target) {

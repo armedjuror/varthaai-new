@@ -110,7 +110,7 @@ def describe_schema():
             'stock_alerts': ['id', 'flavor_id', 'alert_type', 'current_quantity_grams', 'is_acknowledged'],
             'coupons': ['id', 'brand_id', 'code', 'discount_amount', 'discount_percentage', 'used_count', 'is_active'],
             'expenses': ['id', 'brand_id', 'category_id', 'title', 'amount', 'expense_date', 'payment_status'],
-            'incomes': ['id', 'brand_id', 'source_type', 'order_id', 'b2b_order_id', 'amount', 'income_date'],
+            'incomes': ['id', 'brand_id', 'source_type', 'order_id', 'b2b_order_id', 'amount', 'gst_amount', 'income_date'],
             'investments': ['id', 'partner_name', 'amount', 'investment_date'],
             'reviews': ['id', 'brand_id', 'user_id', 'rating', 'is_approved', 'created_at'],
             'users': ['id', 'brand_id', 'mobile', 'name', 'loyalty_points', 'created_at'],
@@ -493,15 +493,18 @@ def finance_summary(brand_id=None, days=30):
     income = _scope_brand(Income.objects.all(), brand_id).filter(
         income_date__gte=start, income_date__lte=end,
     )
-    total_income = _f(income.aggregate(t=Sum('amount'))['t'])
+    # Revenue net of the GST collected (Income.amount is gross).
+    total_income = _f(income.aggregate(t=Sum(F('amount') - F('gst_amount')))['t'])
+    gst_collected = _f(income.aggregate(t=Sum('gst_amount'))['t'])
     income_by_source = {
         r['source_type']: _f(r['t'])
-        for r in income.values('source_type').annotate(t=Sum('amount'))
+        for r in income.values('source_type').annotate(t=Sum(F('amount') - F('gst_amount')))
     }
 
     return {
         'brand_id': brand_id, 'range': {'start': start.isoformat(), 'end': end.isoformat()},
         'total_income': total_income,
+        'gst_collected': gst_collected,
         'income_by_source': income_by_source,
         'total_expenses': total_expenses,
         'expenses_by_category': [

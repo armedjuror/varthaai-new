@@ -13,6 +13,9 @@ Path: `/home/ubuntu/varthaai-new` · Venv: `/home/ubuntu/varthaai-new/venv`
 - nginx installed with the usual `sites-available` / `sites-enabled` layout.
 - DNS: `varthaai.com` and `www.varthaai.com` A-records → this EC2's public IP.
 - Security Group: inbound 80 (and 443 later) open; 8007 stays private (localhost only).
+- WeasyPrint system libraries (GST invoice PDFs):
+  `sudo apt install libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz0b libharfbuzz-subset0 fonts-dejavu-core`
+  — see `deploy/GST_BILLING.md`.
 
 ## 1. Get the code
 ```bash
@@ -21,6 +24,7 @@ git clone <repo-url> varthaai-new
 cd varthaai-new
 python3.12 -m venv venv
 ./venv/bin/pip install -r requirements.txt   # includes gunicorn
+./venv/bin/pip install --no-deps -r requirements-nodeps.txt   # litellm (see file)
 ```
 
 ## 2. Environment
@@ -87,6 +91,7 @@ and consider adding to settings.py: `SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_
 cd /home/ubuntu/varthaai-new
 git pull
 ./venv/bin/pip install -r requirements.txt
+./venv/bin/pip install --no-deps -r requirements-nodeps.txt
 ./venv/bin/python manage.py migrate
 ./venv/bin/python manage.py collectstatic --noinput
 sudo systemctl restart varthaai

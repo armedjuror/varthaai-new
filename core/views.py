@@ -25,7 +25,7 @@ from rest_framework.views import APIView
 
 from accounts.models import User
 from core.api import HasModulePermission, current_brand_id, ok
-from core.auth import admin_login_required
+from core.auth import admin_login_required, require_module
 from marketing.models import Review
 from orders.models import Order, OrderItem
 from products.models import Flavor
@@ -38,10 +38,27 @@ REVENUE = ExpressionWrapper(
 INACTIVE_STATUSES = ['cancelled', 'deleted']
 
 
+def _gst_inside(order_qs):
+    """GST contained in item revenue: GST-inclusive orders carry their GST
+    inside the item prices, so revenue shown here is net of it (GST is owed
+    to the government). GST-on-top orders already exclude it."""
+    return order_qs.filter(price_mode='inclusive')
+
+
 @admin_login_required
+@require_module('dashboard')
 @ensure_csrf_cookie
 def dashboard_page(request):
-    return render(request, 'admin/dashboard.html')
+    from billing import reports, services as billing
+    from core.api import has_module_permission
+
+    turnover = None
+    brand_id = current_brand_id(request)
+    entity = billing.entity_for_brand(brand_id)
+    if entity and entity.gstin and (has_module_permission(request.user, brand_id, 'gst_records')
+                                    or has_module_permission(request.user, brand_id, 'settings')):
+        turnover = reports.turnover(entity)
+    return render(request, 'admin/dashboard.html', {'turnover': turnover})
 
 
 def _pct_change(curr, prev):
@@ -85,7 +102,8 @@ class DashboardStatsAPI(APIView):
         revenue = OrderItem.objects.filter(order__in=order_qs).aggregate(
             r=Sum(REVENUE),
         )['r'] or 0.0
-        return count, float(revenue)
+        gst = _gst_inside(order_qs).aggregate(g=Sum('gst_amount'))['g'] or 0
+        return count, round(float(revenue) - float(gst), 2)
 
     def get(self, request):
         brand_ids = self._brand_ids(request)
@@ -203,6 +221,9 @@ class DashboardStatsAPI(APIView):
             .annotate(d=TruncDate('order__order_date'))
             .values('d').annotate(rev=Sum(REVENUE))
         }
+        for r in (_gst_inside(period_qs).annotate(d=TruncDate('order_date'))
+                  .values('d').annotate(g=Sum('gst_amount'))):
+            rev_by_day[r['d']] = rev_by_day.get(r['d'], 0.0) - float(r['g'] or 0)
         trend = []
         cur = start
         while cur <= end:
@@ -227,6 +248,9 @@ class DashboardStatsAPI(APIView):
             .annotate(m=TruncMonth('order__order_date'))
             .values('m').annotate(rev=Sum(REVENUE))
         }
+        for r in (_gst_inside(active).annotate(m=TruncMonth('order_date'))
+                  .values('m').annotate(g=Sum('gst_amount'))):
+            rev_by_month[r['m']] = rev_by_month.get(r['m'], 0.0) - float(r['g'] or 0)
         months = sorted(set(orders_by_month) | set(rev_by_month))
         return [
             {
