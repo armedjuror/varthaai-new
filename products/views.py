@@ -461,7 +461,6 @@ class StocksAPI(APIView):
             Stock.objects.all()
             .values('flavor_id', 'quantity_grams', 'flavor__reorder_level_grams')
         )
-        total_grams = sum(b['quantity_grams'] for b in batches)
         flavors_tracked = len({b['flavor_id'] for b in batches})
         out_of_stock = len({b['flavor_id'] for b in batches if b['quantity_grams'] <= 0})
         low_stock = sum(
@@ -477,8 +476,21 @@ class StocksAPI(APIView):
         active_alerts = StockAlert.objects.filter(
             is_acknowledged=False,
         ).count()
+        by_flavor = (
+            Flavor.objects.filter(is_active=True)
+            .annotate(total_grams=Coalesce(Sum('stock_batches__quantity_grams'), 0))
+            .order_by('name')
+            .values('id', 'name', 'total_grams')
+        )
         return ok({
-            'total_kg': _grams_to_kg(total_grams),
+            'by_flavor': [
+                {
+                    'flavor_id': f['id'],
+                    'flavor_name': f['name'],
+                    'total_kg': _grams_to_kg(f['total_grams']),
+                }
+                for f in by_flavor
+            ],
             'flavors_tracked': flavors_tracked,
             'total_batches': len(batches),
             'out_of_stock': out_of_stock,

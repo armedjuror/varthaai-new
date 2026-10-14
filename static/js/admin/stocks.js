@@ -191,7 +191,17 @@ function loadStats() {
     .done(function (res) {
       if (!res.success) return;
       res = res.data
-      $('#statTotalKg').text(Number(res.total_kg).toLocaleString('en-IN') + ' kg');
+
+      var byFlavor = res.by_flavor || [];
+      var flavorHtml = byFlavor.length
+        ? byFlavor.map(function (f) {
+            return '<div style="display:flex;justify-content:space-between;gap:8px;font-size:0.82rem;padding:1px 0">' +
+              '<span style="color:var(--gray-600)">' + escHtml(f.flavor_name) + '</span>' +
+              '<span style="font-weight:600;color:' + (f.total_kg <= 0 ? '#dc2626' : 'var(--gray-900)') + '">' + Number(f.total_kg).toLocaleString('en-IN', {minimumFractionDigits: 3}) + ' kg</span>' +
+              '</div>';
+          }).join('')
+        : '<span style="color:var(--gray-400)">No flavors</span>';
+      $('#statByFlavor').html(flavorHtml);
       $('#statBatches').text(res.total_batches + ' batch' + (res.total_batches !== 1 ? 'es' : '') + ' across ' + res.flavors_tracked + ' flavor' + (res.flavors_tracked !== 1 ? 's' : ''));
       $('#statLowStock').text(res.low_stock);
       $('#statOutOfStock').text(res.out_of_stock);
@@ -282,6 +292,15 @@ function renderInventory(stocks) {
   var $tbody = $('#inventoryTableBody');
   if (!stocks || stocks.length === 0) {
     $tbody.html('<tr><td colspan="11" class="text-center" style="padding:40px;color:var(--gray-400)">No stock records yet. Click <strong>Restock</strong> to add the first batch.</td></tr>');
+    return;
+  }
+
+  var showEmpty = $('#showEmptyBatches').is(':checked');
+  if (!showEmpty) {
+    stocks = stocks.filter(function (s) { return s.quantity_grams > 0; });
+  }
+  if (stocks.length === 0) {
+    $tbody.html('<tr><td colspan="11" class="text-center" style="padding:40px;color:var(--gray-400)">No batches with stock. Check <strong>Show empty batches</strong> to view depleted ones.</td></tr>');
     return;
   }
 

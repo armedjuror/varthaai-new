@@ -25,9 +25,9 @@
   <div class="row g-3 mb-4">
     <div class="col-sm-6 col-lg-3">
       <div class="data-card" style="padding:20px">
-        <div style="font-size:0.78rem;color:var(--gray-500);margin-bottom:2px">Total Stock</div>
-        <div style="font-size:1.7rem;font-weight:700;color:var(--gray-900)" id="statTotalKg">—</div>
-        <div style="font-size:0.75rem;color:var(--gray-400)" id="statBatches">—</div>
+        <div style="font-size:0.78rem;color:var(--gray-500);margin-bottom:6px">Stock by Flavor</div>
+        <div id="statByFlavor" style="max-height:88px;overflow-y:auto">—</div>
+        <div style="font-size:0.75rem;color:var(--gray-400);margin-top:4px" id="statBatches">—</div>
       </div>
     </div>
     <div class="col-sm-6 col-lg-3">
@@ -85,6 +85,14 @@
 
       <!-- Inventory Tab -->
       <div class="tab-pane fade show active" id="tabInventory" role="tabpanel">
+        <div style="padding:12px 20px 0;display:flex;justify-content:flex-end">
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="showEmptyBatches" onchange="renderInventory(_stockData)">
+            <label class="form-check-label" for="showEmptyBatches" style="font-size:0.82rem;color:var(--gray-500)">
+              Show empty batches
+            </label>
+          </div>
+        </div>
         <div class="table-responsive">
           <table class="table">
             <thead>
