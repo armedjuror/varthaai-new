@@ -1,0 +1,243 @@
+{% load billing_tags %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>{{ title|title }} {{ doc.number }}</title>
+<style>
+  @page {
+    size: A4; margin: 10mm 10mm 14mm 10mm;
+    @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8pt Arial, sans-serif; }
+    @bottom-left { content: "{{ title|title }} {{ doc.number }}"; font: 8pt Arial, sans-serif; }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 9.5pt; color: #000; background: #fff; line-height: 1.35; }
+  .toolbar { max-width: 190mm; margin: 12px auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 10pt; }
+  .toolbar button, .toolbar a { border: 1px solid #000; background: #fff; color: #000; padding: 6px 12px; cursor: pointer; text-decoration: none; font-size: 10pt; }
+  .copy { max-width: 190mm; margin: 0 auto; page-break-after: always; break-after: page; }
+  .copy:last-child { page-break-after: auto; break-after: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  td, th { border: 0.5pt solid #000; padding: 3px 4px; vertical-align: top; }
+  th { font-weight: bold; text-align: left; }
+  .noborder td { border: none; padding: 0; }
+  .r { text-align: right; } .c { text-align: center; }
+  .head-title { font-size: 13pt; font-weight: bold; letter-spacing: 1px; text-align: center; padding: 4px; }
+  .copy-label { font-size: 8pt; text-align: right; padding: 2px 4px; font-style: italic; }
+  .legal { font-size: 14pt; font-weight: bold; }
+  .muted { font-size: 8.5pt; }
+  .lbl { font-weight: bold; }
+  .items thead { display: table-header-group; }
+  .items tr { page-break-inside: avoid; break-inside: avoid; }
+  .keep { page-break-inside: avoid; break-inside: avoid; }
+  .sign { height: 22mm; }
+  .free { font-weight: bold; }
+  @media print { .toolbar { display: none !important; } body { margin: 0; } }
+  @media screen { body { padding-bottom: 20px; } .copy { margin-bottom: 24px; } }
+</style>
+</head>
+<body>
+{% if not for_pdf %}
+<div class="toolbar">
+  <button onclick="window.print()">Print</button>
+  <form method="get" style="display:flex;gap:8px;align-items:center">
+    <span>Copies:</span>
+    {% for key, label in copy_options %}
+      <label><input type="checkbox" name="copies" value="{{ key }}" {% if key in selected_copies %}checked{% endif %}> {{ label }}</label>
+    {% endfor %}
+    <button type="submit">Apply</button>
+  </form>
+  {% if pdf_url %}<a href="{{ pdf_url }}">Download PDF</a>{% endif %}
+</div>
+{% endif %}
+
+{% for copy_label in copies %}
+<div class="copy">
+  <table>
+    <tr><td colspan="2" style="border-bottom:none">
+      <div class="copy-label">{{ copy_label }}</div>
+      <div class="head-title">{{ title }}</div>
+    </td></tr>
+    <tr>
+      <td style="width:58%">
+        <div class="legal">{{ invoice.seller_legal_name }}</div>
+        {% if invoice.brand_name %}<div class="muted">Brand: {{ invoice.brand_name }}</div>{% endif %}
+        <div>{{ invoice.seller_address|linebreaksbr }}</div>
+        <div><span class="lbl">GSTIN:</span> {{ invoice.seller_gstin }} &nbsp; <span class="lbl">State:</span> {{ seller_state }}</div>
+        {% if invoice.seller_fssai %}<div><span class="lbl">FSSAI Lic. No.:</span> {{ invoice.seller_fssai }}</div>{% endif %}
+        {% if invoice.seller_phone or invoice.seller_email %}<div class="muted">{% if invoice.seller_phone %}Ph: {{ invoice.seller_phone }}{% endif %}{% if invoice.seller_email %} &nbsp; {{ invoice.seller_email }}{% endif %}</div>{% endif %}
+      </td>
+      <td>
+        <table class="noborder">
+          {% if is_credit_note %}
+          <tr><td class="lbl">Credit Note No.</td><td>{{ doc.number }}</td></tr>
+          <tr><td class="lbl">Date</td><td>{{ doc.credit_note_date|date:"d-m-Y" }}</td></tr>
+          <tr><td class="lbl">Against Invoice</td><td>{{ invoice.number }} dt. {{ invoice.invoice_date|date:"d-m-Y" }}</td></tr>
+          <tr><td class="lbl">Reason</td><td>{{ doc.get_reason_display }}</td></tr>
+          {% else %}
+          <tr><td class="lbl">Invoice No.</td><td>{{ invoice.number }}</td></tr>
+          <tr><td class="lbl">Invoice Date</td><td>{{ invoice.invoice_date|date:"d-m-Y" }}</td></tr>
+          {% endif %}
+          <tr><td class="lbl">Place of Supply</td><td>{{ pos_label }}</td></tr>
+          <tr><td class="lbl">Reverse Charge</td><td>No</td></tr>
+          <tr><td class="lbl">Order Ref.</td><td>{{ invoice.order_id }}</td></tr>
+          {% if invoice.customer_po_no %}<tr><td class="lbl">Customer PO</td><td>{{ invoice.customer_po_no }}{% if invoice.customer_po_date %} dt. {{ invoice.customer_po_date|date:"d-m-Y" }}{% endif %}</td></tr>{% endif %}
+          {% if not is_credit_note and is_b2b_order %}<tr><td class="lbl">E-way Bill No.</td><td>{{ invoice.eway_bill_no|default:"" }}{% if invoice.eway_bill_date %} dt. {{ invoice.eway_bill_date|date:"d-m-Y" }}{% endif %}</td></tr>{% endif %}
+          {% if invoice.irn %}<tr><td class="lbl">IRN</td><td style="word-break:break-all">{{ invoice.irn }}</td></tr>{% endif %}
+        </table>
+      </td>
+    </tr>
+    <tr>
+      <td {% if invoice.ship_to_same %}colspan="2"{% endif %}>
+        <div class="lbl">Invoice Address (Bill To)</div>
+        <div><strong>{{ invoice.bill_to_name }}</strong></div>
+        <div>{{ invoice.bill_to_address|linebreaksbr }}{% if invoice.bill_to_pincode and invoice.bill_to_pincode not in invoice.bill_to_address %} — {{ invoice.bill_to_pincode }}{% endif %}</div>
+        <div><span class="lbl">GSTIN:</span> {{ invoice.bill_to_gstin|default:"Unregistered" }} &nbsp; <span class="lbl">State:</span> {{ bill_state }}</div>
+      </td>
+      {% if not invoice.ship_to_same %}
+      <td>
+        <div class="lbl">Delivery Address (Ship To)</div>
+        <div><strong>{{ invoice.ship_to_name }}</strong></div>
+        <div>{{ invoice.ship_to_address|linebreaksbr }}{% if invoice.ship_to_pincode %} — {{ invoice.ship_to_pincode }}{% endif %}</div>
+        {% if invoice.ship_to_gstin %}<div><span class="lbl">GSTIN:</span> {{ invoice.ship_to_gstin }}</div>{% endif %}
+        <div><span class="lbl">State:</span> {{ ship_state }}</div>
+      </td>
+      {% endif %}
+    </tr>
+  </table>
+
+  <table class="items" style="margin-top:-0.5pt">
+    <thead>
+      <tr>
+        <th class="c" style="width:5%">Sr</th>
+        <th>Description</th>
+        <th style="width:9%">HSN</th>
+        <th class="r" style="width:8%">Qty</th>
+        <th style="width:6%">UoM</th>
+        <th class="r" style="width:9%">Rate</th>
+        <th class="r" style="width:11%">Taxable</th>
+        <th class="r" style="width:6%">GST %</th>
+        <th class="r" style="width:9%">Tax</th>
+        <th class="r" style="width:11%">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for ln in lines %}
+      <tr>
+        <td class="c">{{ ln.line_no }}</td>
+        <td>{{ ln.description }}{% if ln.is_free %} <span class="free">FREE</span>{% endif %}{% if ln.discount_amount and not is_credit_note %}<div class="muted">Gross {{ ln.gross_amount|inr }} less discount {{ ln.discount_amount|inr }}</div>{% endif %}</td>
+        <td>{{ ln.hsn_code }}</td>
+        <td class="r">{% if ln.kind == 'SHIPPING' %}—{% else %}{{ ln.quantity|qty }}{% endif %}</td>
+        <td>{{ ln.uqc }}</td>
+        <td class="r">{% if ln.is_free %}0.00{% else %}{{ ln.unit_price|inr }}{% endif %}</td>
+        <td class="r">{{ ln.taxable_value|inr }}</td>
+        <td class="r">{{ ln.gst_rate|rate }}</td>
+        <td class="r">{{ ln.tax_amount|inr }}</td>
+        <td class="r">{{ ln.total_amount|inr }}</td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <td colspan="6" class="r lbl">Total</td>
+        <td class="r lbl">{{ doc.taxable_total|inr }}</td>
+        <td></td>
+        <td class="r lbl">{{ doc.tax_total|inr }}</td>
+        <td class="r lbl">{{ doc.grand_total|inr }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="keep">
+  <table style="margin-top:-0.5pt">
+    <thead>
+      <tr>
+        <th>HSN</th>
+        <th class="r">Taxable Value</th>
+        {% if invoice.is_interstate %}
+          <th class="r">IGST Rate</th><th class="r">IGST Amount</th>
+        {% else %}
+          <th class="r">CGST Rate</th><th class="r">CGST Amount</th><th class="r">SGST Rate</th><th class="r">SGST Amount</th>
+        {% endif %}
+        <th class="r">Total Tax</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in hsn_rows %}
+      <tr>
+        <td>{{ row.hsn_code }}</td>
+        <td class="r">{{ row.taxable_value|inr }}</td>
+        {% if invoice.is_interstate %}
+          <td class="r">{{ row.gst_rate|rate }}%</td><td class="r">{{ row.igst_amount|inr }}</td>
+        {% else %}
+          <td class="r">{{ row.gst_rate|half_rate }}%</td><td class="r">{{ row.cgst_amount|inr }}</td>
+          <td class="r">{{ row.gst_rate|half_rate }}%</td><td class="r">{{ row.sgst_amount|inr }}</td>
+        {% endif %}
+        <td class="r">{{ row.tax_amount|inr }}</td>
+      </tr>
+      {% endfor %}
+      <tr class="lbl">
+        <td class="lbl">Total</td>
+        <td class="r lbl">{{ doc.taxable_total|inr }}</td>
+        {% if invoice.is_interstate %}
+          <td></td><td class="r lbl">{{ doc.igst_total|inr }}</td>
+        {% else %}
+          <td></td><td class="r lbl">{{ doc.cgst_total|inr }}</td><td></td><td class="r lbl">{{ doc.sgst_total|inr }}</td>
+        {% endif %}
+        <td class="r lbl">{{ doc.tax_total|inr }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table style="margin-top:-0.5pt">
+    <tr>
+      <td style="width:62%">
+        <div><span class="lbl">Amount in words:</span> {{ amount_words }}</div>
+        <div class="muted"><span class="lbl">Tax in words:</span> {{ tax_words }}</div>
+        {% if not is_credit_note %}
+          {% if invoice.price_mode == 'inclusive' %}<div class="muted">Prices are inclusive of GST.</div>{% endif %}
+          {% if is_b2b_order %}
+            <div style="margin-top:4px"><span class="lbl">Payment:</span>
+              {% if order and not for_pdf %}Paid {{ order.paid_amount|inr }} · Due {{ order_balance|inr }}{% endif %}
+              {% if invoice.due_date %} · Due date {{ invoice.due_date|date:"d-m-Y" }}{% endif %}
+            </div>
+            {% if extra.bank_account_no %}
+            <div class="muted" style="margin-top:4px"><span class="lbl">Bank:</span> {{ extra.bank_name }}{% if extra.bank_branch %}, {{ extra.bank_branch }}{% endif %} · A/c {{ extra.bank_account_no }} · IFSC {{ extra.bank_ifsc }}{% if extra.upi_id %} · UPI {{ extra.upi_id }}{% endif %}</div>
+            {% endif %}
+            {% if extra.b2b_terms %}<div class="muted" style="margin-top:4px">{{ extra.b2b_terms|linebreaksbr }}</div>{% endif %}
+          {% endif %}
+        {% else %}
+          {% if doc.notes %}<div class="muted" style="margin-top:4px"><span class="lbl">Notes:</span> {{ doc.notes }}</div>{% endif %}
+        {% endif %}
+      </td>
+      <td>
+        <table class="noborder">
+          <tr><td>Taxable value</td><td class="r">{{ doc.taxable_total|inr }}</td></tr>
+          {% if invoice.is_interstate %}
+          <tr><td>IGST</td><td class="r">{{ doc.igst_total|inr }}</td></tr>
+          {% else %}
+          <tr><td>CGST</td><td class="r">{{ doc.cgst_total|inr }}</td></tr>
+          <tr><td>SGST</td><td class="r">{{ doc.sgst_total|inr }}</td></tr>
+          {% endif %}
+          {% if doc.cess_total %}<tr><td>Cess</td><td class="r">{{ doc.cess_total|inr }}</td></tr>{% endif %}
+          {% if doc.round_off %}<tr><td>Round off</td><td class="r">{{ doc.round_off|inr }}</td></tr>{% endif %}
+          <tr><td class="lbl" style="padding-top:3px">{% if is_credit_note %}Credit Total{% else %}Invoice Total{% endif %}</td><td class="r lbl" style="padding-top:3px">₹ {{ doc.grand_total|inr }}</td></tr>
+        </table>
+      </td>
+    </tr>
+    <tr>
+      <td>
+        <div class="lbl">Declaration</div>
+        <div class="muted">We declare that this {% if is_credit_note %}credit note{% else %}invoice{% endif %} shows the actual price of the goods described and that all particulars are true and correct.</div>
+        <div class="muted" style="margin-top:4px">{% if extra.jurisdiction %}Subject to {{ extra.jurisdiction }} jurisdiction. {% endif %}E. &amp; O.E.</div>
+      </td>
+      <td class="c">
+        <div class="muted">For {{ invoice.seller_legal_name }}</div>
+        <div class="sign"></div>
+        <div>{{ extra.signatory|default:"Authorised Signatory" }}</div>
+      </td>
+    </tr>
+  </table>
+  </div>
+</div>
+{% endfor %}
+</body>
+</html>

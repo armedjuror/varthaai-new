@@ -51,6 +51,15 @@ class Expense(models.Model):
     invoice_number = models.CharField(max_length=100, blank=True)
     receipt_image = models.ImageField(upload_to='receipts/', null=True, blank=True)
     tax_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    # GST on the purchase (input tax credit). taxable + cgst + sgst + igst
+    # is the supplier's invoice total; ITC counts only when itc_eligible.
+    supplier_gstin = models.CharField(max_length=15, blank=True)
+    supplier_invoice_date = models.DateField(null=True, blank=True)
+    taxable_value = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    cgst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    sgst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    igst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    itc_eligible = models.BooleanField(default=True)
     is_recurring = models.BooleanField(default=False)
     recurring_period = models.CharField(max_length=20, choices=RecurringPeriod.choices, null=True, blank=True)
     tags = models.TextField(blank=True)
@@ -108,7 +117,10 @@ class Income(models.Model):
         'orders.B2BOrder', on_delete=models.CASCADE,
         null=True, blank=True, related_name='income_entries',
     )
+    # Gross amount received (what the customer pays, GST included).
     amount = models.DecimalField(max_digits=12, decimal_places=2)
+    # GST inside `amount`; revenue for profit = amount - gst_amount.
+    gst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     income_date = models.DateField()
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

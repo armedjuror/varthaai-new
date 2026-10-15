@@ -19,6 +19,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.views import APIView
 
+from billing import services as billing
 from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
 from finance.models import Expense, ExpenseCategory
@@ -194,6 +195,9 @@ class FlavorsAPI(APIView):
         if not fields['name']:
             return err('Flavor name is required.')
         image = request.FILES.get('image')
+        problems = billing.mrp_guard_for(current_brand_id(request), flavors=[Flavor(**fields)])
+        if problems:
+            return err('Sale price + GST must not exceed the MRP (price per kg): ' + problems[0])
         if image:
             fields['image'] = image
         flavor = Flavor.objects.create(**fields)
@@ -214,6 +218,9 @@ class FlavorsAPI(APIView):
             flavor.image = image
         elif _int(request.data.get('remove_image')) == 1:
             flavor.image = None
+        problems = billing.mrp_guard_for(current_brand_id(request), flavors=[flavor])
+        if problems:
+            return err('Sale price + GST must not exceed the MRP (price per kg): ' + problems[0])
         flavor.save()
         return ok(message='Flavor updated successfully!')
 

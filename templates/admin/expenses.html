@@ -400,6 +400,20 @@
               <label class="form-label">Invoice Number</label>
               <input type="text" class="form-control" name="invoice_number">
             </div>
+            <div class="col-12">
+              <div style="border:1px dashed var(--gray-200);border-radius:10px;padding:12px">
+                <div style="font-size:0.8rem;font-weight:600;margin-bottom:8px">GST on this purchase (input tax credit)</div>
+                <div class="row g-2">
+                  <div class="col-md-4"><label class="form-label" style="font-size:0.78rem">Supplier GSTIN</label><input type="text" class="form-control form-control-sm text-uppercase" name="supplier_gstin" maxlength="15"></div>
+                  <div class="col-md-4"><label class="form-label" style="font-size:0.78rem">Supplier invoice date</label><input type="date" class="form-control form-control-sm" name="supplier_invoice_date"></div>
+                  <div class="col-md-4 d-flex align-items-end"><div class="form-check"><input type="checkbox" class="form-check-input" name="itc_eligible" id="itcEligible" checked><label class="form-check-label" for="itcEligible" style="font-size:0.8rem">ITC eligible</label></div></div>
+                  <div class="col-md-4"><label class="form-label" style="font-size:0.78rem">CGST ₹</label><input type="number" step="0.01" min="0" class="form-control form-control-sm gst-in" name="cgst_amount"></div>
+                  <div class="col-md-4"><label class="form-label" style="font-size:0.78rem">SGST ₹</label><input type="number" step="0.01" min="0" class="form-control form-control-sm gst-in" name="sgst_amount"></div>
+                  <div class="col-md-4"><label class="form-label" style="font-size:0.78rem">IGST ₹</label><input type="number" step="0.01" min="0" class="form-control form-control-sm gst-in" name="igst_amount"></div>
+                </div>
+                <div class="form-text" style="font-size:0.72rem">When GST is entered, "Amount" is the taxable value and "Tax Amount" becomes CGST + SGST + IGST. Eligible ITC is not counted as a cost.</div>
+              </div>
+            </div>
             <div class="col-md-6">
               <label class="form-label">Recurring</label>
               <div class="d-flex align-items-center gap-2">

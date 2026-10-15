@@ -42,8 +42,12 @@ class FlavorsAPI(StorefrontAPIView):
     """GET active flavors — { success, flavors }."""
 
     def get(self, request):
+        from billing import services as billing
+
         flavors = []
-        for f in Flavor.objects.filter(is_active=True).order_by('id'):
+        gst_mode = billing.price_mode_setting('b2c') if billing.gst_active(_brand_id()) else 'inclusive'
+        for f in Flavor.objects.filter(is_active=True).select_related('hsn').order_by('id'):
+            rate = billing.current_gst_rate(f)
             flavors.append({
                 'id': f.id,
                 'name': f.name,
@@ -53,8 +57,9 @@ class FlavorsAPI(StorefrontAPIView):
                 'image': f.image.url if f.image else '',
                 'price_per_kg': f.price_per_kg,
                 'sale_price_per_kg': f.sale_price_per_kg,
+                'gst_rate': float(rate) if rate is not None else 0,
             })
-        return Response({'success': True, 'flavors': flavors})
+        return Response({'success': True, 'flavors': flavors, 'gst_price_mode': gst_mode})
 
 
 class ReviewsAPI(StorefrontAPIView):

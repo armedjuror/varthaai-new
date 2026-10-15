@@ -36,6 +36,10 @@ class B2BCompany(models.Model):
     state = models.CharField(max_length=100, blank=True)
     pincode = models.CharField(max_length=10, blank=True)
     gst_number = models.CharField(max_length=20, blank=True)
+    # GST state code of the billing address (derived from the GSTIN when one
+    # is set) and the legal name registered against the GSTIN.
+    state_code = models.CharField(max_length=2, blank=True)
+    gst_legal_name = models.CharField(max_length=255, blank=True)
     location_url = models.URLField(max_length=500, blank=True)
     photo = models.ImageField(upload_to='leads/', null=True, blank=True)
     stage = models.CharField(max_length=20, choices=Stage.choices, default=Stage.LEAD)

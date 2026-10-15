@@ -14,6 +14,8 @@ from django.utils.dateformat import format as dj_format
 from rest_framework.response import Response
 
 from accounts.models import PointsTransaction, User
+from billing import links
+from billing import services as billing
 from marketing.models import Review
 from orders.models import Order
 
@@ -49,14 +51,32 @@ def _order_summary(order):
             'item_total': item_total,
         })
     discount = order.coupon_discount or 0.0
+    invoices = list(order.invoices.all())
+    invoice = next((i for i in invoices if i.status == 'active'), None)
+    docs_ok = links.customer_docs_allowed(order)
     return {
+        'tax_invoice': {
+            'number': invoice.number, 'date': invoice.invoice_date.isoformat(),
+            'url': f'/tax-invoice/{order.id}.pdf',
+        } if invoice and docs_ok else None,
+        'tax_invoice_awaiting_payment': bool(invoice) and not docs_ok,
+        'gst_billing': bool(order.price_mode) or invoice is not None,
+        'gst_amount': float(order.gst_amount),
+        'credit_notes': [{
+            'number': cn.number, 'date': cn.credit_note_date.isoformat(),
+            'amount': float(cn.grand_total), 'url': f'/credit-note/{cn.id}.pdf',
+        } for inv in invoices for cn in inv.credit_notes.all()] if docs_ok else [],
         'id': order.id, 'status': order.status, 'payment_status': order.payment_status,
         'name': order.name, 'mobile': order.mobile, 'address': order.address,
         'pincode': order.pincode, 'delivery_charge': order.delivery_charge,
         'order_date': dj_format(order.order_date, _DATE_FMT),
         'coupon_code': order.coupon_code, 'coupon_discount': discount,
         'subtotal': subtotal, 'discount_amount': discount,
-        'total_price': subtotal + order.delivery_charge - discount,
+        'total_price': float(billing.b2c_order_total(order)),
+        'price_mode': order.price_mode,
+        'refunds': [{
+            'amount': float(r.amount), 'status': r.get_status_display(), 'date': r.created_at.isoformat(),
+        } for r in order.refunds.all()],
         'items': items, 'item_count': len(items),
     }
 
@@ -71,7 +91,7 @@ class DashboardDataAPI(StorefrontAPIView):
 
         orders = (
             Order.objects.filter(user=user).exclude(status='deleted')
-            .prefetch_related('items', 'items__flavor').order_by('-order_date')
+            .prefetch_related('items', 'items__flavor', 'invoices__credit_notes', 'refunds').order_by('-order_date')
         )
         order_ids = set()
         order_list = []
@@ -196,14 +216,13 @@ class TrackOrderAPI(StorefrontAPIView):
             'flavor_name': it.flavor_name, 'quantity': it.quantity,
             'price_per_kg': it.price_per_kg, 'sale_price_per_kg': it.sale_price_per_kg,
         } for it in order.items.all()]
-        sale_total = sum(it.sale_price_per_kg * it.quantity / 1000 for it in order.items.all())
         return Response({
             'success': True,
             'order': {
                 'order_id': order.id,
                 'status': _STATUS_MESSAGES.get(order.status, order.status),
                 'order_date': dj_format(order.order_date, _DATE_FMT),
-                'total': sale_total + order.delivery_charge,
+                'total': float(billing.b2c_order_total(order)),
                 'delivery_charge': order.delivery_charge,
                 'payment_status': (order.payment_status or '').capitalize(),
                 'items': items,
@@ -219,7 +238,10 @@ class CancelOrderAPI(StorefrontAPIView):
         order_id = (body.get('order_id') or '').strip()
         if not order_id:
             return Response({'success': False, 'message': 'Order ID is required'})
-        updated = Order.objects.filter(id=order_id, payment_status='pending').update(
+        # Never cancel a dispatched / GST-invoiced order from the storefront.
+        updated = Order.objects.filter(
+            id=order_id, payment_status='pending', invoices__isnull=True,
+        ).exclude(status__in=('shipped', 'delivered')).update(
             status='cancelled', payment_status='cancelled',
         )
         if updated:

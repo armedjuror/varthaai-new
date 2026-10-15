@@ -300,6 +300,12 @@ function editExpense(id) {
     $('select[name="payment_method"]').val(e.payment_method);
     $('select[name="payment_status"]').val(e.payment_status);
     $('input[name="invoice_number"]').val(e.invoice_number);
+    $('input[name="supplier_gstin"]').val(e.supplier_gstin || '');
+    $('input[name="supplier_invoice_date"]').val(e.supplier_invoice_date || '');
+    $('input[name="cgst_amount"]').val(e.cgst_amount || '');
+    $('input[name="sgst_amount"]').val(e.sgst_amount || '');
+    $('input[name="igst_amount"]').val(e.igst_amount || '');
+    $('input[name="itc_eligible"]').prop('checked', e.itc_eligible === undefined ? true : !!parseInt(e.itc_eligible));
     $('input[name="is_recurring"]').prop('checked', !!parseInt(e.is_recurring));
     $('select[name="recurring_period"]').prop('disabled', !parseInt(e.is_recurring)).val(e.recurring_period || '');
     $('input[name="tags"]').val(e.tags);
@@ -327,6 +333,12 @@ function saveExpense() {
     payment_method:   $('select[name="payment_method"]').val(),
     payment_status:   $('select[name="payment_status"]').val(),
     invoice_number:   $('input[name="invoice_number"]').val(),
+    supplier_gstin:   $('input[name="supplier_gstin"]').val(),
+    supplier_invoice_date: $('input[name="supplier_invoice_date"]').val(),
+    cgst_amount:      $('input[name="cgst_amount"]').val() || 0,
+    sgst_amount:      $('input[name="sgst_amount"]').val() || 0,
+    igst_amount:      $('input[name="igst_amount"]').val() || 0,
+    itc_eligible:     $('input[name="itc_eligible"]').is(':checked') ? 1 : 0,
     is_recurring:     $('input[name="is_recurring"]').is(':checked') ? 1 : 0,
     recurring_period: $('select[name="recurring_period"]').val(),
     tags:             $('input[name="tags"]').val(),
@@ -599,3 +611,10 @@ function renderPagination(selector, page, perPage, total, fnName) {
   html += '</ul></nav>';
   $(selector).html(html);
 }
+
+// GST entered on a purchase: Tax Amount = CGST + SGST + IGST.
+$(document).on('input', '.gst-in', function () {
+  var t = 0;
+  $('.gst-in').each(function () { t += parseFloat(this.value) || 0; });
+  if (t > 0) $('input[name="tax_amount"]').val(t.toFixed(2));
+});
