@@ -15,6 +15,7 @@ import asyncio
 from typing import Optional
 
 from django.conf import settings
+from django.db import close_old_connections
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
@@ -34,8 +35,21 @@ mcp = FastMCP(
 )
 
 
+def _call_with_fresh_connections(fn, /, **kwargs):
+    # Django drops dead/expired DB connections on request_started/finished,
+    # which never fire here (tools run outside Django's request cycle). Without
+    # this, a connection the server closed (restart, Neon idle suspend) stays
+    # cached per worker thread and every later call fails with "the connection
+    # is closed" until the process restarts.
+    close_old_connections()
+    try:
+        return fn(**kwargs)
+    finally:
+        close_old_connections()
+
+
 async def _run(fn, /, **kwargs):
-    return await asyncio.to_thread(fn, **kwargs)
+    return await asyncio.to_thread(_call_with_fresh_connections, fn, **kwargs)
 
 
 @mcp.tool()
