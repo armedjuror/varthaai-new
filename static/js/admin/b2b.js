@@ -10,6 +10,7 @@ $(function () {
   loadPipelineStats();
   loadCompanies();
   loadFollowUps();
+  bindLeadLocation('add');
 
   $('#b2bSearch').on('input', function () {
     clearTimeout(searchTimer);
@@ -43,6 +44,8 @@ $(function () {
     fd.append('gst_number',          $('#addGst').val());
     fd.append('gst_legal_name',      $('#addGstName').val());
     fd.append('location_url',        $('#addLocationUrl').val());
+    fd.append('latitude',            $('#addLatitude').val());
+    fd.append('longitude',           $('#addLongitude').val());
     fd.append('assigned_to',         $('#addAssignedTo').val());
     fd.append('created_date',        $('#addCreatedDate').val());
     fd.append('notes',               $('#addNotes').val());
@@ -58,6 +61,7 @@ $(function () {
         if (res.success) {
           $('#addCompanyModal').modal('hide');
           $('#addCompanyForm')[0].reset();
+          setLeadLocation('add', null, null);
           loadPipelineStats();
           loadCompanies();
         }

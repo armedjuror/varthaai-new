@@ -134,7 +134,9 @@ function renderTimeline(r) {
   var rows = sales.events.map(function (e) {
     return '<tr><td>' + e.event + (e.reason ? ' (' + e.reason + ')' : '') + '</td><td>' + formatDateTime(e.at).split(' ').slice(-1)[0] + '</td></tr>';
   }).join('');
+  var carried = (sales.carried_items || []).map(function (i) { return escHtml(i.flavor_name) + ' ' + i.packs; }).join(', ');
   var html = (sales.area ? '<p class="mb-1"><strong>Area:</strong> ' + escHtml(sales.area) + '</p>' : '') +
+    (carried ? '<p class="mb-1"><strong>Carried:</strong> ' + carried + ' (' + sales.total_carried + ' packs)</p>' : '') +
     '<table class="table table-sm mb-2"><tbody>' + rows + '</tbody></table>' +
     '<p class="mb-1">Total ' + sales.total_minutes + 'm | Active ' + sales.active_minutes + 'm | Break ' + sales.break_minutes +
     'm (lunch ' + sales.break_minutes_lunch + 'm, evening ' + sales.break_minutes_evening + 'm)</p>';
@@ -163,8 +165,15 @@ function renderVisitsTable(visits) {
   if (!visits.length) { $('#visitsBody').html('<tr><td colspan="5" class="text-center text-muted">No visits.</td></tr>'); return; }
   $('#visitsBody').html(visits.map(function (v) {
     return '<tr><td>' + formatDateTime(v.visited_at).split(' ').slice(-1)[0] + '</td><td>' + escHtml(v.company_name) +
-      '</td><td>' + v.purpose + '</td><td>' + v.outcome + '</td><td>' + escHtml(v.notes || '') + '</td></tr>';
+      '</td><td>' + v.purpose + '</td><td>' + v.outcome + '</td><td>' + escHtml(v.notes || '') +
+      _visitPackCounts(v.pack_counts) + '</td></tr>';
   }).join(''));
+}
+
+function _visitPackCounts(rows) {
+  if (!rows || !rows.length) return '';
+  return '<div class="small text-muted">On shelf: ' +
+    rows.map(function (i) { return escHtml(i.flavor_name) + ' ' + i.packs; }).join(', ') + '</div>';
 }
 
 function renderFlags(r) {

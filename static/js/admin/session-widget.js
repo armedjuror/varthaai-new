@@ -81,20 +81,37 @@ function renderSessionWidget(data) {
 function openSessionStartModal() {
   $('#sessionStartType').val('sales');
   $('#sessionStartArea').val('');
+  $('#sessionStartCarriedRows').html(_sessionFlavors.map(function (f) {
+    return '<div class="row g-2 mb-2 align-items-center">' +
+      '<div class="col-7">' + escHtml(f.name) + '</div>' +
+      '<div class="col-5"><input type="number" min="0" step="1" inputmode="numeric" class="form-control session-carried-packs" data-flavor-id="' + f.id + '" placeholder="Packs"></div>' +
+      '</div>';
+  }).join(''));
   renderSessionStartAreaVisibility();
   new bootstrap.Modal(document.getElementById('sessionStartModal')).show();
 }
 
 function renderSessionStartAreaVisibility() {
-  $('#sessionStartAreaWrap').toggleClass('d-none', $('#sessionStartType').val() !== 'sales');
+  $('#sessionStartAreaWrap, #sessionStartCarriedWrap').toggleClass('d-none', $('#sessionStartType').val() !== 'sales');
 }
 
 function submitSessionStart() {
   var type = $('#sessionStartType').val();
   var area = $('#sessionStartArea').val().trim();
-  if (type === 'sales' && !area) return _sessionFail('Area is required to start a sales session.');
+  var data = { type: type, area: area };
+  if (type === 'sales') {
+    if (!area) return _sessionFail('Area is required to start a sales session.');
+    var carried = {}, missing = false;
+    $('.session-carried-packs').each(function () {
+      var v = $(this).val().trim();
+      if (v === '' || !/^\d+$/.test(v)) { missing = true; return; }
+      carried[$(this).data('flavor-id')] = parseInt(v, 10);
+    });
+    if (missing || !Object.keys(carried).length) return _sessionFail('Enter packs carrying for each flavour (0 if none).');
+    data.carried_packs = carried;
+  }
   showLoader('Starting…');
-  apiPost(SESSION_API.start, { type: type, area: area }).done(function (res) {
+  apiPost(SESSION_API.start, data).done(function (res) {
     if (!res.success) { hideLoader(); return _sessionFail(res.message); }
     $('#sessionStartModal').modal('hide');
     loadSessionState();

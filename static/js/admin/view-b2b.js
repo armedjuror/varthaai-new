@@ -2,6 +2,9 @@
 
 var companyData  = null;
 var contactsList = [];
+var flavorList   = [];
+var flavorNames  = {};
+var PACK_COUNT_PURPOSES = ['audit', 'collection', 'delivery'];
 var stages = ['lead', 'contacted', 'negotiation', 'converted', 'lost'];
 
 var typeIcons = {
@@ -20,9 +23,17 @@ var typeIcons = {
 $(function () {
   loadCompany();
   loadDropdowns();
+  bindLeadLocation('edit');
 });
 
 function loadDropdowns() {
+  apiGet('/admin/api/b2b/', { view: 'flavors' }).done(function (res) {
+    if (!res.success) return;
+    flavorList = res.data || [];
+    flavorNames = {};
+    flavorList.forEach(function (f) { flavorNames[f.id] = f.name; });
+    renderPackCountInputs();
+  });
   apiGet('/admin/api/b2b/', { view: 'categories' }).done(function (res) {
     if (!res.success) return;
     var opts = '<option value="">Select…</option>';
@@ -103,13 +114,13 @@ function renderInfo() {
     ['City', escHtml([c.city, c.state].filter(Boolean).join(', ') || '—')],
     ['Pincode', escHtml(c.pincode || '—')],
     ['GSTIN', escHtml(c.gst_number || '—') + (c.gst_legal_name ? '<div style="font-size:0.75rem;color:var(--gray-400)">' + escHtml(c.gst_legal_name) + '</div>' : '')],
-    ['Location', c.location_url
-      ? '<a href="' + encodeURI(c.location_url) + '" target="_blank" rel="noopener"><i class="fas fa-map-marker-alt me-1"></i>View</a>'
+    ['Location', c.maps_url
+      ? '<a href="' + encodeURI(c.maps_url) + '" target="_blank" rel="noopener"><i class="fas fa-map-marker-alt me-1"></i>View</a>'
       : '—'],
     ['Source', capitalize(c.source || '—')],
     ['Assigned To', escHtml(c.assigned_name || '—')],
     ['Credit Limit', c.credit_limit > 0 ? formatCurrency(c.credit_limit) : '—'],
-    ['Payment Terms', c.payment_terms_days > 0 ? c.payment_terms_days + ' days' : 'Immediate'],
+    ['Payment Terms', escHtml(c.payment_terms_label || '—')],
     ['Discount', c.discount_type ? (c.discount_type === 'percentage' ? c.discount_value + '%' : formatCurrency(c.discount_value)) : '—'],
     ['Created', formatDate(c.created_at)]
   ];
@@ -230,8 +241,29 @@ function deleteContact(id) {
 /* ── Activity logging ── */
 function onActivityTypeChange() {
   var isVisit = $('#activityType').val() === 'visit';
+  var purpose = $('#activityVisitPurpose').val();
   $('#activityVisitPurposeWrap, #activityVisitOutcomeWrap').toggleClass('d-none', !isVisit);
   $('#activitySubjectWrap, #activityContactWrap, #activityFollowUpWrap').toggleClass('d-none', isVisit);
+  $('#activityPackCountsWrap').toggleClass('d-none', !(isVisit && PACK_COUNT_PURPOSES.indexOf(purpose) !== -1));
+  $('#activityPackCountsLabel').text(purpose === 'delivery'
+    ? 'Packs on shelf — count before restocking'
+    : 'Packs on shelf');
+}
+
+function renderPackCountInputs() {
+  $('#activityPackCounts').html(flavorList.map(function (f) {
+    return '<div class="col-6 col-md-3"><div class="input-group input-group-sm">' +
+      '<span class="input-group-text" style="max-width:60%;overflow:hidden;text-overflow:ellipsis">' + escHtml(f.name) + '</span>' +
+      '<input type="number" min="0" step="1" inputmode="numeric" class="form-control activity-pack-count" data-flavor-id="' + f.id + '" placeholder="0">' +
+      '</div></div>';
+  }).join(''));
+}
+
+function packCountsText(counts) {
+  if (!counts) return '';
+  return Object.keys(counts).map(function (id) {
+    return escHtml(flavorNames[id] || ('#' + id)) + ' ' + counts[id];
+  }).join(' · ');
 }
 
 function logActivity() {
@@ -248,6 +280,19 @@ function logActivity() {
   if (type === 'visit') {
     data.visit_purpose = $('#activityVisitPurpose').val();
     data.visit_outcome = $('#activityVisitOutcome').val();
+    if (PACK_COUNT_PURPOSES.indexOf(data.visit_purpose) !== -1) {
+      var counts = {}, missing = false;
+      $('.activity-pack-count').each(function () {
+        var v = $(this).val().trim();
+        if (v === '' || !/^\d+$/.test(v)) { missing = true; return; }
+        counts[$(this).data('flavor-id')] = parseInt(v, 10);
+      });
+      if (missing || !Object.keys(counts).length) {
+        showAlertModal('Enter packs on the shelf for each flavour (0 if none).', 'warning');
+        return;
+      }
+      data.pack_counts = counts;
+    }
   } else if (!data.subject && !data.description) {
     showAlertModal('Please enter a subject or description.', 'warning');
     return;
@@ -257,7 +302,7 @@ function logActivity() {
     .done(function (res) {
       showAlertModal(res.message, res.success ? 'success' : 'danger');
       if (res.success) {
-        $('#activitySubject, #activityDesc, #activityFollowUp').val('');
+        $('#activitySubject, #activityDesc, #activityFollowUp, .activity-pack-count').val('');
         loadCompany();
       }
     })
@@ -314,6 +359,8 @@ function renderTimeline(activities) {
             '<div style="font-weight:600;font-size:0.85rem">' + subjectHtml + '</div>' +
             '<span style="font-size:0.72rem;color:var(--gray-400);flex-shrink:0;margin-left:8px">' + formatDateTime(a.created_at) + '</span>' +
           '</div>' +
+          (a.pack_counts ? '<div style="font-size:0.78rem;color:var(--gray-500);margin-top:2px"><i class="fas fa-boxes-stacked me-1"></i>On shelf' +
+            (a.visit_purpose === 'delivery' ? ' (before restock)' : '') + ': ' + packCountsText(a.pack_counts) + '</div>' : '') +
           (a.description ? '<div style="font-size:0.82rem;color:var(--gray-500);margin-top:2px;white-space:pre-wrap">' + escHtml(a.description) + '</div>' : '') +
           stageInfo +
           '<div style="margin-top:4px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
@@ -341,6 +388,15 @@ function markFollowUpDone(id) {
 }
 
 /* ── Edit company ── */
+function onPaymentTermsChange() {
+  var rule = $('#editBalanceRule').val();
+  var full = parseFloat($('#editUpfrontPercent').val()) >= 100;
+  $('#editBalanceRuleWrap').toggleClass('d-none', full);
+  $('#editFixedDatesWrap').toggleClass('d-none', full || rule !== 'fixed_dates');
+  $('#editPaymentDaysWrap').toggleClass('d-none', full || (rule !== 'after_days' && rule !== 'bill_to_bill'));
+  $('#editPaymentDaysLabel').text(rule === 'bill_to_bill' ? 'Days (backstop)' : 'Days');
+}
+
 function openEditCompanyModal() {
   var c = companyData;
   $('#editCompanyName').val(c.company_name);
@@ -354,10 +410,16 @@ function openEditCompanyModal() {
   $('#editGst').val(c.gst_number || '');
   $('#editAssignedTo').val(c.assigned_to || '');
   $('#editCreditLimit').val(c.credit_limit || '');
-  $('#editPaymentTerms').val(c.payment_terms_days || '');
+  $('#editUpfrontPercent').val(c.upfront_percent);
+  $('#editUpfrontDue').val(c.upfront_due || 'delivery');
+  $('#editBalanceRule').val(c.balance_rule || 'bill_to_bill');
+  $('#editPaymentTerms').val(c.payment_terms_days);
+  $('#editFixedDates').val((c.payment_fixed_dates || []).join(', '));
+  onPaymentTermsChange();
   $('#editDiscountType').val(c.discount_type || '');
   $('#editDiscountValue').val(c.discount_value || '');
   $('#editLocationUrl').val(c.location_url || '');
+  setLeadLocation('edit', c.latitude, c.longitude);
   // Photo is a file input — can't be pre-filled. Reset it and preview current.
   $('#editPhoto').val('');
   $('#editRemovePhoto').prop('checked', false);
@@ -387,9 +449,15 @@ $('#editCompanyForm').on('submit', function (e) {
   fd.append('gst_number',         $('#editGst').val());
   fd.append('gst_legal_name',     $('#editGstName').val());
   fd.append('location_url',       $('#editLocationUrl').val());
+  fd.append('latitude',           $('#editLatitude').val());
+  fd.append('longitude',          $('#editLongitude').val());
   fd.append('assigned_to',        $('#editAssignedTo').val());
   fd.append('credit_limit',       $('#editCreditLimit').val());
+  fd.append('upfront_percent',    $('#editUpfrontPercent').val());
+  fd.append('upfront_due',        $('#editUpfrontDue').val());
+  fd.append('balance_rule',       $('#editBalanceRule').val());
   fd.append('payment_terms_days', $('#editPaymentTerms').val());
+  fd.append('payment_fixed_dates', $('#editFixedDates').val());
   fd.append('discount_type',      $('#editDiscountType').val());
   fd.append('discount_value',     $('#editDiscountValue').val());
   fd.append('notes',              $('#editNotes').val());

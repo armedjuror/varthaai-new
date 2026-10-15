@@ -70,6 +70,7 @@ class BaseFixtures(TestCase):
         self.flavor = Flavor.objects.create(name='Classic Banana Chips')
         self.flavor2 = Flavor.objects.create(name='Spicy Banana Chips')
         self.company = B2BCompany.objects.create(brand=self.brand, company_name='ABC Mart', stage=B2BCompany.Stage.LEAD)
+        self.carried = {str(self.flavor.id): 20, str(self.flavor2.id): 0}
 
 
 # ─────────────────────────── Session state machine ───────────────────────────
@@ -78,14 +79,14 @@ class SessionStateMachineTests(BaseFixtures):
     @patch('sessions_tracking.services.sessions.ist_now')
     def test_start_creates_active_session(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session = session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
+        session = session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area', carried_packs=self.carried)
         self.assertEqual(session.status, Session.Status.ACTIVE)
         self.assertEqual(SessionEvent.objects.filter(session=session, event=SessionEvent.Event.START).count(), 1)
 
     @patch('sessions_tracking.services.sessions.ist_now')
     def test_cannot_start_second_session_of_any_type(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
+        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area', carried_packs=self.carried)
         with self.assertRaisesMessage(ValidationError, 'End your sales session first.'):
             session_service.start_session(self.employee1, Session.Type.PACKING)
 
@@ -93,12 +94,12 @@ class SessionStateMachineTests(BaseFixtures):
     def test_cannot_start_after_cutoff(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 19, 45)
         with self.assertRaisesMessage(ValidationError, 'cannot be started after 7:30 PM IST'):
-            session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
+            session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area', carried_packs=self.carried)
 
     @patch('sessions_tracking.services.sessions.ist_now')
     def test_break_then_resume_then_end(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session = session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
+        session = session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area', carried_packs=self.carried)
 
         mock_now.return_value = ist_dt(2026, 6, 1, 13, 0)
         session_service.break_session(self.employee1, 'lunch_break')
@@ -118,14 +119,14 @@ class SessionStateMachineTests(BaseFixtures):
     @patch('sessions_tracking.services.sessions.ist_now')
     def test_resume_without_break_rejected(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
+        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area', carried_packs=self.carried)
         with self.assertRaisesMessage(ValidationError, 'not on break'):
             session_service.resume_session(self.employee1)
 
     @patch('sessions_tracking.services.sessions.ist_now')
     def test_break_twice_rejected(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
+        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area', carried_packs=self.carried)
         session_service.break_session(self.employee1, 'lunch_break')
         with self.assertRaisesMessage(ValidationError, 'not active'):
             session_service.break_session(self.employee1, 'lunch_break')
@@ -133,7 +134,7 @@ class SessionStateMachineTests(BaseFixtures):
     @patch('sessions_tracking.services.sessions.ist_now')
     def test_end_while_on_break_inserts_resume_event(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
+        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area', carried_packs=self.carried)
         mock_now.return_value = ist_dt(2026, 6, 1, 13, 0)
         session_service.break_session(self.employee1, 'lunch_break')
         mock_now.return_value = ist_dt(2026, 6, 1, 18, 0)
@@ -195,9 +196,44 @@ class SessionStateMachineTests(BaseFixtures):
     @patch('sessions_tracking.services.sessions.ist_now')
     def test_area_appears_in_daily_report(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session_service.start_session(self.employee1, Session.Type.SALES, area='Kochi')
+        session_service.start_session(self.employee1, Session.Type.SALES, area='Kochi', carried_packs=self.carried)
         report = build_daily_report(self.employee1, date(2026, 6, 1))
         self.assertEqual(report['sales_session']['area'], 'Kochi')
+
+    @patch('sessions_tracking.services.sessions.ist_now')
+    def test_sales_session_requires_packs_carried(self, mock_now):
+        mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
+        with self.assertRaisesMessage(ValidationError, 'packs carried'):
+            session_service.start_session(self.employee1, Session.Type.SALES, area='Kochi')
+        with self.assertRaisesMessage(ValidationError, 'cannot be negative'):
+            session_service.start_session(
+                self.employee1, Session.Type.SALES, area='Kochi', carried_packs={self.flavor.id: -1},
+            )
+        with self.assertRaisesMessage(ValidationError, 'Unknown flavour'):
+            session_service.start_session(
+                self.employee1, Session.Type.SALES, area='Kochi', carried_packs={'999999': 4},
+            )
+
+    @patch('sessions_tracking.services.sessions.ist_now')
+    def test_packs_carried_stored_and_reported(self, mock_now):
+        mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
+        session = session_service.start_session(
+            self.employee1, Session.Type.SALES, area='Kochi', carried_packs={self.flavor.id: '12', self.flavor2.id: 0},
+        )
+        session.refresh_from_db()
+        self.assertEqual(session.carried_packs, {str(self.flavor.id): 12, str(self.flavor2.id): 0})
+        report = build_daily_report(self.employee1, date(2026, 6, 1))
+        self.assertEqual(report['sales_session']['total_carried'], 12)
+        self.assertEqual(
+            [(i['flavor_name'], i['packs']) for i in report['sales_session']['carried_items']],
+            [('Classic Banana Chips', 12), ('Spicy Banana Chips', 0)],
+        )
+
+    @patch('sessions_tracking.services.sessions.ist_now')
+    def test_packing_session_ignores_packs_carried(self, mock_now):
+        mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
+        session = session_service.start_session(self.employee1, Session.Type.PACKING, carried_packs={self.flavor.id: 5})
+        self.assertIsNone(session.carried_packs)
 
 
 # ───────────────────────────────── Break-time math ─────────────────────────────────
@@ -206,7 +242,7 @@ class BreakTimeCalculationTests(BaseFixtures):
     @patch('sessions_tracking.services.sessions.ist_now')
     def test_break_and_active_minutes(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
+        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area', carried_packs=self.carried)
         mock_now.return_value = ist_dt(2026, 6, 1, 13, 0)
         session_service.break_session(self.employee1, 'lunch_break')
         mock_now.return_value = ist_dt(2026, 6, 1, 13, 30)
@@ -233,7 +269,7 @@ class AutoCloseTests(BaseFixtures):
     @patch('sessions_tracking.services.sessions.ist_now')
     def test_autoclose_active_session(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session = session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
+        session = session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area', carried_packs=self.carried)
 
         closed = autoclose_open_sessions(date(2026, 6, 1))
         self.assertEqual(closed, [session.id])
@@ -257,7 +293,7 @@ class AutoCloseTests(BaseFixtures):
     @patch('sessions_tracking.services.sessions.ist_now')
     def test_reached_home_not_recorded_when_auto_closed(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
+        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area', carried_packs=self.carried)
         autoclose_open_sessions(date(2026, 6, 1))
 
         report = build_daily_report(self.employee1, date(2026, 6, 1))
@@ -376,15 +412,17 @@ class ReportingTests(BaseFixtures):
         self.assertEqual(report['orders'], 1)
         self.assertEqual(report['packs'], 5)
 
-    def _log_visit_at(self, user, company, purpose, at, outcome='none'):
-        activity = crm_services.log_visit(user, company, purpose, outcome, notes='')
+    def _log_visit_at(self, user, company, purpose, at, outcome='none', pack_counts=None):
+        if pack_counts is None and purpose in B2BActivity.PACK_COUNT_PURPOSES:
+            pack_counts = {self.flavor.id: 3}
+        activity = crm_services.log_visit(user, company, purpose, outcome, notes='', pack_counts=pack_counts)
         B2BActivity.objects.filter(id=activity.id).update(created_at=at)
         return activity
 
     @patch('sessions_tracking.services.sessions.ist_now')
     def test_new_leads_and_last_meeting(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
+        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area', carried_packs=self.carried)
         self._log_visit_at(self.employee1, self.company, 'new_lead', ist_dt(2026, 6, 1, 11, 0))
         other = B2BCompany.objects.create(brand=self.brand, company_name='Later Visit Co')
         self._log_visit_at(self.employee1, other, 'audit', ist_dt(2026, 6, 1, 16, 0))
@@ -397,7 +435,7 @@ class ReportingTests(BaseFixtures):
     @patch('sessions_tracking.services.sessions.ist_now')
     def test_retargeted_excludes_existing_customer_and_same_day_company(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
+        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area', carried_packs=self.carried)
 
         # Company created on an earlier day, no order -> counts as retargeted.
         old_lead = B2BCompany.objects.create(brand=self.brand, company_name='Old Lead')
@@ -412,7 +450,7 @@ class ReportingTests(BaseFixtures):
         self._log_visit_at(self.employee1, old_lead, 'retarget', ist_dt(2026, 6, 1, 11, 0))
         self._log_visit_at(self.employee1, today_lead, 'retarget', ist_dt(2026, 6, 1, 12, 0))
         self._log_visit_at(self.employee1, self.company, 'retarget', ist_dt(2026, 6, 1, 13, 0))
-        self._log_visit_at(self.employee1, self.company, 'reorder_push', ist_dt(2026, 6, 1, 14, 0))
+        self._log_visit_at(self.employee1, self.company, 'audit', ist_dt(2026, 6, 1, 14, 0))
 
         report = build_daily_report(self.employee1, date(2026, 6, 1))
         self.assertEqual(report['retargeted_leads'], 1)
@@ -431,7 +469,7 @@ class PeriodReportTests(BaseFixtures):
     def test_averages_exclude_off_leave_and_no_session_days(self, mock_now):
         # Day 1: worked (active 480 min). Day 2: leave. Day 3: working status but no session.
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
+        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area', carried_packs=self.carried)
         mock_now.return_value = ist_dt(2026, 6, 1, 17, 0)
         session_service.end_session(self.employee1)
 
@@ -592,7 +630,7 @@ class EmployeeIsolationTests(BaseFixtures):
     @patch('sessions_tracking.services.sessions.ist_now')
     def test_employee_cannot_edit_another_employees_session(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        other_session = session_service.start_session(self.employee2, Session.Type.SALES, area='Test Area')
+        other_session = session_service.start_session(self.employee2, Session.Type.SALES, area='Test Area', carried_packs=self.carried)
         mock_now.return_value = ist_dt(2026, 6, 1, 17, 0)
         session_service.end_session(self.employee2)
 
@@ -608,7 +646,7 @@ class EmployeeIsolationTests(BaseFixtures):
     @patch('sessions_tracking.services.sessions.ist_now')
     def test_employee_report_endpoint_only_returns_own_data(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session_service.start_session(self.employee2, Session.Type.SALES, area='Test Area')  # other employee's session
+        session_service.start_session(self.employee2, Session.Type.SALES, area='Test Area', carried_packs=self.carried)  # other employee's session
 
         resp = self.client.get(reverse('sessions_tracking:session_state_api'))
         self.assertEqual(resp.status_code, 200)
@@ -641,7 +679,7 @@ class DualCapabilityTests(BaseFixtures):
         login_with_brand(self.client, 'dual', 'pw123456', self.brand.id)
         resp = self.client.post(
             reverse('sessions_tracking:session_start_api'),
-            data=json.dumps({'type': 'sales', 'area': 'Test Area'}),
+            data=json.dumps({'type': 'sales', 'area': 'Test Area', 'carried_packs': self.carried}),
             content_type='application/json',
         )
         self.assertEqual(resp.status_code, 200)
@@ -678,7 +716,7 @@ class AdminDashboardPermissionTests(BaseFixtures):
     @patch('sessions_tracking.services.sessions.ist_now')
     def test_admin_can_view_daily_report_for_any_employee(self, mock_now):
         mock_now.return_value = ist_dt(2026, 6, 1, 9, 0)
-        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area')
+        session_service.start_session(self.employee1, Session.Type.SALES, area='Test Area', carried_packs=self.carried)
         mock_now.return_value = ist_dt(2026, 6, 1, 17, 0)
         session_service.end_session(self.employee1)
 

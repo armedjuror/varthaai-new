@@ -138,3 +138,39 @@ function escHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+/* ── Store location (B2B leads) ──
+   Wires a "Use current location" button + hidden lat/lng inputs + a status
+   line. `prefix` is the id prefix, e.g. 'add' -> #addUseLocationBtn,
+   #addLatitude, #addLongitude, #addLocationStatus, #addClearLocationBtn. */
+function mapsUrlFromCoords(lat, lng) {
+  return 'https://www.google.com/maps/search/?api=1&query=' + lat + ',' + lng;
+}
+
+function setLeadLocation(prefix, lat, lng) {
+  var has = lat !== null && lat !== undefined && lat !== '' && lng !== null && lng !== undefined && lng !== '';
+  $('#' + prefix + 'Latitude').val(has ? lat : '');
+  $('#' + prefix + 'Longitude').val(has ? lng : '');
+  $('#' + prefix + 'LocationStatus').html(has
+    ? '<i class="fas fa-check-circle text-success me-1"></i>' + Number(lat).toFixed(6) + ', ' + Number(lng).toFixed(6) +
+      ' · <a href="' + mapsUrlFromCoords(lat, lng) + '" target="_blank" rel="noopener">Open in Maps</a>'
+    : '<span class="text-muted">No location captured.</span>');
+  $('#' + prefix + 'ClearLocationBtn').toggleClass('d-none', !has);
+}
+
+function bindLeadLocation(prefix) {
+  $('#' + prefix + 'UseLocationBtn').on('click', function () {
+    if (!navigator.geolocation) { showAlertModal('Location is not available on this device. Paste a Maps link instead.', 'warning'); return; }
+    showLoader('Getting location…');
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      hideLoader();
+      setLeadLocation(prefix, pos.coords.latitude.toFixed(6), pos.coords.longitude.toFixed(6));
+    }, function (e) {
+      hideLoader();
+      showAlertModal(e.code === 1
+        ? 'Location permission denied. Allow location for this site, or paste a Maps link instead.'
+        : 'Could not get your location. Try again, or paste a Maps link instead.', 'warning');
+    }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  });
+  $('#' + prefix + 'ClearLocationBtn').on('click', function () { setLeadLocation(prefix, null, null); });
+}

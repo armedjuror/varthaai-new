@@ -7,9 +7,12 @@ served by the orders app). One APIView handles GET (`?view=`) and
 POST-with-`action`, matching the PHP endpoint. Everything is scoped to the
 active brand via `current_brand_id`.
 """
+import json
 from datetime import datetime
+from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db.models import Count, Q
 from django.shortcuts import render
 from django.utils import timezone
@@ -22,6 +25,7 @@ from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
 from crm import services as crm_services
 from crm.models import B2BActivity, B2BCategory, B2BCompany, B2BContact
+from products.models import Flavor
 
 AdminUser = get_user_model()
 
@@ -74,7 +78,10 @@ def _company_detail(c):
         'gst_number': c.gst_number,
         'gst_legal_name': c.gst_legal_name,
         'state_code': c.state_code,
+        'latitude': float(c.latitude) if c.latitude is not None else None,
+        'longitude': float(c.longitude) if c.longitude is not None else None,
         'location_url': c.location_url,
+        'maps_url': c.maps_url,
         'photo': c.photo.url if c.photo else '',
         'stage': c.stage,
         'source': c.source,
@@ -83,7 +90,12 @@ def _company_detail(c):
         'discount_type': c.discount_type,
         'discount_value': float(c.discount_value) if c.discount_value is not None else None,
         'credit_limit': float(c.credit_limit),
+        'upfront_percent': float(c.upfront_percent),
+        'upfront_due': c.upfront_due,
+        'balance_rule': c.balance_rule,
         'payment_terms_days': c.payment_terms_days,
+        'payment_fixed_dates': c.payment_fixed_dates or [],
+        'payment_terms_label': crm_services.payment_terms_label(c),
         'notes': c.notes,
         'converted_at': c.converted_at.isoformat() if c.converted_at else None,
         'created_at': c.created_at.isoformat(),
@@ -112,6 +124,8 @@ def _activity_row(a):
         'description': a.description,
         'old_stage': a.old_stage,
         'new_stage': a.new_stage,
+        'visit_purpose': a.visit_purpose,
+        'pack_counts': a.pack_counts,
         'follow_up_date': a.follow_up_date.isoformat() if a.follow_up_date else None,
         'is_follow_up_done': 1 if a.is_follow_up_done else 0,
         'created_at': a.created_at.isoformat(),
@@ -140,6 +154,10 @@ class B2BAPI(APIView):
         if view == 'admins':
             rows = AdminUser.objects.order_by('name')
             return ok([{'id': a.id, 'name': a.name} for a in rows])
+
+        if view == 'flavors':
+            # For the per-flavour shelf count on audit/collection/delivery visits.
+            return ok(list(Flavor.objects.filter(is_active=True).order_by('name').values('id', 'name')))
 
         if view == 'pipeline_stats':
             return ok(self._pipeline_stats(brand_id))
@@ -287,6 +305,9 @@ class B2BAPI(APIView):
         gst, gst_error = _gst_fields(body)
         if gst_error:
             return err(gst_error)
+        coords, coords_error = _coords(body)
+        if coords_error:
+            return err(coords_error)
         company = B2BCompany.objects.create(
             brand_id=brand_id,
             category_id=_int_or_none(body.get('category_id')),
@@ -295,6 +316,7 @@ class B2BAPI(APIView):
             city=(body.get('city') or '').strip(),
             pincode=(body.get('pincode') or '').strip(),
             **gst,
+            **coords,
             location_url=(body.get('location_url') or '').strip(),
             photo=request.FILES.get('photo') or None,
             stage=body.get('stage') or 'lead',
@@ -332,12 +354,19 @@ class B2BAPI(APIView):
         gst, gst_error = _gst_fields(body)
         if gst_error:
             return err(gst_error)
+        coords, coords_error = _coords(body)
+        if coords_error:
+            return err(coords_error)
+        try:
+            terms = crm_services.clean_payment_terms(body)
+        except ValidationError as e:
+            return err(e.messages[0])
         company.category_id = _int_or_none(body.get('category_id'))
         company.company_name = name
         company.address = (body.get('address') or '').strip()
         company.city = (body.get('city') or '').strip()
         company.pincode = (body.get('pincode') or '').strip()
-        for key, value in gst.items():
+        for key, value in {**gst, **coords, **terms}.items():
             setattr(company, key, value)
         company.location_url = (body.get('location_url') or '').strip()
         photo = request.FILES.get('photo')
@@ -350,7 +379,6 @@ class B2BAPI(APIView):
         company.discount_type = body.get('discount_type') or ''
         company.discount_value = _decimal_or_none(body.get('discount_value'))
         company.credit_limit = _decimal_or_none(body.get('credit_limit')) or 0
-        company.payment_terms_days = _int_or_none(body.get('payment_terms_days')) or 0
         company.notes = (body.get('notes') or '').strip()
         company.save()
         return ok(None, 'Company updated successfully!')
@@ -445,9 +473,14 @@ class B2BAPI(APIView):
             outcome = body.get('visit_outcome') or B2BActivity.VisitOutcome.NONE
             if outcome not in B2BActivity.VisitOutcome.values:
                 return err('Invalid visit outcome.')
-            activity = crm_services.log_visit(
-                request.user, company, purpose, outcome, notes=(body.get('description') or '').strip(),
-            )
+            try:
+                activity = crm_services.log_visit(
+                    request.user, company, purpose, outcome,
+                    notes=(body.get('description') or '').strip(),
+                    pack_counts=_json_obj(body.get('pack_counts')),
+                )
+            except ValidationError as e:
+                return err(e.messages[0])
             return ok({'id': activity.id}, 'Visit logged!')
 
         if act_type not in VALID_ACTIVITY_TYPES:
@@ -510,6 +543,29 @@ def _gst_fields(body):
         'state_code': code,
         'state': state_name(code) or (raw_state if not raw_state.isdigit() else ''),
     }, None
+
+
+def _coords(body):
+    """Latitude/longitude from "Use current location". Both or neither;
+    blank clears them (the pasted link then stands in)."""
+    lat, lng = _decimal_or_none(body.get('latitude')), _decimal_or_none(body.get('longitude'))
+    if lat is None and lng is None:
+        return {'latitude': None, 'longitude': None}, None
+    if lat is None or lng is None or not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+        return None, 'Invalid location coordinates.'
+    return {
+        'latitude': Decimal(str(round(lat, 6))), 'longitude': Decimal(str(round(lng, 6))),
+    }, None
+
+
+def _json_obj(value):
+    """A dict sent either as JSON body data or as a JSON string (FormData)."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return None
+    return value
 
 
 def _int_or_none(value):

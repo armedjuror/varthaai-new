@@ -18,6 +18,7 @@ from django.db.models import Sum
 
 from crm.models import B2BActivity
 from orders.models import B2BOrder, B2BOrderItem, B2BPayment
+from products.models import Flavor
 from sessions_tracking.models import PackingItem, Session, SessionEvent
 from sessions_tracking.services.leave import day_status, effective_weekly_off_weekday, leave_balance
 from sessions_tracking.timeutil import ist_day_bounds, ist_now, to_ist
@@ -80,6 +81,15 @@ def _is_retargeted(visit, date):
     return to_ist(company.created_at).date() < date
 
 
+def _flavor_count_rows(counts, names):
+    """{"<flavour_id>": count} -> [{flavor_id, flavor_name, packs}] by name."""
+    rows = [
+        {'flavor_id': int(fid), 'flavor_name': names.get(int(fid), f'#{fid}'), 'packs': packs}
+        for fid, packs in (counts or {}).items()
+    ]
+    return sorted(rows, key=lambda r: r['flavor_name'])
+
+
 def build_daily_report(user, date):
     """Everything known about `user` on IST calendar date `date`."""
     start, end = ist_day_bounds(date)
@@ -98,9 +108,14 @@ def build_daily_report(user, date):
         start_time = sales.started_at
         reached_home_recorded = sales.ended_at is not None and not sales.auto_closed
         reached_home_time = sales.ended_at if reached_home_recorded else None
+        carried = _flavor_count_rows(
+            sales.carried_packs, dict(Flavor.objects.values_list('id', 'name')),
+        )
         sales_block = {
             'id': sales.id,
             'area': sales.area,
+            'carried_items': carried,
+            'total_carried': sum(r['packs'] for r in carried),
             'started_at': sales.started_at,
             'ended_at': sales.ended_at,
             'status': sales.status,
@@ -139,6 +154,9 @@ def build_daily_report(user, date):
         .order_by('created_at'),
     )
     last_meeting_time = visits_qs[-1].created_at if visits_qs else None
+    flavor_names = (
+        dict(Flavor.objects.values_list('id', 'name')) if any(v.pack_counts for v in visits_qs) else {}
+    )
     new_leads = sum(1 for v in visits_qs if v.visit_purpose == B2BActivity.VisitPurpose.NEW_LEAD)
     retargeted_leads = sum(
         1 for v in visits_qs if v.visit_purpose == B2BActivity.VisitPurpose.RETARGET and _is_retargeted(v, date)
@@ -200,6 +218,7 @@ def build_daily_report(user, date):
                 'visited_at': v.created_at, 'company_id': v.company_id,
                 'company_name': v.company.company_name, 'purpose': v.visit_purpose,
                 'outcome': v.visit_outcome, 'notes': v.description,
+                'pack_counts': _flavor_count_rows(v.pack_counts, flavor_names) if v.pack_counts else [],
             }
             for v in visits_qs
         ],

@@ -36,6 +36,9 @@ class Session(models.Model):
     # Free-text locality/zone for a sales day (e.g. "Kochi", "Ernakulam
     # north") — required when starting a sales session, unused for packing.
     area = models.CharField(max_length=255, blank=True)
+    # Packs taken out per flavour for a sales day, {"<flavour_id>": count} —
+    # required when starting a sales session, null for packing.
+    carried_packs = models.JSONField(null=True, blank=True)
     started_at = models.DateTimeField()
     ended_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
