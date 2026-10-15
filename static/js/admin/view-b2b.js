@@ -231,7 +231,14 @@ function deleteContact(id) {
 function onActivityTypeChange() {
   var isVisit = $('#activityType').val() === 'visit';
   $('#activityVisitPurposeWrap, #activityVisitOutcomeWrap').toggleClass('d-none', !isVisit);
-  $('#activitySubjectWrap, #activityContactWrap, #activityFollowUpWrap').toggleClass('d-none', isVisit);
+  $('#activitySubjectWrap, #activityContactWrap').toggleClass('d-none', isVisit);
+  onActivityVisitOutcomeChange();
+}
+
+function onActivityVisitOutcomeChange() {
+  var isVisit = $('#activityType').val() === 'visit';
+  var needsFollowUp = !isVisit || $('#activityVisitOutcome').val() === 'follow_up';
+  $('#activityFollowUpWrap').toggleClass('d-none', !needsFollowUp);
 }
 
 function logActivity() {
@@ -248,6 +255,10 @@ function logActivity() {
   if (type === 'visit') {
     data.visit_purpose = $('#activityVisitPurpose').val();
     data.visit_outcome = $('#activityVisitOutcome').val();
+    if (data.visit_outcome === 'follow_up' && !data.follow_up_date) {
+      showAlertModal('Please pick a follow-up date.', 'warning');
+      return;
+    }
   } else if (!data.subject && !data.description) {
     showAlertModal('Please enter a subject or description.', 'warning');
     return;

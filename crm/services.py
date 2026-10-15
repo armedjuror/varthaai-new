@@ -10,7 +10,7 @@ _VISIT_PURPOSE_LABELS = dict(B2BActivity.VisitPurpose.choices)
 
 
 @transaction.atomic
-def log_visit(user, company, purpose, outcome=None, notes=''):
+def log_visit(user, company, purpose, outcome=None, notes='', follow_up_date=None):
     outcome = outcome or B2BActivity.VisitOutcome.NONE
     label = _VISIT_PURPOSE_LABELS.get(purpose, purpose)
     subject = f'Field visit — {label}'
@@ -21,6 +21,7 @@ def log_visit(user, company, purpose, outcome=None, notes=''):
         company=company, admin_user=user, type=B2BActivity.Type.VISIT,
         visit_purpose=purpose, visit_outcome=outcome,
         subject=subject, description=notes,
+        follow_up_date=follow_up_date if outcome == B2BActivity.VisitOutcome.FOLLOW_UP else None,
     )
     company.save(update_fields=['updated_at'])
 
