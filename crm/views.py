@@ -58,6 +58,9 @@ def _company_row(c):
         'category_id': c.category_id,
         'category_name': c.category.name if c.category else None,
         'city': c.city,
+        'latitude': float(c.latitude) if c.latitude is not None else None,
+        'longitude': float(c.longitude) if c.longitude is not None else None,
+        'maps_url': c.maps_url,
         'stage': c.stage,
         'assigned_to': c.assigned_to_id,
         'assigned_name': c.assigned_to.name if c.assigned_to else None,
@@ -82,6 +85,7 @@ def _company_detail(c):
         'longitude': float(c.longitude) if c.longitude is not None else None,
         'location_url': c.location_url,
         'maps_url': c.maps_url,
+        'geo_status': c.geo_status,
         'photo': c.photo.url if c.photo else '',
         'stage': c.stage,
         'source': c.source,
@@ -317,6 +321,10 @@ class B2BAPI(APIView):
             pincode=(body.get('pincode') or '').strip(),
             **gst,
             **coords,
+            geo_status=(
+                B2BCompany.GeoStatus.MANUAL if coords['latitude'] is not None
+                else B2BCompany.GeoStatus.PENDING
+            ),
             location_url=(body.get('location_url') or '').strip(),
             photo=request.FILES.get('photo') or None,
             stage=body.get('stage') or 'lead',
@@ -366,9 +374,11 @@ class B2BAPI(APIView):
         company.address = (body.get('address') or '').strip()
         company.city = (body.get('city') or '').strip()
         company.pincode = (body.get('pincode') or '').strip()
+        new_url = (body.get('location_url') or '').strip()
+        company.geo_status = _geo_status_after_edit(company, coords, new_url)
         for key, value in {**gst, **coords, **terms}.items():
             setattr(company, key, value)
-        company.location_url = (body.get('location_url') or '').strip()
+        company.location_url = new_url
         photo = request.FILES.get('photo')
         if photo:
             company.photo = photo
@@ -560,6 +570,20 @@ def _coords(body):
     return {
         'latitude': Decimal(str(round(lat, 6))), 'longitude': Decimal(str(round(lng, 6))),
     }, None
+
+
+def _geo_status_after_edit(company, coords, new_url):
+    """Coordinates that changed came from the browser -> manual. Cleared
+    coordinates, or a new pasted link with none, wait for the backfill ->
+    pending. Otherwise (the form re-sent what was saved) keep the status."""
+    lat, lng = coords['latitude'], coords['longitude']
+    if lat is not None:
+        if (lat, lng) != (company.latitude, company.longitude):
+            return B2BCompany.GeoStatus.MANUAL
+        return company.geo_status
+    if company.latitude is not None or new_url != company.location_url:
+        return B2BCompany.GeoStatus.PENDING
+    return company.geo_status
 
 
 def _json_obj(value):

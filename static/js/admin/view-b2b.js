@@ -115,8 +115,10 @@ function renderInfo() {
     ['Pincode', escHtml(c.pincode || '—')],
     ['GSTIN', escHtml(c.gst_number || '—') + (c.gst_legal_name ? '<div style="font-size:0.75rem;color:var(--gray-400)">' + escHtml(c.gst_legal_name) + '</div>' : '')],
     ['Location', c.maps_url
-      ? '<a href="' + encodeURI(c.maps_url) + '" target="_blank" rel="noopener"><i class="fas fa-map-marker-alt me-1"></i>View</a>'
-      : '—'],
+      ? '<a href="' + encodeURI(c.maps_url) + '" target="_blank" rel="noopener"><i class="fas fa-map-marker-alt me-1"></i>Open in Maps</a>'
+      : (c.location_url
+        ? '<a href="' + encodeURI(c.location_url) + '" target="_blank" rel="noopener"><i class="fas fa-link me-1"></i>Pasted link</a>'
+        : '—')],
     ['Source', capitalize(c.source || '—')],
     ['Assigned To', escHtml(c.assigned_name || '—')],
     ['Credit Limit', c.credit_limit > 0 ? formatCurrency(c.credit_limit) : '—'],

@@ -164,7 +164,9 @@ function bindLeadLocation(prefix) {
     showLoader('Getting location…');
     navigator.geolocation.getCurrentPosition(function (pos) {
       hideLoader();
-      setLeadLocation(prefix, pos.coords.latitude.toFixed(6), pos.coords.longitude.toFixed(6));
+      var lat = pos.coords.latitude.toFixed(6), lng = pos.coords.longitude.toFixed(6);
+      setLeadLocation(prefix, lat, lng);
+      $('#' + prefix + 'LocationUrl').val(mapsUrlFromCoords(lat, lng));
     }, function (e) {
       hideLoader();
       showAlertModal(e.code === 1

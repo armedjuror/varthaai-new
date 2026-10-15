@@ -2,6 +2,10 @@ from django.conf import settings
 from django.db import models
 
 
+def maps_url(lat, lng):
+    return f'https://www.google.com/maps/search/?api=1&query={lat},{lng}'
+
+
 class B2BCategory(models.Model):
     brand = models.ForeignKey('core.Brand', on_delete=models.CASCADE, related_name='b2b_categories')
     name = models.CharField(max_length=100)
@@ -28,6 +32,12 @@ class B2BCompany(models.Model):
         PERCENTAGE = 'percentage', 'Percentage'
         AMOUNT = 'amount', 'Amount'
 
+    class GeoStatus(models.TextChoices):
+        PENDING = 'pending', 'Pending'      # not located yet (backfill will try)
+        RESOLVED = 'resolved', 'Resolved'   # located by backfill_company_coordinates
+        FAILED = 'failed', 'Failed'         # backfill couldn't locate it
+        MANUAL = 'manual', 'Manual'         # captured in the browser ("Use current location")
+
     class UpfrontDue(models.TextChoices):
         ADVANCE = 'advance', 'With the order'
         DELIVERY = 'delivery', 'On delivery'
@@ -52,10 +62,11 @@ class B2BCompany(models.Model):
     gst_legal_name = models.CharField(max_length=255, blank=True)
     # Where the store is. Captured as coordinates from the field phone
     # ("Use current location"); `location_url` is the fallback for leads
-    # added away from the store (a pasted Google Maps link). Read the link
-    # through `maps_url`, which prefers the coordinates.
+    # added away from the store (a pasted Google Maps link), which the
+    # backfill_company_coordinates command later turns into coordinates.
     latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    geo_status = models.CharField(max_length=10, choices=GeoStatus.choices, default=GeoStatus.PENDING)
     location_url = models.URLField(max_length=500, blank=True)
     photo = models.ImageField(upload_to='leads/', null=True, blank=True)
     stage = models.CharField(max_length=20, choices=Stage.choices, default=Stage.LEAD)
@@ -91,9 +102,10 @@ class B2BCompany(models.Model):
 
     @property
     def maps_url(self):
+        """Google Maps link built from the coordinates; '' until located."""
         if self.latitude is not None and self.longitude is not None:
-            return f'https://www.google.com/maps/search/?api=1&query={self.latitude},{self.longitude}'
-        return self.location_url
+            return maps_url(self.latitude, self.longitude)
+        return ''
 
 
 class B2BContact(models.Model):
