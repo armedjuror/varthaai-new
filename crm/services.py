@@ -41,7 +41,7 @@ def clean_flavor_counts(raw, label='packs'):
 
 
 @transaction.atomic
-def log_visit(user, company, purpose, outcome=None, notes='', pack_counts=None):
+def log_visit(user, company, purpose, outcome=None, notes='', pack_counts=None, follow_up_date=None):
     outcome = outcome or B2BActivity.VisitOutcome.NONE
     if purpose in B2BActivity.PACK_COUNT_PURPOSES:
         pack_counts = clean_flavor_counts(pack_counts, 'packs on the shelf')
@@ -56,6 +56,7 @@ def log_visit(user, company, purpose, outcome=None, notes='', pack_counts=None):
         company=company, admin_user=user, type=B2BActivity.Type.VISIT,
         visit_purpose=purpose, visit_outcome=outcome, pack_counts=pack_counts,
         subject=subject, description=notes,
+        follow_up_date=follow_up_date if outcome == B2BActivity.VisitOutcome.FOLLOW_UP else None,
     )
     company.save(update_fields=['updated_at'])
 

@@ -243,11 +243,18 @@ function onActivityTypeChange() {
   var isVisit = $('#activityType').val() === 'visit';
   var purpose = $('#activityVisitPurpose').val();
   $('#activityVisitPurposeWrap, #activityVisitOutcomeWrap').toggleClass('d-none', !isVisit);
-  $('#activitySubjectWrap, #activityContactWrap, #activityFollowUpWrap').toggleClass('d-none', isVisit);
+  $('#activitySubjectWrap, #activityContactWrap').toggleClass('d-none', isVisit);
   $('#activityPackCountsWrap').toggleClass('d-none', !(isVisit && PACK_COUNT_PURPOSES.indexOf(purpose) !== -1));
   $('#activityPackCountsLabel').text(purpose === 'delivery'
     ? 'Packs on shelf — count before restocking'
     : 'Packs on shelf');
+  onActivityVisitOutcomeChange();
+}
+
+function onActivityVisitOutcomeChange() {
+  var isVisit = $('#activityType').val() === 'visit';
+  var needsFollowUp = !isVisit || $('#activityVisitOutcome').val() === 'follow_up';
+  $('#activityFollowUpWrap').toggleClass('d-none', !needsFollowUp);
 }
 
 function renderPackCountInputs() {
@@ -280,6 +287,10 @@ function logActivity() {
   if (type === 'visit') {
     data.visit_purpose = $('#activityVisitPurpose').val();
     data.visit_outcome = $('#activityVisitOutcome').val();
+    if (data.visit_outcome === 'follow_up' && !data.follow_up_date) {
+      showAlertModal('Please pick a follow-up date.', 'warning');
+      return;
+    }
     if (PACK_COUNT_PURPOSES.indexOf(data.visit_purpose) !== -1) {
       var counts = {}, missing = false;
       $('.activity-pack-count').each(function () {

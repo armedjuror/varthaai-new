@@ -189,3 +189,30 @@ class TransportSecurityTests(SimpleTestCase):
         self.assertTrue(sec.enable_dns_rebinding_protection)
         self.assertIn('varthaai.com', sec.allowed_hosts)
         self.assertIn('127.0.0.1:*', sec.allowed_hosts)
+
+
+class ConnectionRecoveryTests(TransactionTestCase):
+    """Regression cover for production: once Postgres dropped the readonly
+    connection, every run_readonly_sql call failed with "the connection is
+    closed" until the service restarted, because nothing outside Django's
+    request cycle ever discarded the dead connection."""
+    databases = {'default', 'readonly'}
+
+    def _drop(self, alias):
+        from django.db import connections
+        conn = connections[alias]
+        conn.ensure_connection()
+        conn.connection.close()  # what a server-side termination leaves behind
+
+    def test_sql_tool_recovers_after_connection_dropped(self):
+        from bizmcp.server import _call_with_fresh_connections
+        self._drop('readonly')
+        out = _call_with_fresh_connections(sql_tool.run_readonly_sql, sql='SELECT 1 AS ok')
+        self.assertNotIn('error', out)
+        self.assertEqual(out['rows'][0]['ok'], 1)
+
+    def test_orm_tool_recovers_after_connection_dropped(self):
+        from bizmcp.server import _call_with_fresh_connections
+        self._drop('default')
+        out = _call_with_fresh_connections(tools.stock_status)
+        self.assertIn('flavors', out)

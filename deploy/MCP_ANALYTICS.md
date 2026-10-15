@@ -114,10 +114,13 @@ psql "host=127.0.0.1 dbname=varthaai_db user=varthaai_ro password=..." \
 - **`421 Invalid Host header`** (in `journalctl -u varthaai-mcp`): the MCP
   SDK's DNS-rebinding protection rejects Host headers not in
   `MCP_ALLOWED_HOSTS`. Add the public domain nginx forwards, restart the unit.
-- **`401` with `header_present=False`** in the `bizmcp auth reject` log line:
-  the Authorization header never arrived — check the connector's header is
-  set, and that nothing between client and server redirects the request
-  (clients drop Authorization on redirect).
+- **`401` from a correctly configured connector**: check the connector's
+  header is exactly `Authorization: Bearer <MCP_API_KEY>`, the service was
+  restarted after `.env` changed, and nothing between client and server
+  redirects the request (clients drop Authorization on redirect).
+- **`Query error: the connection is closed`**: Postgres dropped a cached
+  connection. Tool calls now discard dead connections themselves
+  (`bizmcp/server.py`); if it reappears, restart the unit as a stopgap.
 - **Django HTML 404 at `/mcp`**: nginx isn't routing to the MCP upstream —
   the `location /mcp` block is missing from the live config.
 

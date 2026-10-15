@@ -473,11 +473,15 @@ class B2BAPI(APIView):
             outcome = body.get('visit_outcome') or B2BActivity.VisitOutcome.NONE
             if outcome not in B2BActivity.VisitOutcome.values:
                 return err('Invalid visit outcome.')
+            follow_up_date = body.get('follow_up_date') or None
+            if outcome == B2BActivity.VisitOutcome.FOLLOW_UP and not follow_up_date:
+                return err('Pick a follow-up date.')
             try:
                 activity = crm_services.log_visit(
                     request.user, company, purpose, outcome,
                     notes=(body.get('description') or '').strip(),
                     pack_counts=_json_obj(body.get('pack_counts')),
+                    follow_up_date=follow_up_date,
                 )
             except ValidationError as e:
                 return err(e.messages[0])
