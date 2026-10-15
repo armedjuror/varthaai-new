@@ -138,3 +138,63 @@ function escHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }
+
+/* ── Store location (B2B leads) ──
+   Wires a "Use current location" button + hidden lat/lng inputs + a status
+   line. `prefix` is the id prefix, e.g. 'add' -> #addUseLocationBtn,
+   #addLatitude, #addLongitude, #addLocationStatus, #addClearLocationBtn. */
+function mapsUrlFromCoords(lat, lng) {
+  return 'https://www.google.com/maps/search/?api=1&query=' + lat + ',' + lng;
+}
+
+function setLeadLocation(prefix, lat, lng) {
+  var has = lat !== null && lat !== undefined && lat !== '' && lng !== null && lng !== undefined && lng !== '';
+  $('#' + prefix + 'Latitude').val(has ? lat : '');
+  $('#' + prefix + 'Longitude').val(has ? lng : '');
+  $('#' + prefix + 'LocationStatus').html(has
+    ? '<i class="fas fa-check-circle text-success me-1"></i>' + Number(lat).toFixed(6) + ', ' + Number(lng).toFixed(6) +
+      ' · <a href="' + mapsUrlFromCoords(lat, lng) + '" target="_blank" rel="noopener">Open in Maps</a>'
+    : '<span class="text-muted">No location captured.</span>');
+  $('#' + prefix + 'ClearLocationBtn').toggleClass('d-none', !has);
+}
+
+function bindLeadLocation(prefix) {
+  $('#' + prefix + 'UseLocationBtn').on('click', function () {
+    if (!navigator.geolocation) { showAlertModal('Location is not available on this device. Paste a Maps link instead.', 'warning'); return; }
+    showLoader('Getting location…');
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      hideLoader();
+      var lat = pos.coords.latitude.toFixed(6), lng = pos.coords.longitude.toFixed(6);
+      setLeadLocation(prefix, lat, lng);
+      $('#' + prefix + 'LocationUrl').val(mapsUrlFromCoords(lat, lng));
+    }, function (e) {
+      hideLoader();
+      showAlertModal(e.code === 1
+        ? 'Location permission denied. Allow location for this site, or paste a Maps link instead.'
+        : 'Could not get your location. Try again, or paste a Maps link instead.', 'warning');
+    }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  });
+  $('#' + prefix + 'ClearLocationBtn').on('click', function () { setLeadLocation(prefix, null, null); });
+}
+
+/* ── B2B payment terms (Add Lead + Edit Company forms) ──
+   `prefix` is the id prefix: 'add' or 'edit'. Hides the balance fields at
+   100% upfront, and shows Days or Fixed dates to match the balance rule. */
+function onPaymentTermsChange(prefix) {
+  var p = '#' + prefix;
+  var rule = $(p + 'BalanceRule').val();
+  var full = parseFloat($(p + 'UpfrontPercent').val()) >= 100;
+  $(p + 'BalanceRuleWrap').toggleClass('d-none', full);
+  $(p + 'FixedDatesWrap').toggleClass('d-none', full || rule !== 'fixed_dates');
+  $(p + 'PaymentDaysWrap').toggleClass('d-none', full || (rule !== 'after_days' && rule !== 'bill_to_bill'));
+  $(p + 'PaymentDaysLabel').text(rule === 'bill_to_bill' ? 'Days (backstop)' : 'Days');
+}
+
+function appendPaymentTerms(fd, prefix) {
+  var p = '#' + prefix;
+  fd.append('upfront_percent',     $(p + 'UpfrontPercent').val());
+  fd.append('upfront_due',         $(p + 'UpfrontDue').val());
+  fd.append('balance_rule',        $(p + 'BalanceRule').val());
+  fd.append('payment_terms_days',  $(p + 'PaymentTerms').val());
+  fd.append('payment_fixed_dates', $(p + 'FixedDates').val());
+}

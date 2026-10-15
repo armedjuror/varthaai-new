@@ -52,6 +52,10 @@ def format_employee_report(user, report):
     if sales:
         if sales['area']:
             lines.append(f'Area: {sales["area"]}')
+        if sales.get('carried_items'):
+            lines.append('Carried: ' + ', '.join(
+                f'{i["flavor_name"]} {i["packs"]}' for i in sales['carried_items']
+            ) + f' ({sales["total_carried"]} packs)')
         lines.append(f'Start: {_fmt_time(report["start_time"])}')
         lines.append(f'First delivery: {_fmt_time(report["first_delivery_time"])}')
         lines.append(f'Last meeting: {_fmt_time(report["last_meeting_time"])}')

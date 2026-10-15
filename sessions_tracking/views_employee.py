@@ -48,7 +48,7 @@ def _serialize_open_session(session):
         return None
     return {
         'id': session.id, 'type': session.type, 'status': session.status,
-        'area': session.area, 'started_at': session.started_at,
+        'area': session.area, 'carried_packs': session.carried_packs, 'started_at': session.started_at,
     }
 
 
@@ -74,6 +74,7 @@ class SessionStartAPI(APIView):
     def post(self, request):
         session = session_service.start_session(
             request.user, request.data.get('type'), area=request.data.get('area'),
+            carried_packs=request.data.get('carried_packs'),
         )
         return ok(
             {'id': session.id, 'type': session.type, 'status': session.status, 'area': session.area},
@@ -138,7 +139,8 @@ class DailyReportAPI(APIView):
 
 
 class FlavorPickerAPI(APIView):
-    """Minimal flavour list (id + name only) for the packing end screen."""
+    """Minimal flavour list (id + name only) for the packing end screen and
+    the packs-carried step of starting a sales session."""
     permission_classes = [HasModulePermission]
     permission_module = 'field_employee'
 
