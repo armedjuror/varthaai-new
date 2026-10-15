@@ -283,7 +283,7 @@ def b2c_lines(order, on_date):
             uqc = 'KGS' if uqc != 'KGS' and not it.flavor_pack_id else uqc
         else:
             qty = Decimal(grams) / Decimal(it.flavor_pack.weight_grams)
-        desc = it.flavor_name + (f' ({it.pack_label})' if it.pack_label else '')
+        desc = it.flavor_name
         lines.append(LineInput(
             description=desc, gross=q2(Decimal(str(it.sale_price_per_kg)) * grams / 1000),
             rate=rate, cess_rate=cess, hsn_code=hsn_code, uqc=uqc, quantity=qty,
@@ -424,7 +424,7 @@ def b2b_lines(order, on_date, items=None):
             qty = Decimal(net_qty * it.weight_grams) / 1000
         else:
             qty = Decimal(net_qty)
-        desc = it.flavor_name + (f' ({it.pack_label})' if it.pack_label else f' ({it.weight_grams}g)')
+        desc = it.flavor_name
         lines.append(LineInput(
             description=desc, gross=ZERO if it.is_free_item else q2(it.selling_price * net_qty),
             rate=rate, cess_rate=cess, hsn_code=hsn_code, uqc=uqc, quantity=qty,
