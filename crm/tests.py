@@ -246,6 +246,18 @@ class CompanyApiTests(TestCase):
         self.assertFalse(self._post({'action': 'add_company', 'company_name': 'S',
                                      'latitude': '99', 'longitude': '76'})['success'])
 
+    def test_add_saves_payment_terms(self):
+        c = self._add(upfront_percent='25', upfront_due='advance', balance_rule='fixed_dates',
+                      payment_fixed_dates='1, 15', payment_terms_days='30')
+        self.assertEqual((c.upfront_percent, c.upfront_due, c.balance_rule, c.payment_fixed_dates),
+                         (Decimal('25'), 'advance', 'fixed_dates', [1, 15]))
+        # Without terms in the request, a lead gets the defaults.
+        d = self._add()
+        self.assertEqual((d.upfront_percent, d.upfront_due, d.balance_rule, d.payment_terms_days),
+                         (0, 'delivery', 'bill_to_bill', 30))
+        res = self._post({'action': 'add_company', 'company_name': 'S', 'balance_rule': 'fixed_dates'})
+        self.assertFalse(res['success'])
+
     def test_edit_saves_payment_terms(self):
         c = self._add()
         res = self._post({

@@ -312,6 +312,10 @@ class B2BAPI(APIView):
         coords, coords_error = _coords(body)
         if coords_error:
             return err(coords_error)
+        try:
+            terms = crm_services.clean_payment_terms(body)
+        except ValidationError as e:
+            return err(e.messages[0])
         company = B2BCompany.objects.create(
             brand_id=brand_id,
             category_id=_int_or_none(body.get('category_id')),
@@ -321,6 +325,7 @@ class B2BAPI(APIView):
             pincode=(body.get('pincode') or '').strip(),
             **gst,
             **coords,
+            **terms,
             geo_status=(
                 B2BCompany.GeoStatus.MANUAL if coords['latitude'] is not None
                 else B2BCompany.GeoStatus.PENDING

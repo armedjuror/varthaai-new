@@ -176,3 +176,25 @@ function bindLeadLocation(prefix) {
   });
   $('#' + prefix + 'ClearLocationBtn').on('click', function () { setLeadLocation(prefix, null, null); });
 }
+
+/* ── B2B payment terms (Add Lead + Edit Company forms) ──
+   `prefix` is the id prefix: 'add' or 'edit'. Hides the balance fields at
+   100% upfront, and shows Days or Fixed dates to match the balance rule. */
+function onPaymentTermsChange(prefix) {
+  var p = '#' + prefix;
+  var rule = $(p + 'BalanceRule').val();
+  var full = parseFloat($(p + 'UpfrontPercent').val()) >= 100;
+  $(p + 'BalanceRuleWrap').toggleClass('d-none', full);
+  $(p + 'FixedDatesWrap').toggleClass('d-none', full || rule !== 'fixed_dates');
+  $(p + 'PaymentDaysWrap').toggleClass('d-none', full || (rule !== 'after_days' && rule !== 'bill_to_bill'));
+  $(p + 'PaymentDaysLabel').text(rule === 'bill_to_bill' ? 'Days (backstop)' : 'Days');
+}
+
+function appendPaymentTerms(fd, prefix) {
+  var p = '#' + prefix;
+  fd.append('upfront_percent',     $(p + 'UpfrontPercent').val());
+  fd.append('upfront_due',         $(p + 'UpfrontDue').val());
+  fd.append('balance_rule',        $(p + 'BalanceRule').val());
+  fd.append('payment_terms_days',  $(p + 'PaymentTerms').val());
+  fd.append('payment_fixed_dates', $(p + 'FixedDates').val());
+}

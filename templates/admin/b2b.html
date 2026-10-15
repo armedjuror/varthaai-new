@@ -185,6 +185,40 @@
               <input type="date" class="form-control" id="addCreatedDate" max="{% now 'Y-m-d' %}">
               <div class="form-text">Leave blank to use today.</div>
             </div>
+            <div class="col-12">
+              <label class="form-label mb-1">Payment Terms</label>
+              <div class="row g-2">
+                <div class="col-md-3">
+                  <label class="form-label small text-muted mb-0">Upfront share (%)</label>
+                  <input type="number" class="form-control" id="addUpfrontPercent" value="0" min="0" max="100" step="0.01" list="addUpfrontPercentOptions" oninput="onPaymentTermsChange('add')">
+                  <datalist id="addUpfrontPercentOptions"><option value="0"><option value="25"><option value="50"><option value="100"></datalist>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small text-muted mb-0">Upfront due</label>
+                  <select class="form-select" id="addUpfrontDue">
+                    <option value="advance">With order (advance)</option>
+                    <option value="delivery" selected>On delivery</option>
+                  </select>
+                </div>
+                <div class="col-md-3" id="addBalanceRuleWrap">
+                  <label class="form-label small text-muted mb-0">Balance rule</label>
+                  <select class="form-select" id="addBalanceRule" onchange="onPaymentTermsChange('add')">
+                    <option value="bill_to_bill">Bill to bill</option>
+                    <option value="weekly_as_sold">Weekly as sold</option>
+                    <option value="after_days">After N days</option>
+                    <option value="fixed_dates">Fixed dates</option>
+                  </select>
+                </div>
+                <div class="col-md-3" id="addPaymentDaysWrap">
+                  <label class="form-label small text-muted mb-0" id="addPaymentDaysLabel">Days (backstop)</label>
+                  <input type="number" class="form-control" id="addPaymentTerms" value="30" min="0" step="1">
+                </div>
+                <div class="col-md-3 d-none" id="addFixedDatesWrap">
+                  <label class="form-label small text-muted mb-0">Fixed dates</label>
+                  <input type="text" class="form-control" id="addFixedDates" placeholder="e.g. 1, 15">
+                </div>
+              </div>
+            </div>
             <div class="col-md-6">
               <label class="form-label">Location</label>
               <div class="d-flex gap-2 flex-wrap align-items-center">

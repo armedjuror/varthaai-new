@@ -324,7 +324,7 @@
               <div class="row g-2">
                 <div class="col-md-3">
                   <label class="form-label small text-muted mb-0">Upfront share (%)</label>
-                  <input type="number" class="form-control" id="editUpfrontPercent" min="0" max="100" step="0.01" list="upfrontPercentOptions" oninput="onPaymentTermsChange()">
+                  <input type="number" class="form-control" id="editUpfrontPercent" min="0" max="100" step="0.01" list="upfrontPercentOptions" oninput="onPaymentTermsChange('edit')">
                   <datalist id="upfrontPercentOptions"><option value="0"><option value="25"><option value="50"><option value="100"></datalist>
                 </div>
                 <div class="col-md-3">
@@ -336,7 +336,7 @@
                 </div>
                 <div class="col-md-3" id="editBalanceRuleWrap">
                   <label class="form-label small text-muted mb-0">Balance rule</label>
-                  <select class="form-select" id="editBalanceRule" onchange="onPaymentTermsChange()">
+                  <select class="form-select" id="editBalanceRule" onchange="onPaymentTermsChange('edit')">
                     <option value="bill_to_bill">Bill to bill</option>
                     <option value="weekly_as_sold">Weekly as sold</option>
                     <option value="after_days">After N days</option>

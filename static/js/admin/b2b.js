@@ -48,6 +48,7 @@ $(function () {
     fd.append('longitude',           $('#addLongitude').val());
     fd.append('assigned_to',         $('#addAssignedTo').val());
     fd.append('created_date',        $('#addCreatedDate').val());
+    appendPaymentTerms(fd, 'add');
     fd.append('notes',               $('#addNotes').val());
     fd.append('contact_name',        $('#addContactName').val());
     fd.append('contact_phone',       $('#addContactPhone').val());
@@ -62,6 +63,7 @@ $(function () {
           $('#addCompanyModal').modal('hide');
           $('#addCompanyForm')[0].reset();
           setLeadLocation('add', null, null);
+          onPaymentTermsChange('add');
           loadPipelineStats();
           loadCompanies();
         }

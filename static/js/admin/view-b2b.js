@@ -401,14 +401,6 @@ function markFollowUpDone(id) {
 }
 
 /* ── Edit company ── */
-function onPaymentTermsChange() {
-  var rule = $('#editBalanceRule').val();
-  var full = parseFloat($('#editUpfrontPercent').val()) >= 100;
-  $('#editBalanceRuleWrap').toggleClass('d-none', full);
-  $('#editFixedDatesWrap').toggleClass('d-none', full || rule !== 'fixed_dates');
-  $('#editPaymentDaysWrap').toggleClass('d-none', full || (rule !== 'after_days' && rule !== 'bill_to_bill'));
-  $('#editPaymentDaysLabel').text(rule === 'bill_to_bill' ? 'Days (backstop)' : 'Days');
-}
 
 function openEditCompanyModal() {
   var c = companyData;
@@ -428,7 +420,7 @@ function openEditCompanyModal() {
   $('#editBalanceRule').val(c.balance_rule || 'bill_to_bill');
   $('#editPaymentTerms').val(c.payment_terms_days);
   $('#editFixedDates').val((c.payment_fixed_dates || []).join(', '));
-  onPaymentTermsChange();
+  onPaymentTermsChange('edit');
   $('#editDiscountType').val(c.discount_type || '');
   $('#editDiscountValue').val(c.discount_value || '');
   $('#editLocationUrl').val(c.location_url || '');
@@ -466,11 +458,7 @@ $('#editCompanyForm').on('submit', function (e) {
   fd.append('longitude',          $('#editLongitude').val());
   fd.append('assigned_to',        $('#editAssignedTo').val());
   fd.append('credit_limit',       $('#editCreditLimit').val());
-  fd.append('upfront_percent',    $('#editUpfrontPercent').val());
-  fd.append('upfront_due',        $('#editUpfrontDue').val());
-  fd.append('balance_rule',       $('#editBalanceRule').val());
-  fd.append('payment_terms_days', $('#editPaymentTerms').val());
-  fd.append('payment_fixed_dates', $('#editFixedDates').val());
+  appendPaymentTerms(fd, 'edit');
   fd.append('discount_type',      $('#editDiscountType').val());
   fd.append('discount_value',     $('#editDiscountValue').val());
   fd.append('notes',              $('#editNotes').val());
