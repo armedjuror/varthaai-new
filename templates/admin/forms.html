@@ -1,0 +1,65 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Forms — Varthaai Admin{% endblock %}
+
+{% block content %}
+<div class="page-body">
+
+  <div class="page-header">
+    <div>
+      <h1>Forms</h1>
+      <p>Build forms, share links or QR codes, and collect responses.</p>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-sm btn-primary" onclick="openCreateForm()">
+        <i class="fas fa-plus me-1"></i>New Form
+      </button>
+    </div>
+  </div>
+
+  <div class="data-card">
+    <div class="data-card-header"><h3>All forms (<span id="formsCount">…</span>)</h3></div>
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr><th>Title</th><th>Status</th><th>Responses</th><th>Created</th><th></th></tr>
+        </thead>
+        <tbody id="formsBody">
+          <tr><td colspan="5" class="text-center" style="padding:40px;color:var(--gray-400)">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<div class="modal fade" id="createFormModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-clipboard-list me-2"></i>New Form</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="form-label">Title</label>
+          <input type="text" class="form-control" id="newFormTitle" maxlength="200">
+        </div>
+        <div class="mb-1">
+          <label class="form-label">Description <span class="text-muted">(shown above the fields)</span></label>
+          <textarea class="form-control" id="newFormDescription" rows="3"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="createForm()">Create</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/admin/forms.js' %}"></script>
+{% endblock %}

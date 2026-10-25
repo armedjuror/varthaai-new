@@ -81,6 +81,13 @@
     </a>
     {% endif %}
 
+    {% if 'forms' in nav_perms %}
+    <a href="{% url 'formbuilder:forms' %}" class="nav-item{% if url_name == 'forms' or url_name == 'form_detail' %} active{% endif %}">
+      <i class="fas fa-clipboard-list"></i>
+      <span>Forms</span>
+    </a>
+    {% endif %}
+
     {% if 'b2b' in nav_perms %}
     <p class="nav-section-label" style="margin-top:12px">B2B</p>
     <a href="{% url 'orders:b2b_dashboard' %}" class="nav-item{% if url_name == 'b2b_dashboard' %} active{% endif %}">

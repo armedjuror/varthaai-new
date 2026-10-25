@@ -28,6 +28,7 @@ MODULE_PERMISSIONS = [
     ('customers', 'Customers'),
     ('reviews', 'Reviews'),
     ('blogs', 'Blogs'),
+    ('forms', 'Forms'),
     ('expenses', 'Expenses'),
     ('settings', 'Settings'),
     ('b2b', 'B2B'),

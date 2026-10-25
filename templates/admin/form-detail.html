@@ -1,0 +1,193 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}{{ form_title }} — Forms — Varthaai Admin{% endblock %}
+
+{% block content %}
+<div class="page-body" id="formDetail" data-form-id="{{ form_id }}">
+
+  <div class="page-header">
+    <div>
+      <h1 id="formTitleHeading">{{ form_title }}</h1>
+      <p><a href="{% url 'formbuilder:forms' %}"><i class="fas fa-arrow-left me-1"></i>All forms</a>
+        · <span id="formStatusBadge"></span> · <span id="formResponseCount">0</span> responses</p>
+    </div>
+  </div>
+
+  <ul class="nav nav-tabs mb-3" id="formTabs">
+    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabFields">Fields</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabSettings">Settings &amp; thank-you</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabLinks">Links &amp; QR</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabResults">Results</button></li>
+  </ul>
+
+  <div class="tab-content">
+
+    <!-- Fields -->
+    <div class="tab-pane fade show active" id="tabFields">
+      <div class="data-card">
+        <div class="data-card-header">
+          <h3>Fields</h3>
+          <div class="d-flex gap-2 flex-wrap">
+            <button class="btn btn-sm btn-outline-primary" id="quickName" onclick="quickAddField('user_name')"><i class="fas fa-user me-1"></i>Name</button>
+            <button class="btn btn-sm btn-outline-primary" id="quickPhone" onclick="quickAddField('user_phone')"><i class="fas fa-phone me-1"></i>Phone</button>
+            <button class="btn btn-sm btn-outline-primary" id="quickEmail" onclick="quickAddField('user_email')"><i class="fas fa-envelope me-1"></i>Email</button>
+            <button class="btn btn-sm btn-primary" onclick="openFieldModal()"><i class="fas fa-plus me-1"></i>Add field</button>
+          </div>
+        </div>
+        <div class="px-3 pb-2 text-muted" style="font-size:13px">
+          Name, Phone and Email fields add the respondent as a customer on submit.
+          A <strong>key</strong> dropdown lets you create a separate link per option, prefilled and hidden.
+        </div>
+        <div class="table-responsive">
+          <table class="table">
+            <thead><tr><th style="width:80px">Order</th><th>Label</th><th>Type</th><th>Required</th><th>Special</th><th></th></tr></thead>
+            <tbody id="fieldsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="tab-pane fade" id="tabSettings">
+      <div class="row g-3">
+        <div class="col-lg-6">
+          <div class="data-card"><div class="data-card-header"><h3>Form</h3></div>
+            <div class="p-3">
+              <div class="mb-3"><label class="form-label">Title</label><input class="form-control" id="setTitle" maxlength="200"></div>
+              <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" id="setDescription" rows="3"></textarea></div>
+              <div class="mb-3"><label class="form-label">Status</label>
+                <select class="form-select" id="setStatus">
+                  <option value="draft">Draft (not reachable)</option>
+                  <option value="live">Live (accepting responses)</option>
+                  <option value="closed">Closed</option>
+                </select></div>
+              <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="setCreateUsers"><label class="form-check-label" for="setCreateUsers">Add respondents as customers (needs a Name, Phone or Email field)</label></div>
+              <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="setOnePerPhone"><label class="form-check-label" for="setOnePerPhone">Allow only one response per phone number</label></div>
+              <div class="mb-1"><label class="form-label">Consent text <span class="text-muted">(shown under the Submit button)</span></label>
+                <input class="form-control" id="setConsent" maxlength="500"></div>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-6">
+          <div class="data-card"><div class="data-card-header"><h3>Thank-you page</h3></div>
+            <div class="p-3">
+              <div class="mb-3"><label class="form-label">Heading</label><input class="form-control" id="setSuccessTitle" maxlength="200"></div>
+              <div class="mb-3"><label class="form-label">Message</label><textarea class="form-control" id="setSuccessMessage" rows="3"></textarea></div>
+              <div class="mb-3"><label class="form-label">Redirect URL <span class="text-muted">(optional)</span></label>
+                <input class="form-control" id="setRedirect" placeholder="https://…">
+                <div class="form-text">Without a code, respondents go straight there. With a code, the thank-you page shows a Continue button.</div></div>
+              <hr>
+              <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="setShowCode"><label class="form-check-label" for="setShowCode">Show a unique code to each respondent</label></div>
+              <div class="row g-2" id="codeOptions">
+                <div class="col-4"><label class="form-label">Length</label><input type="number" min="4" max="12" class="form-control" id="setCodeLength"></div>
+                <div class="col-4"><label class="form-label">Prefix</label><input class="form-control" id="setCodePrefix" maxlength="10"></div>
+                <div class="col-4"><label class="form-label">Label</label><input class="form-control" id="setCodeLabel" maxlength="100"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="mt-3"><button class="btn btn-primary" onclick="saveSettings()"><i class="fas fa-save me-1"></i>Save settings</button></div>
+    </div>
+
+    <!-- Links -->
+    <div class="tab-pane fade" id="tabLinks">
+      <div class="data-card mb-3">
+        <div class="data-card-header"><h3>General link</h3></div>
+        <div class="p-3">
+          <div id="liveWarning" class="alert alert-warning py-2" style="display:none">This form is not live yet, so links will not open until you set its status to Live.</div>
+          <div class="input-group">
+            <input class="form-control" id="generalUrl" readonly>
+            <button class="btn btn-outline-secondary" onclick="copyText('#generalUrl')"><i class="fas fa-copy"></i></button>
+          </div>
+        </div>
+      </div>
+      <div class="data-card">
+        <div class="data-card-header">
+          <h3 id="keyLinksTitle">Links per key option</h3>
+          <div class="d-flex gap-2 align-items-center flex-wrap" id="qrControls">
+            <select class="form-select form-select-sm" id="qrPerPage" style="width:auto">
+              <option value="1">1 per page</option><option value="2">2 per page</option><option value="4">4 per page</option>
+              <option value="6" selected>6 per page</option><option value="12">12 per page</option>
+            </select>
+            <button class="btn btn-sm btn-primary" onclick="downloadQr()"><i class="fas fa-file-pdf me-1"></i>Download QR PDF</button>
+          </div>
+        </div>
+        <div id="noKeyHint" class="p-3 text-muted" style="display:none">
+          Mark a dropdown field as the <strong>key</strong> in the Fields tab to generate one link and QR per option.
+        </div>
+        <div class="table-responsive" id="keyLinksWrap">
+          <table class="table">
+            <thead><tr><th style="width:36px"><input type="checkbox" id="linksAll" checked></th><th id="keyLabelHead">Option</th><th>Link</th><th></th></tr></thead>
+            <tbody id="linksBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div class="tab-pane fade" id="tabResults">
+      <div class="filter-bar mb-3">
+        <div class="row g-3" id="resultFilters"></div>
+        <div class="mt-3 d-flex gap-2 flex-wrap">
+          <button class="btn btn-sm btn-outline-secondary" onclick="clearResultFilters()"><i class="fas fa-xmark me-1"></i>Clear</button>
+          <button class="btn btn-sm btn-outline-primary" onclick="exportCsv()"><i class="fas fa-file-csv me-1"></i>Export CSV</button>
+          <span class="text-muted align-self-center" style="font-size:13px">Export uses the filters above.</span>
+        </div>
+      </div>
+      <div class="data-card">
+        <div class="data-card-header"><h3>Responses (<span id="resultsCount">…</span>)</h3></div>
+        <div class="table-responsive"><table class="table"><thead id="resultsHead"></thead><tbody id="resultsBody"></tbody></table></div>
+        <div id="resultsPagination" style="padding:16px 20px"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Field modal -->
+<div class="modal fade" id="fieldModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="fieldModalTitle">Add field</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="fieldId">
+        <div class="mb-3"><label class="form-label">Label</label><input class="form-control" id="fieldLabel" maxlength="200"></div>
+        <div class="row g-2 mb-3">
+          <div class="col-7"><label class="form-label">Type</label>
+            <select class="form-select" id="fieldType">
+              {% for value, label in field_types %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+            </select>
+            <div class="form-text" id="typeLockedHint" style="display:none">Locked: this form already has responses.</div>
+          </div>
+          <div class="col-5"><label class="form-label">Special role</label>
+            <select class="form-select" id="fieldRole">
+              <option value="">None</option><option value="user_name">User name</option>
+              <option value="user_phone">User phone</option><option value="user_email">User email</option>
+            </select>
+          </div>
+        </div>
+        <div class="mb-3" id="optionsWrap" style="display:none">
+          <label class="form-label">Options <span class="text-muted">(one per line)</span></label>
+          <textarea class="form-control" id="fieldOptions" rows="5"></textarea>
+        </div>
+        <div class="mb-3"><label class="form-label">Help text</label><input class="form-control" id="fieldHelp" maxlength="300"></div>
+        <div class="mb-3"><label class="form-label">Placeholder</label><input class="form-control" id="fieldPlaceholder" maxlength="100"></div>
+        <div class="form-check"><input class="form-check-input" type="checkbox" id="fieldRequired"><label class="form-check-label" for="fieldRequired">Required</label></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="saveField()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/admin/form-detail.js' %}"></script>
+{% endblock %}

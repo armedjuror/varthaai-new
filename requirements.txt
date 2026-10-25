@@ -50,3 +50,7 @@ six==1.17.0
 sqlparse==0.5.5
 typing_extensions==4.16.0
 urllib3==2.7.0
+
+# Form builder (formbuilder app): AES-SIV encrypted link tokens, QR codes.
+cryptography>=44
+segno==1.6.6
