@@ -70,6 +70,12 @@ def _blog_excerpt(blog_obj):
     return (plain[:150] + '...') if len(plain) > 150 else plain
 
 
+def _read_minutes(blog_obj):
+    """Reading time at ~220 words a minute, never less than one."""
+    words = len(_MD_STRIP_RE.sub(' ', blog_obj.content or '').split())
+    return max(1, round(words / 220))
+
+
 def _home_flavors():
     """Active flavors with per-100 g prices, ready for server-side rendering."""
     flavors = list(Flavor.objects.filter(is_active=True).order_by('id'))
@@ -131,6 +137,7 @@ def blog(request):
     qs = _published_blogs().order_by('-published_at', '-created_at')
     for b in qs:
         b.list_excerpt = _blog_excerpt(b)
+        b.read_minutes = _read_minutes(b)
     paginator = Paginator(qs, BLOG_PAGE_SIZE)
     page_obj = paginator.get_page(request.GET.get('page'))
     return render(request, 'storefront/blog.html', _ctx(request, page_obj=page_obj))
@@ -146,6 +153,7 @@ def blog_detail(request):
         html = _H1_OPEN_RE.sub('<h2>', html)
         html = _H1_CLOSE_RE.sub('</h2>', html)
         blog_obj.content_html = mark_safe(html)
+        blog_obj.read_minutes = _read_minutes(blog_obj)
         blog_obj.seo_description = blog_obj.meta_description or _blog_excerpt(blog_obj)
         blog_obj.canonical_url = f'{SITE_URL}/blog/{blog_obj.slug}'
         blog_obj.absolute_image_url = (

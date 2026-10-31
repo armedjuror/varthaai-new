@@ -39,6 +39,8 @@
 {% endif %}
 {% endblock %}
 
+{% block extra_js %}{% if blog %}<script src="{% static 'js/blog-read.js' %}" defer></script>{% endif %}{% endblock %}
+
 {% block content %}
 <section class="blog-detail-section">
   <div class="wrap">
@@ -53,6 +55,7 @@
           <div class="blog-meta">
             <i class="far fa-calendar me-1"></i> {{ blog.published_at|default:blog.created_at|date:"F j, Y" }}
             {% if blog.created_by.name %}<span class="ms-3"><i class="far fa-user me-1"></i> {{ blog.created_by.name }}</span>{% endif %}
+            <span class="ms-3"><i class="far fa-clock me-1"></i> {{ blog.read_minutes }} min read</span>
           </div>
         </div>
         {% if blog.featured_image %}
@@ -60,6 +63,13 @@
         {% endif %}
         <div class="blog-content">
           {{ blog.content_html }}
+        </div>
+        <div class="read-buddy" id="read-buddy" data-minutes="{{ blog.read_minutes }}" hidden>
+          <span class="vt-bubble" id="read-bubble" role="status" aria-live="polite"></span>
+          <button type="button" class="read-buddy-btn" aria-label="How much of this post is left">
+            <svg class="read-ring" viewBox="0 0 120 120" aria-hidden="true"><circle class="read-ring-track" cx="60" cy="60" r="55"/><circle class="read-ring-bar" cx="60" cy="60" r="55" pathLength="100"/></svg>
+            <vt-mascot emotion="happy" track></vt-mascot>
+          </button>
         </div>
         <aside class="article-end card-v2">
           <vt-mascot emotion="love" track></vt-mascot>

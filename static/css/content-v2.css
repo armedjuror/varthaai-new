@@ -52,3 +52,32 @@
 .v2 .policy-content h3 { font-family: var(--font-display); font-weight: 800; color: var(--leaf-deep); font-size: 1.4rem; margin: 30px 0 10px; scroll-margin-top: 90px; }
 .v2 .policy-content h2 { scroll-margin-top: 90px; }
 .v2 .policy-content p, .v2 .policy-content li { line-height: 1.8; color: var(--ink); }
+
+/* Reading buddy: a mascot on the side that tracks how far through the post you are. */
+.v2 .read-buddy {
+  position: fixed; z-index: 1015; right: clamp(12px, 3vw, 40px); bottom: calc(clamp(14px, 3vw, 32px) + env(safe-area-inset-bottom));
+  width: clamp(76px, 8vw, 116px); opacity: 0; transform: translateY(24px) scale(.9);
+  transition: opacity .4s, transform .5s var(--ease-out);
+}
+.v2 .read-buddy.is-on { opacity: 1; transform: none; }
+.v2 .read-buddy[hidden] { display: none; }
+.v2 .read-buddy-btn {
+  position: relative; display: block; width: 100%; aspect-ratio: 1; padding: 0; border: 0; border-radius: 50%; cursor: pointer;
+  background: radial-gradient(circle at 50% 38%, var(--paper) 0 60%, var(--cream) 100%); box-shadow: var(--shadow);
+}
+.v2 .read-buddy-btn:focus-visible { outline: 3px solid var(--leaf); outline-offset: 3px; }
+.v2 .read-buddy vt-mascot { position: absolute; inset: 13% 12% 9%; width: auto; }
+.v2 .read-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.v2 .read-ring circle { fill: none; stroke-width: 7; }
+.v2 .read-ring-track { stroke: rgba(133, 170, 78, .18); }
+.v2 .read-ring-bar { stroke: var(--leaf); stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 100; transition: stroke-dashoffset .25s linear, stroke .4s; }
+.v2 .read-buddy.is-done .read-ring-bar { stroke: var(--chip); }
+.v2 .read-buddy .vt-bubble {
+  right: calc(100% + 10px); bottom: 58%; left: auto; top: auto; max-width: 210px;
+  border-radius: 16px 16px 4px 16px; transform-origin: 100% 100%;
+}
+.v2 .read-buddy .confetti { z-index: 2; }
+@media (max-width: 600px) {
+  .v2 .read-buddy .vt-bubble { max-width: 170px; font-size: .82rem; }
+}
+@media (prefers-reduced-motion: reduce) { .v2 .read-buddy { transition: opacity .2s; transform: none; } }

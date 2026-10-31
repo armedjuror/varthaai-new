@@ -41,6 +41,7 @@
             <div class="blog-meta">
               <i class="far fa-calendar me-1"></i> {{ blog.published_at|default:blog.created_at|date:"F j, Y" }}
               {% if blog.created_by.name %}<span class="ms-3"><i class="far fa-user me-1"></i> {{ blog.created_by.name }}</span>{% endif %}
+              {% if blog.read_minutes %}<span class="ms-3"><i class="far fa-clock me-1"></i> {{ blog.read_minutes }} min read</span>{% endif %}
             </div>
             <p class="blog-excerpt">{{ blog.list_excerpt }}</p>
             <a href="/blog-detail/?slug={{ blog.slug }}" class="read-more">Read <span aria-hidden="true">→</span></a>

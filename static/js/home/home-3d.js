@@ -734,6 +734,59 @@ function initStory(assets) {
   world.add(uruli);
   const oilBase = Float32Array.from(oilGeo.attributes.position.array);
 
+  /* Aduppu: the Kerala three-stone hearth, firewood between the stones and
+   * live flames licking the bottom of the uruli. Follows the uruli. */
+  const hearth = new THREE.Group();
+  const URULI_BOTTOM = -0.52 * URULI_S;                     // below the uruli's origin
+  const laterite = new THREE.MeshStandardMaterial({ color: 0x9A4F2E, roughness: 0.95 });
+  for (let k = 0; k < 3; k++) {
+    const a = (k / 3) * Math.PI * 2 + Math.PI / 6;
+    const stone = new THREE.Mesh(new THREE.DodecahedronGeometry(0.2, 1), laterite);
+    stone.scale.set(1.1, 1.45, 0.95);
+    stone.position.set(Math.cos(a) * 0.62, URULI_BOTTOM - 0.24, Math.sin(a) * 0.5);
+    stone.rotation.set(rand(), rand() * 6, rand());
+    stone.castShadow = true;
+    hearth.add(stone);
+  }
+  const logWood = new THREE.MeshStandardMaterial({ color: 0x5B3A22, roughness: 0.9 });
+  const char = new THREE.MeshStandardMaterial({ color: 0x2A1A10, roughness: 1, emissive: 0xFF5A10, emissiveIntensity: 0.6 });
+  for (let k = 0; k < 4; k++) {
+    const a = -Math.PI / 2 + (k - 1.5) * 0.35;
+    const log = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 0.9, 10), k % 2 ? logWood : char);
+    log.rotation.set(Math.PI / 2 - 0.15, 0, a + Math.PI / 2);
+    log.position.set(Math.cos(a) * 0.35, URULI_BOTTOM - 0.4, Math.sin(a) * -0.35 + 0.15);
+    hearth.add(log);
+  }
+  // flames: additive cones that flicker, an inner gold set and an outer orange set
+  const flameGeo = new THREE.ConeGeometry(0.09, 0.42, 10, 1, true);
+  flameGeo.translate(0, 0.21, 0);
+  const flameMat = (c, o) => new THREE.MeshBasicMaterial({ color: c, transparent: true, opacity: o, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+  const flames = [];
+  for (let k = 0; k < 11; k++) {
+    const inner = k >= 7;
+    const m = new THREE.Mesh(flameGeo, flameMat(inner ? 0xFFD35A : 0xFF7A1A, inner ? 0.75 : 0.6));
+    const a = rand() * Math.PI * 2, r = inner ? rand() * 0.15 : 0.12 + rand() * 0.28;
+    m.position.set(Math.cos(a) * r, URULI_BOTTOM - 0.46, Math.sin(a) * r * 0.8);
+    flames.push({ m, base: inner ? 0.75 : 1, ph: rand() * 10, sp: 7 + rand() * 6 });
+    hearth.add(m);
+  }
+  // soft glow under the pan
+  const glowTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d');
+    const r = g.createRadialGradient(64, 64, 0, 64, 64, 64); r.addColorStop(0, 'rgba(255,170,60,1)'); r.addColorStop(0.4, 'rgba(255,110,20,.45)'); r.addColorStop(1, 'rgba(255,90,10,0)');
+    g.fillStyle = r; g.fillRect(0, 0, 128, 128); return new THREE.CanvasTexture(c); })();
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false }));
+  glow.scale.set(1.9, 1.1, 1);
+  glow.position.set(0, URULI_BOTTOM - 0.28, 0.1);
+  hearth.add(glow);
+  const embers = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 6, 4), new THREE.MeshBasicMaterial({ color: 0xFFB040, toneMapped: false }), 16);
+  embers.frustumCulled = false;
+  hearth.add(embers);
+  const emberSeed = Array.from({ length: 16 }, () => [rand() * 2 - 1, rand(), rand() * 2 - 1, 0.008 + rand() * 0.01]);
+  const fireLight = new THREE.PointLight(0xFF8A2A, 0, 3, 1.4);
+  fireLight.position.set(0, URULI_BOTTOM - 0.3, 0.3);
+  hearth.add(fireLight);
+  world.add(hearth);
+
   const BUB = coarse ? 60 : 110;
   const bubbles = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshStandardMaterial({ color: 0xFFF2C2, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.8 }), BUB);
   bubbles.frustumCulled = false;
@@ -798,10 +851,10 @@ function initStory(assets) {
     camera.aspect = w / h;
     portrait = camera.aspect < 0.95;
     const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-    const needW = portrait ? 3.2 : 3.9, needH = 3.3;
+    const needW = portrait ? 3.2 : 3.9, needH = 3.7;
     const dist = Math.max(needH / 2 / t, needW / 2 / (t * camera.aspect));
-    camera.position.set(0, 1.5, dist);
-    camera.lookAt(0, 0.0, 0);
+    camera.position.set(0, 1.3, dist);
+    camera.lookAt(0, -0.22, 0);
     camera.updateProjectionMatrix();
     world.position.set(portrait ? 0 : Math.min(1.15, (camera.aspect - 1) * 1.2 + 0.45), portrait ? 0.7 : 0.05, 0);
     world.scale.setScalar(portrait ? 0.8 : 1);
@@ -919,10 +972,30 @@ function initStory(assets) {
     uruli.position.set(0, URULI_Y - (1 - uIn) * 2.6 - uOut * 2.8, 0);
     uruli.rotation.y = time * 0.05;
     const oilY = uruli.position.y + OIL_LOCAL * URULI_S;
+    hearth.visible = uruli.visible;
+    hearth.position.copy(uruli.position);
     const frying = clamp01(seg(p, 0.34, 0.5) * 0.6 + seg(p, 0.5, 0.6) * 0.4) * (1 - seg(p, 0.8, 0.9));
     oilMat.emissiveIntensity = 0.15 + heat * 0.45 + Math.sin(time * 9) * 0.03 * frying;
     fire.position.set(world.position.x, oilY + 1.1, 1.4);
     fire.intensity = heat * 1.8;
+    // the stove is lit as soon as the uruli is; it roars while frying
+    const blaze = 0.45 + 0.55 * Math.max(frying, heat);
+    for (const f of flames) {
+      const n = 0.75 + 0.25 * Math.sin(time * f.sp + f.ph) + 0.12 * Math.sin(time * f.sp * 2.3 + f.ph * 1.7);
+      f.m.scale.set(1 - 0.15 * Math.sin(time * f.sp * 1.3 + f.ph), f.base * n * (0.6 + blaze * 0.7), 1);
+      f.m.rotation.z = Math.sin(time * 3 + f.ph) * 0.12;
+    }
+    glow.material.opacity = 0.55 + 0.4 * blaze + Math.sin(time * 11) * 0.05;
+    fireLight.intensity = (2.2 + Math.sin(time * 13) * 0.4) * blaze;
+    for (let i = 0; i < emberSeed.length; i++) {
+      const e = emberSeed[i], life = (time * 0.55 + e[1]) % 1;
+      dummy.position.set(e[0] * 0.35 + Math.sin(time * 2 + i) * 0.04, URULI_BOTTOM - 0.4 + life * 0.5, e[2] * 0.25 + 0.15);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.setScalar(e[3] * Math.sin(life * Math.PI) * blaze);
+      dummy.updateMatrix();
+      embers.setMatrixAt(i, dummy.matrix);
+    }
+    embers.instanceMatrix.needsUpdate = true;
     // oil surface shimmer
     { const pos = oilGeo.attributes.position; const amp = 0.006 + frying * 0.012;
       for (let i = 0; i < pos.count; i++) { const x = oilBase[i * 3], y = oilBase[i * 3 + 1];

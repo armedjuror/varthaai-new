@@ -92,7 +92,7 @@
 }
 
 /* ── STORY ─────────────────────────────────────────────────────────────── */
-.v2 .story { position: relative; background: var(--story-bg, var(--paper)); }
+.v2 .story { position: relative; padding: 0; background: var(--story-bg, var(--paper)); }   /* padding: 0 cancels style.css's section padding */
 .v2 .story-pin { display: none; }
 .v2 .story-head { text-align: center; padding-top: var(--section); padding-bottom: 32px; }
 .v2 .story-head h2 { font-size: clamp(2rem, 6vw, 3.4rem); }
