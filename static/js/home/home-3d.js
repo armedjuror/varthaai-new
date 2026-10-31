@@ -451,30 +451,49 @@ function initHero(assets) {
   const dummy = new THREE.Object3D();
   let orbitK = 1, orbitX = packHome.x;
 
+  // The grove runs to the screen edges but the stage is one grid column, so the
+  // canvas bleeds past the stage to the edge of the screen (to the right
+  // always, and to the left too when the stage sits alone on small screens).
+  // The scene is still framed on the stage; the bleed just lets chips carry on
+  // past it instead of vanishing at an invisible line.
   function fit() {
-    const w = canvas.clientWidth, h = canvas.clientHeight;
-    if (!w || !h) return;
+    const sr = heroStage.getBoundingClientRect();
+    const sw = heroStage.clientWidth, h = heroStage.clientHeight;
+    if (!sw || !h) return;
+    const vw = document.documentElement.clientWidth;
+    const bleedR = Math.max(0, Math.round(vw - sr.right));
+    const bleedL = window.innerWidth < 900 ? Math.max(0, Math.round(sr.left)) : 0;
+    const w = bleedL + sw + bleedR;
+    canvas.style.left = -bleedL + 'px';
+    canvas.style.width = w + 'px';
     renderer.setSize(w, h, false);
-    camera.aspect = w / h;
+    camera.aspect = sw / h;   // framing is computed for the stage alone
     const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     const needH = 2.0, needW = 2.5;
     const dist = Math.max(needH / 2 / t, needW / 2 / (t * camera.aspect));
     // Mascot sits at the stage's left on wide screens, so nudge the scene right.
     rig.position.x = camera.aspect > 1.05 ? 0.2 : 0.05;
-    // Keep the chip orbit inside the frame: the room on the tighter side of the
-    // pack, less the chip's own size and the extra reach of a burst and of
-    // chips swinging towards the camera.
-    // The orbit is centred between the pack and the middle of the frame, so it
-    // doesn't run off the side the pack is nudged towards.
-    const halfW = dist * t * camera.aspect;
-    orbitX = packHome.x * 0.35 - rig.position.x * 0.5;
-    const room = halfW - Math.abs(rig.position.x + orbitX) - 0.2;
-    orbitK = Math.max(0.55, Math.min(1, room / (1.22 * 1.15 * 1.2)));
+    // Chips orbit the pack at full reach where there is room, shrinking only
+    // if either edge of the canvas (stage plus bleed) would cut them. Budget
+    // for the chip's own size, a tap burst and chips swinging towards the camera.
+    const unitsPerPx = 2 * dist * t / h;
+    const cx = rig.position.x + packHome.x;
+    const roomL = (sw / 2 + bleedL) * unitsPerPx + cx - 0.2;
+    const roomR = (sw / 2 + bleedR) * unitsPerPx - cx - 0.2;
+    orbitX = packHome.x;
+    orbitK = Math.max(0.6, Math.min(1, Math.min(roomL, roomR) / (1.22 * 1.15 * 1.2)));
     camera.position.set(0, 0.42, dist);
     camera.lookAt(0, -0.04, 0);
+    // Widen the frustum symmetrically around the stage, then render only the
+    // part the canvas covers.
+    const side = Math.max(bleedL, bleedR);
+    camera.aspect = (sw + 2 * side) / h;
+    if (side) camera.setViewOffset(sw + 2 * side, h, side - bleedL, 0, w, h);
+    else camera.clearViewOffset();
     camera.updateProjectionMatrix();
   }
-  new ResizeObserver(fit).observe(canvas);
+  new ResizeObserver(fit).observe(heroStage);
+  window.addEventListener('resize', fit);
   fit();
 
   const emit = (type, extra) => heroStage.dispatchEvent(new CustomEvent('v2:pack', { detail: Object.assign({ type }, extra) }));
