@@ -1,0 +1,49 @@
+{% extends 'formbuilder/_base_public.html' %}
+{% block body %}
+<h1>{{ form.title }}</h1>
+{% if form.description %}<p class="desc">{{ form.description }}</p>{% endif %}
+
+{% if form_error %}<div class="alert">{{ form_error }}</div>{% endif %}
+
+<form method="post" action="{{ action }}" novalidate>
+  {% csrf_token %}
+  <div class="hp" aria-hidden="true"><input type="text" name="{{ honeypot }}" tabindex="-1" autocomplete="off"></div>
+
+  {% for it in items %}
+  {% with f=it.field %}
+  <div class="field{% if it.error %} has-error{% endif %}">
+    {% if f.field_type == 'checkbox' %}
+      <label class="check"><input type="checkbox" name="{{ f.slug }}"{% if it.value %} checked{% endif %}>
+        <span>{{ f.label }}{% if f.required %} <span class="req">*</span>{% endif %}</span></label>
+    {% else %}
+      <label class="lbl" for="f_{{ f.slug }}">{{ f.label }}{% if f.required %} <span class="req">*</span>{% endif %}</label>
+      {% if f.field_type == 'long_text' %}
+        <textarea id="f_{{ f.slug }}" name="{{ f.slug }}" placeholder="{{ f.placeholder }}" maxlength="5000">{{ it.value }}</textarea>
+      {% elif f.field_type == 'dropdown' %}
+        <select id="f_{{ f.slug }}" name="{{ f.slug }}">
+          <option value="">Select…</option>
+          {% for opt in f.options %}<option value="{{ opt }}"{% if it.value == opt %} selected{% endif %}>{{ opt }}</option>{% endfor %}
+        </select>
+      {% elif f.field_type == 'rating' %}
+        <div class="rating" role="radiogroup" aria-label="{{ f.label }}">
+          {% for n in "12345" %}<label><input type="radio" name="{{ f.slug }}" value="{{ n }}"{% if it.value == n %} checked{% endif %}><span>{{ n }}</span></label>{% endfor %}
+        </div>
+      {% else %}
+        <input id="f_{{ f.slug }}" name="{{ f.slug }}" value="{{ it.value }}" placeholder="{{ f.placeholder }}"
+          {% if f.field_type == 'number' %}type="number" step="any" inputmode="decimal"
+          {% elif f.field_type == 'email' %}type="email" inputmode="email" autocomplete="email"
+          {% elif f.field_type == 'phone' %}type="tel" inputmode="tel" autocomplete="tel" maxlength="20"
+          {% elif f.field_type == 'date' %}type="date"
+          {% else %}type="text" maxlength="500"{% if f.role == 'user_name' %} autocomplete="name"{% endif %}{% endif %}>
+      {% endif %}
+    {% endif %}
+    {% if f.help_text %}<div class="help">{{ f.help_text }}</div>{% endif %}
+    {% if it.error %}<div class="err">{{ it.error }}</div>{% endif %}
+  </div>
+  {% endwith %}
+  {% endfor %}
+
+  <button type="submit" class="submit">Submit</button>
+  {% if form.consent_text %}<p class="consent">{{ form.consent_text }}</p>{% endif %}
+</form>
+{% endblock %}

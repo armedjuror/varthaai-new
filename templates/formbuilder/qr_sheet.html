@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: A4; margin: 14mm; }
+  body { font-family: sans-serif; color: #111; margin: 0; }
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+  h1 { font-size: 13pt; margin: 0 0 6mm; color: #555; font-weight: 600; }
+  .grid { width: 100%; }
+  .cell { display: inline-block; vertical-align: top; text-align: center; box-sizing: border-box; padding: 4mm; }
+  .n1 .cell { width: 100%; }
+  .n2 .cell { width: 100%; }
+  .n4 .cell { width: 49%; }
+  .n6 .cell { width: 49%; }
+  .n12 .cell { width: 32%; }
+  .cell svg { width: 100%; height: auto; max-width: 62mm; }
+  .n1 .cell svg { max-width: 120mm; }
+  .n2 .cell svg { max-width: 90mm; }
+  .n4 .cell svg { max-width: 75mm; }
+  .n12 .cell svg { max-width: 42mm; }
+  .label { font-size: 15pt; font-weight: 700; margin-top: 2mm; word-break: break-word; }
+  .n12 .label { font-size: 10pt; }
+  .n1 .label { font-size: 24pt; }
+</style>
+</head>
+<body>
+{% for page in pages %}
+<div class="page n{{ per_page }}">
+  <h1>{{ form.title }}</h1>
+  <div class="grid">
+    {% for item in page %}<div class="cell">{{ item.svg|safe }}<div class="label">{{ item.label }}</div></div>{% endfor %}
+  </div>
+</div>
+{% endfor %}
+</body>
+</html>

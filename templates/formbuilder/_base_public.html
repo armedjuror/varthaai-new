@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block title %}{{ form.title }}{% endblock %}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --green:#85AA4E; --green-dark:#6d8f3c; --ink:#1f2937; --muted:#6b7280; --line:#e5e7eb; --bg:#f4f6f9; --danger:#c0392b; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:'Plus Jakarta Sans',system-ui,sans-serif; background:var(--bg); color:var(--ink); }
+    .wrap { max-width:520px; margin:0 auto; padding:20px 16px 48px; }
+    .card { background:#fff; border-radius:14px; box-shadow:0 1px 3px rgba(0,0,0,.08); padding:24px 20px; }
+    .brand { font-weight:800; color:var(--green-dark); font-size:14px; letter-spacing:.04em; text-transform:uppercase; margin:0 0 14px; }
+    h1 { font-size:22px; line-height:1.3; margin:0 0 6px; }
+    .desc { color:var(--muted); font-size:15px; line-height:1.5; margin:0 0 20px; white-space:pre-line; }
+    .field { margin-bottom:18px; }
+    label.lbl, .lbl { display:block; font-weight:600; font-size:14px; margin-bottom:6px; }
+    .req { color:var(--danger); }
+    .help { color:var(--muted); font-size:12.5px; margin-top:4px; }
+    input[type=text], input[type=email], input[type=tel], input[type=number], input[type=date], select, textarea {
+      width:100%; font:inherit; font-size:16px; padding:11px 12px; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink); }
+    textarea { min-height:96px; resize:vertical; }
+    input:focus, select:focus, textarea:focus { outline:2px solid var(--green); border-color:var(--green); }
+    .err { color:var(--danger); font-size:13px; margin-top:5px; }
+    .field.has-error input, .field.has-error select, .field.has-error textarea { border-color:var(--danger); }
+    .check { display:flex; gap:10px; align-items:flex-start; font-size:15px; }
+    .check input { width:20px; height:20px; margin-top:2px; accent-color:var(--green); }
+    .rating { display:flex; gap:8px; }
+    .rating label { flex:1; }
+    .rating input { position:absolute; opacity:0; }
+    .rating span { display:block; text-align:center; padding:11px 0; border:1px solid var(--line); border-radius:10px; font-weight:700; cursor:pointer; }
+    .rating input:checked + span { background:var(--green); border-color:var(--green); color:#fff; }
+    .rating input:focus-visible + span { outline:2px solid var(--green); }
+    button.submit, a.btn { display:block; width:100%; text-align:center; text-decoration:none; font:inherit; font-weight:700; font-size:16px; background:var(--green); color:#fff; border:0; border-radius:10px; padding:13px; cursor:pointer; }
+    button.submit:hover, a.btn:hover { background:var(--green-dark); }
+    .consent { color:var(--muted); font-size:12.5px; margin:14px 0 0; line-height:1.5; }
+    .hp { position:absolute; left:-9999px; height:0; overflow:hidden; }
+    .alert { background:#fdecea; color:var(--danger); border-radius:10px; padding:10px 12px; font-size:14px; margin-bottom:16px; }
+    .code-box { margin:18px 0; text-align:center; background:#f3f8ea; border:1px dashed var(--green); border-radius:12px; padding:16px; }
+    .code-box small { display:block; color:var(--muted); font-size:13px; margin-bottom:6px; }
+    .code-box strong { font-size:30px; letter-spacing:.14em; color:var(--green-dark); word-break:break-all; }
+    .center { text-align:center; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <p class="brand">{{ form.brand.name }}</p>
+      {% block body %}{% endblock %}
+    </div>
+  </div>
+</body>
+</html>
