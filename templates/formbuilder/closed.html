@@ -1,7 +1,19 @@
 {% extends 'formbuilder/_base_public.html' %}
+{% block body_class %}fx-page-closed{% endblock %}
 {% block body %}
-<div class="center">
-  <h1>{{ form.title }}</h1>
-  <p class="desc">This form is no longer accepting responses.</p>
+<div class="fx-done">
+  <div class="fx-stage fx-stage--quiet">
+    {% if is_house %}
+    <vt-mascot emotion="sleepy" doze></vt-mascot>
+    {% else %}
+    <svg class="fx-closed-icon" viewBox="0 0 80 80" aria-hidden="true"><rect x="16" y="34" width="48" height="34" rx="8"/><path d="M27 34v-8a13 13 0 0 1 26 0v8" fill="none"/><circle cx="40" cy="50" r="4.5"/></svg>
+    {% endif %}
+  </div>
+  <h1 class="fx-title">{{ form.title }}</h1>
+  <p class="fx-desc">This form is no longer accepting responses. Thanks for stopping by.</p>
+  {% if form.brand.website %}
+  <a class="fx-submit fx-submit--link fx-submit--ghost" href="{% if '://' not in form.brand.website %}https://{% endif %}{{ form.brand.website }}" rel="noopener"><span class="fx-submit-label">Visit {{ form.brand.name }}</span>
+    <svg class="fx-submit-arrow" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11M11 5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+  {% endif %}
 </div>
 {% endblock %}

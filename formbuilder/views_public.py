@@ -4,7 +4,11 @@ Public form pages: /f/<public_id>/ (+ ?p=<token> for prefilled links).
 No login. Responses carry noindex / no-store headers, POSTs are rate limited
 per IP, and a hidden honeypot field catches naive bots.
 """
+import math
+
+from django.conf import settings
 from django.core.cache import cache
+from django.templatetags.static import static
 from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
 from django.utils.html import linebreaks
@@ -43,6 +47,31 @@ def _rate_limited(request):
         return False
 
 
+def _theme(form):
+    """Look and feel for the public pages. Varthaai's own forms (the storefront
+    brand) get the mascot and grove; any other brand gets a neutral version
+    with its own logo."""
+    is_house = form.brand_id == getattr(settings, 'STOREFRONT_BRAND_ID', None)
+    logo = ''
+    if form.brand.logo:
+        logo = form.brand.logo.url
+    elif is_house:
+        logo = static('images/logo.png')
+    return {'is_house': is_house, 'brand_logo': logo}
+
+
+def _rays(n=12):
+    """Sunburst wedges (x1, y1, x2, y2) around (100, 100) for the thanks page."""
+    def point(a):
+        return round(100 + 140 * math.cos(a), 1), round(100 + 140 * math.sin(a), 1)
+
+    out, half = [], math.pi / n / 2
+    for i in range(n):
+        a = 2 * math.pi * i / n
+        out.append(point(a - half) + point(a + half))
+    return out
+
+
 def _get_form(public_id):
     form = Form.objects.select_related('key_field', 'brand').filter(public_id=public_id).first()
     if form is None or form.status == Form.DRAFT:
@@ -60,6 +89,8 @@ def _render_form(request, form, prefill, values=None, errors=None, status=200):
     response = render(request, 'formbuilder/public_form.html', {
         'form': form, 'items': items, 'honeypot': HONEYPOT,
         'action': request.get_full_path(), 'form_error': errors.get('__all__'),
+        'minutes': max(1, math.ceil(len(items) * 12 / 60)),   # ~12 s a question
+        **_theme(form),
     }, status=status)
     return _private(response)
 
@@ -69,7 +100,7 @@ def _render_form(request, form, prefill, values=None, errors=None, status=200):
 def public_form(request, public_id):
     form = _get_form(public_id)
     if form.status == Form.CLOSED:
-        return _private(render(request, 'formbuilder/closed.html', {'form': form}, status=410))
+        return _private(render(request, 'formbuilder/closed.html', {'form': form, **_theme(form)}, status=410))
 
     prefill = services.resolve_prefill(form, request.GET.get(tokens.QUERY_PARAM))
     if request.method == 'GET':
@@ -101,4 +132,6 @@ def thanks(request, public_id):
         'form': form,
         'message_html': mark_safe(linebreaks(form.success_message, autoescape=True)),  # escaped first
         'code': done.get('code', '') if form.show_code else '',
+        'rays': _rays(),
+        **_theme(form),
     }))
