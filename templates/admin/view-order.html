@@ -145,6 +145,12 @@
             <span class="info-lbl">Address</span>
             <span style="text-align:right;max-width:300px">{{ order.address|linebreaksbr }}</span>
           </div>
+          {% if order.gift_note %}
+          <div class="info-row">
+            <span class="info-lbl"><i class="fas fa-gift me-1"></i>Gift note</span>
+            <span style="text-align:right;max-width:300px">{{ order.gift_note|linebreaksbr }}</span>
+          </div>
+          {% endif %}
           {% if order.pincode %}
           <div class="info-row">
             <span class="info-lbl">Pincode</span>

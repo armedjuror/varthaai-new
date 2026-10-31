@@ -431,6 +431,7 @@ function placeOrder(recaptchaToken) {
     order.state = $('#delivery-state').val()
     order.gstin = ($('#checkout-gstin').val() || '').trim()
     order.gst_name = ($('#checkout-gst-name').val() || '').trim()
+    order.gift_note = ($('#checkout-gift-note').val() || '').trim()
     order.referral = localStorage.getItem('referral') || null
     order.recaptcha_token = recaptchaToken || ''
     $('#loader').fadeIn()
@@ -1258,4 +1259,8 @@ $('#lead-popup-submit-btn').on('click', function(e) {
     } else if (typeof submitLeadPopup === 'function') {
         submitLeadPopup(''); // reCAPTCHA not configured/loaded — backend skips verification when secret is unset
     }
+});
+
+$(document).on('input', '#checkout-gift-note', function () {
+    $('#gift-note-count').text($(this).val().length);
 });

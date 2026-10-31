@@ -340,6 +340,7 @@ function submitCreateOrder() {
     address: $('[name="address"]').val(),
     pincode: $('[name="pincode"]').val(),
     shipping_state_code: $('#createState').val(),
+    gift_note: $('[name="gift_note"]').val(),
     delivery_charge: parseFloat($('[name="delivery_charge"]').val()) || 0,
     coupon_code: $('[name="coupon_code"]').val(),
     referral_code: $('[name="referral_code"]').val(),

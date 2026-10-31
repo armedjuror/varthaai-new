@@ -619,6 +619,7 @@ class OrdersAPI(APIView):
             'name': name,
             'address': (data.get('address') or '').strip(),
             'pincode': (data.get('pincode') or '').strip(),
+            'gift_note': (data.get('gift_note') or '').strip()[:300],
             'shipping_state_code': normalise_state_code(data.get('shipping_state_code'))
             if 'shipping_state_code' in data else order.shipping_state_code,
             'delivery_charge': _float(data.get('delivery_charge')),
@@ -870,6 +871,7 @@ class CreateOrderAPI(APIView):
                 coupon_discount=coupon_discount, delivery_charge=delivery_charge,
                 status='pending', payment_status='pending',
                 order_date=order_date, shipping_state_code=state_code,
+                gift_note=(data.get('gift_note') or '').strip()[:300],
             )
             OrderItem.objects.bulk_create([
                 OrderItem(

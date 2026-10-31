@@ -84,6 +84,8 @@ class Order(models.Model):
     # invoice and fixes the place of supply to the GSTIN's state.
     billing_gstin = models.CharField(max_length=15, blank=True)
     billing_legal_name = models.CharField(max_length=255, blank=True)
+    # Optional message from the customer, printed on the greeting card.
+    gift_note = models.TextField(blank=True, default='')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

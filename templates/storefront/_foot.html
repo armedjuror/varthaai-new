@@ -42,6 +42,11 @@
             <label for="checkout-gst-name" class="form-label mt-2">Business legal name</label>
             <input type="text" class="form-control" id="checkout-gst-name">
           </div>
+          <div class="mb-3">
+            <label for="checkout-gift-note" class="form-label">Gift note <span class="text-muted">(optional)</span></label>
+            <textarea class="form-control" id="checkout-gift-note" rows="3" maxlength="300" placeholder="Your message, printed on a greeting card with the order"></textarea>
+            <div class="form-text text-end"><span id="gift-note-count">0</span>/300</div>
+          </div>
           <div class="mb-3 d-none" id="delivery-note"></div>
         </form>
       </div>

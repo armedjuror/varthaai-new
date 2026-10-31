@@ -83,6 +83,10 @@
                 <label class="form-label">Delivery Address <span class="text-danger">*</span></label>
                 <textarea class="form-control" name="address" rows="2" required>{{ order.address }}</textarea>
               </div>
+              <div class="col-12">
+                <label class="form-label">Gift note <small class="text-muted">(printed on the greeting card)</small></label>
+                <textarea class="form-control" name="gift_note" rows="2" maxlength="300">{{ order.gift_note }}</textarea>
+              </div>
               <div class="col-md-3">
                 <label class="form-label">Pincode</label>
                 <input type="text" class="form-control" name="pincode" id="pincodeInput" value="{{ order.pincode }}">
@@ -391,6 +395,7 @@ $('#editOrderForm').on('submit', function (e) {
     address:         $('[name="address"]').val().trim(),
     pincode:         $('[name="pincode"]').val().trim(),
     shipping_state_code: $('#stateSelect').val(),
+    gift_note: $('[name="gift_note"]').val(),
     status:          $('[name="status"]').val(),
     payment_status:  $('[name="payment_status"]').val(),
     delivery_charge: parseFloat($('#deliveryCharge').val()) || 0,
