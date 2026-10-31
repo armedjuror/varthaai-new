@@ -147,7 +147,7 @@ function loadAssets(onReady) {
     t.anisotropy = 4;
     return t;
   };
-  const assets = { front: tex(d.packFront), back: tex(d.packBack), side: tex(d.packSide), chip: tex(d.chip) };
+  const assets = { front: tex(d.packFront), back: tex(d.packBack), sideA: tex(d.packSideA), sideB: tex(d.packSideB), chip: tex(d.chip) };
   manager.onLoad = async () => {
     // A designed pack model (static/models/pack.glb) replaces the built-in carton.
     if (d.packModel) {
@@ -161,41 +161,51 @@ function loadAssets(onReady) {
   manager.onError = (url) => console.warn('[v2] texture failed', url);
 }
 
-/* The Varthaai carton, modelled from the 360° shoot: a gable-top box.
- * Width : depth : height = 1 : 0.42 : 1.33. Straight walls rise to a crease
- * just above the logo, then two flat roof slopes meet at the ridge, and the
- * side panels are house-shaped. Front and back carry the real printed art
- * (the front label and the back story panel run from the base, over the
- * crease, up to the ridge); the sides carry the side panel from the video. */
-const PACK = { W: 1, D: 0.42, LABEL: 708 / 988, CREASE: 0.73 };
+/* The Varthaai carton, built from the print dieline (Chips Box 21.5 x 14.5 x 10 cm).
+ * Panels are 14.5 cm (front/back) and 10 cm (sides) wide and 21.5 cm tall flat.
+ * Scored creases on the side panels make a milk-carton gable: walls rise to
+ * 11.97 cm, the side gusset folds in along two 45° diagonals that meet 4.57 cm
+ * below the top, the front and back roofs meet at a ridge at 16.93 cm, and the
+ * last 2.5 cm of front and back stand together as the top seal fin.
+ * Every face is textured with its own panel cut straight from the dieline, so
+ * the art wraps round the corners exactly as printed.
+ * World units: 1 = 14.5 cm (the front width). */
+const CM = 1 / 14.5;
+const PACK = {
+  W: 14.5 * CM, D: 10 * CM, FLAT: 21.5 * CM,
+  SHOULDER: (21.5 - 9.53) * CM,          // where the side diagonals reach the edges
+  APEX: (21.5 - 4.57) * CM,              // ridge height (side gable apex)
+};
 function packProfile() {
-  const labelLen = PACK.W / PACK.LABEL;          // printed panel length, base to ridge
-  const wall = labelLen * PACK.CREASE;           // vertical wall up to the crease
-  const roof = labelLen - wall;                  // roof slope length, crease to ridge
-  const rise = Math.sqrt(Math.max(0.01, roof * roof - (PACK.D / 2) ** 2));
-  return { labelLen, wall, roof, rise, top: wall + rise };
+  const rise = PACK.APEX - PACK.SHOULDER;
+  const roof = Math.hypot(PACK.D / 2, rise);          // roof slope length on front/back
+  const fin = PACK.FLAT - PACK.SHOULDER - roof;       // standing seal above the ridge
+  return { wall: PACK.SHOULDER, rise, roof, fin, ridge: PACK.APEX, top: PACK.APEX + fin };
 }
 
 function makePack(assets) {
   if (assets.model) return fromModel(assets.model);
-  const { W, D } = PACK;
+  const { W, D, FLAT } = PACK;
   const P = packProfile();
   const group = new THREE.Group();
-  const board = (map) => new THREE.MeshPhysicalMaterial({ map, roughness: 0.58, sheen: 0.3, sheenRoughness: 0.8, sheenColor: 0xfff4d6, clearcoat: 0.1, clearcoatRoughness: 0.6 });
+  const board = (map) => {
+    map.anisotropy = 8;
+    return new THREE.MeshPhysicalMaterial({ map, roughness: 0.55, sheen: 0.3, sheenRoughness: 0.8, sheenColor: 0xfff4d6, clearcoat: 0.12, clearcoatRoughness: 0.55, side: THREE.DoubleSide });
+  };
 
-  // Front and back: one sheet each, folded at the crease.
-  const NU = 24, NV = 48;
-  function face(sign) {
+  // Front and back: one printed panel each, folded at the shoulder and the ridge.
+  const NU = 20, NV = 64;
+  function sheet(sign) {
     const pos = [], uv = [], idx = [];
     for (let j = 0; j <= NV; j++) {
-      const v = j / NV, L = v * P.labelLen;
+      const v = j / NV, L = v * FLAT;
       let y, z;
       if (L <= P.wall) { y = L; z = D / 2; }
-      else { const t = (L - P.wall) / P.roof; y = P.wall + t * P.rise; z = (D / 2) * (1 - t); }
+      else if (L <= P.wall + P.roof) { const t = (L - P.wall) / P.roof; y = P.wall + t * P.rise; z = (D / 2) * (1 - t); }
+      else { y = P.ridge + (L - P.wall - P.roof); z = 0.004; }
       for (let i = 0; i <= NU; i++) {
         const u = i / NU;
-        // board bows out a touch between the folds, as a filled carton does
-        const bow = L <= P.wall ? 0.012 * Math.sin(Math.PI * u) * Math.sin(Math.PI * Math.min(1, L / P.wall)) : 0;
+        const bow = L <= P.wall ? 0.01 * Math.sin(Math.PI * u) * Math.sin(Math.PI * Math.min(1, L / P.wall)) : 0;
         pos.push((sign > 0 ? u - 0.5 : 0.5 - u) * W, y, sign * (z + bow));
         uv.push(u, v);
       }
@@ -207,40 +217,47 @@ function makePack(assets) {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    g.setIndex(idx);
+    g.setIndex(sign > 0 ? idx : idx.slice().reverse());
     g.computeVertexNormals();
     return g;
   }
-  const front = new THREE.Mesh(face(1), board(assets.front));
-  const back = new THREE.Mesh(face(-1), board(assets.back || assets.front));
-  group.add(front, back);
+  group.add(new THREE.Mesh(sheet(1), board(assets.front)));
+  group.add(new THREE.Mesh(sheet(-1), board(assets.back || assets.front)));
 
-  // Sides: a rectangle with a gable on top, cut to the same crease and ridge.
+  // Sides: the visible part of each side panel is the wall plus the gable
+  // triangle; the gusset above the diagonals tucks inside. s runs along the
+  // panel from its dieline-left edge, so the texture lands exactly as printed.
   const shape = new THREE.Shape();
-  shape.moveTo(-D / 2, 0); shape.lineTo(D / 2, 0); shape.lineTo(D / 2, P.wall);
-  shape.lineTo(0, P.top); shape.lineTo(-D / 2, P.wall); shape.lineTo(-D / 2, 0);
-  const sideGeo = new THREE.ShapeGeometry(shape);
-  const sp = sideGeo.attributes.position, suv = sideGeo.attributes.uv;
-  for (let i = 0; i < sp.count; i++) suv.setXY(i, (sp.getX(i) + D / 2) / D, sp.getY(i) / P.top);
-  const sideMat = board(assets.side);
-  for (const sx of [1, -1]) {
-    const g = sideGeo.clone();
-    g.rotateY(sx * Math.PI / 2);
-    g.translate(sx * W / 2, 0, 0);
-    group.add(new THREE.Mesh(g, sideMat));
+  shape.moveTo(0, 0); shape.lineTo(D, 0); shape.lineTo(D, P.wall); shape.lineTo(D / 2, P.ridge); shape.lineTo(0, P.wall); shape.lineTo(0, 0);
+  function side(right) {
+    const g = new THREE.ShapeGeometry(shape);
+    const pos = g.attributes.position, uv = g.attributes.uv;
+    for (let i = 0; i < pos.count; i++) {
+      const s = pos.getX(i), y = pos.getY(i);
+      uv.setXY(i, s / D, y / FLAT);
+      // right side (+x): its left edge meets the front; left side (-x): its right edge meets the front
+      if (right) pos.setXYZ(i, W / 2, y, D / 2 - s);
+      else pos.setXYZ(i, -W / 2, y, -D / 2 + s);
+    }
+    g.computeVertexNormals();
+    return g;
   }
+  group.add(new THREE.Mesh(side(true), board(assets.sideA || assets.side)));
+  group.add(new THREE.Mesh(side(false), board(assets.sideB || assets.side)));
+
   // Base.
   const base = new THREE.Mesh(new THREE.PlaneGeometry(W, D), new THREE.MeshStandardMaterial({ color: 0xa8c266, roughness: 0.8 }));
   base.rotation.x = Math.PI / 2;
   group.add(base);
-  // A thin fold line along the ridge and the creases catches the light like scored board.
-  const crease = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 });
-  const pts = (arr) => new THREE.BufferGeometry().setFromPoints(arr.map(([x, y, z]) => new THREE.Vector3(x, y, z)));
-  group.add(new THREE.Line(pts([[-W / 2, P.top + 0.001, 0], [W / 2, P.top + 0.001, 0]]), crease));
-  for (const sz of [1, -1]) group.add(new THREE.Line(pts([[-W / 2, P.wall, sz * (D / 2 + 0.002)], [W / 2, P.wall, sz * (D / 2 + 0.002)]]), crease));
+
+  // Scored folds catch the light.
+  const crease = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 });
+  const line = (pts) => new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(([x, y, z]) => new THREE.Vector3(x, y, z))), crease);
+  for (const sz of [1, -1]) group.add(line([[-W / 2, P.wall, sz * (D / 2 + 0.002)], [W / 2, P.wall, sz * (D / 2 + 0.002)]]));
+  group.add(line([[-W / 2, P.ridge, 0], [W / 2, P.ridge, 0]]));
 
   group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-  group.position.y = -P.top / 2;                 // centre on the pivot
+  group.position.y = -P.top / 2;
   const pivot = new THREE.Group();
   pivot.add(group);
   pivot.userData.height = P.top;
