@@ -126,7 +126,7 @@
 </div>
 
 <!-- Modal: Order Success -->
-<div class="modal fade" id="orderSuccessModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="orderSuccessModal" tabindex="-1" aria-hidden="true" data-celebrate>
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header border-0">
@@ -137,8 +137,9 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body text-center">
-        <div class="success-icon mb-4">
-          <i class="fas fa-check-circle text-success" style="font-size: 4rem;"></i>
+        <div class="celebrate-stage" aria-hidden="true">
+          <vt-mascot emotion="surprised" track></vt-mascot>
+          <div class="vt-bubble">Yay! Your chips are on the way!</div>
         </div>
         <h4 class="text-success mb-3">Thank You for Your Order!</h4>
         <p class="mb-4">Your payment has been processed successfully and your order is confirmed.</p>

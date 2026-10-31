@@ -272,3 +272,31 @@ body.v2 .lead-popup-cta { background: var(--leaf-deep); border-radius: 999px; }
   .v2 .page-hero h1 { padding-right: 92px; }
   .v2 .page-hero .mascot-wrap .vt-bubble { right: 30%; left: auto; top: 96%; border-radius: 16px 4px 16px 16px; max-width: 200px; }
 }
+
+/* ── Doodle pattern from the pack, under every cream section ───────────── */
+body.v2 { background: url("../images/background.svg") 0 0 / 640px auto repeat, var(--cream); }
+
+/* ── Celebrations (order placed, review sent, popup claimed, story done) ── */
+.v2 .celebrate-stage {
+  position: relative; height: 190px; margin: -6px -24px 14px; overflow: hidden; isolation: isolate;
+  background: radial-gradient(70% 90% at 50% 100%, #FFF2B8 0%, #F6EFD2 55%, var(--paper) 100%);
+}
+.v2 .celebrate-stage::before { content: ""; position: absolute; left: 50%; top: 100%; width: 900px; height: 900px; margin: -450px 0 0 -450px; z-index: -1;
+  background: repeating-conic-gradient(from 0deg, rgba(233, 194, 2, .28) 0deg 7deg, transparent 7deg 18deg); animation: celebRays 26s linear infinite; }
+.v2 .celebrate-stage::after { content: ""; position: absolute; inset: 0; z-index: -1; opacity: .9;
+  background: url("../images/background.svg") center / 420px auto repeat;
+  -webkit-mask-image: linear-gradient(transparent, #000 40%, #000); mask-image: linear-gradient(transparent, #000 40%, #000); }
+@keyframes celebRays { to { transform: rotate(360deg); } }
+.v2 .celebrate-stage vt-mascot { position: absolute; left: 50%; bottom: 4px; width: 132px; margin-left: -66px; }
+.v2 .celebrate-stage .vt-bubble { left: 50%; top: 14px; margin-left: 40px; }
+.v2 .celebrate-stage--sm { height: 150px; margin: 0 0 10px; border-radius: 18px; }
+.v2 .celebrate-stage--sm vt-mascot { width: 104px; margin-left: -52px; }
+.v2 .confetti { position: absolute; left: 50%; top: 60%; width: 14px; height: 14px; pointer-events: none; z-index: 5; border-radius: 3px; }
+.v2 .confetti.is-chip { width: 26px; height: 26px; border-radius: 50%; background: url("../images/home/chip.webp") center / cover; box-shadow: 0 3px 6px rgba(0, 0, 0, .18); }
+body.v2 .modal [data-celebrate] .modal-content, body.v2 .modal[data-celebrate] .modal-content { overflow: hidden; }
+.v2 .celebrate-stage .vt-bubble { left: auto; right: 12px; top: 12px; margin: 0; max-width: 44%; }
+body.v2 .modal .alert { border: 0; border-radius: 16px; }
+body.v2 .modal .alert-success { background: rgba(176, 196, 98, .22); color: var(--forest); }
+body.v2 .modal .alert-info { background: rgba(233, 194, 2, .16); color: #6A4A06; }
+body.v2 .modal .order-details.bg-light { background: var(--cream) !important; border-radius: 18px !important; }
+body.v2 .modal .modal-title.text-success, body.v2 .modal h4.text-success { color: var(--leaf-deep) !important; }

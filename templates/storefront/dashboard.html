@@ -196,7 +196,7 @@
   </div>
 </div>
 
-<div class="modal fade" id="dashboardReviewSuccessModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="dashboardReviewSuccessModal" tabindex="-1" aria-hidden="true" data-celebrate>
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
@@ -204,7 +204,10 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body text-center">
-        <div class="success-icon mb-4"><i class="fas fa-check-circle" style="font-size: 3rem; color: #28a745;"></i></div>
+        <div class="celebrate-stage" aria-hidden="true">
+          <vt-mascot emotion="surprised" track></vt-mascot>
+          <div class="vt-bubble">You made my day!</div>
+        </div>
         <h4>Thank You for Your Review</h4>
         <p>It will get featured once approved!</p>
         <div class="order-details mt-4">

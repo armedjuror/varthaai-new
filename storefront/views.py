@@ -14,6 +14,8 @@ from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.safestring import mark_safe
+from django.contrib.staticfiles import finders
+from django.templatetags.static import static
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 from accounts.models import PointsTransaction
@@ -102,6 +104,8 @@ def home(request):
         b.list_excerpt = _blog_excerpt(b)
     flavors = _home_flavors()
     reviews, review_count, review_avg = _home_reviews()
+    # A designed 3D pack, if one has been dropped in (see static/models/README.md).
+    pack_model = static('models/pack.glb') if finders.find('models/pack.glb') else ''
     return render(request, 'storefront/home.html', _ctx(
         request,
         latest_blogs=latest_blogs,
@@ -110,6 +114,7 @@ def home(request):
         reviews=reviews,
         review_count=review_count,
         review_avg=review_avg,
+        pack_model=pack_model,
     ))
 
 

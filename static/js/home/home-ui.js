@@ -171,6 +171,14 @@
       ['excited', 'Hot coconut oil. My favourite bath.'],
       ['love', 'Salted, cooled, packed. Hi!'],
     ];
+    var pin = story.querySelector('.story-pin');
+    story.addEventListener('v2:story-complete', function () {
+      m.emote('excited');
+      m.hop();
+      window.VT.burst(pin, { x: 90, y: 22, count: 30 });
+      window.VT.say(bubble, 'Ta-da! That\'s how every pack is made.', 3200);
+      setTimeout(function () { m.emote('love'); }, 1800);
+    });
     story.addEventListener('v2:beat', function (e) {
       var b = beats[e.detail.i];
       if (!b) return;

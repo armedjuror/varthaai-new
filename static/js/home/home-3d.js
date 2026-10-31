@@ -148,7 +148,16 @@ function loadAssets(onReady) {
     return t;
   };
   const assets = { front: tex(d.packFront), back: tex(d.packBack), side: tex(d.packSide), chip: tex(d.chip) };
-  manager.onLoad = () => onReady(assets);
+  manager.onLoad = async () => {
+    // A designed pack model (static/models/pack.glb) replaces the built-in carton.
+    if (d.packModel) {
+      try {
+        const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js');
+        assets.model = (await new GLTFLoader().loadAsync(d.packModel)).scene;
+      } catch (err) { console.warn('[v2] pack model failed, using the built-in carton', err); }
+    }
+    onReady(assets);
+  };
   manager.onError = (url) => console.warn('[v2] texture failed', url);
 }
 
@@ -168,6 +177,7 @@ function packProfile() {
 }
 
 function makePack(assets) {
+  if (assets.model) return fromModel(assets.model);
   const { W, D } = PACK;
   const P = packProfile();
   const group = new THREE.Group();
@@ -234,6 +244,23 @@ function makePack(assets) {
   const pivot = new THREE.Group();
   pivot.add(group);
   pivot.userData.height = P.top;
+  return pivot;
+}
+
+/* Wrap a supplied glTF pack so it behaves like the built-in carton: same
+ * height, centred on its pivot, casting shadows. */
+function fromModel(model) {
+  const obj = model.clone(true);
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = box.getSize(new THREE.Vector3()), centre = box.getCenter(new THREE.Vector3());
+  const height = packProfile().top;
+  const k = height / Math.max(size.y, 1e-6);
+  obj.position.sub(centre).multiplyScalar(k);
+  obj.scale.multiplyScalar(k);
+  obj.traverse((o) => { if (o.isMesh) { o.castShadow = true; if (o.material) o.material.envMapIntensity = 1; } });
+  const pivot = new THREE.Group();
+  pivot.add(obj);
+  pivot.userData.height = height;
   return pivot;
 }
 
@@ -479,9 +506,18 @@ function initHero(assets) {
 }
 
 /* ═══ STORY ════════════════════════════════════════════════════════════ */
+/* How the chips are made, scrubbed by scroll and synced to the caption cards:
+ *   1  a raw Nendran is peeled, strips curling back from the stem end
+ *   2  it is pushed through a slicer held over the uruli, and each slice
+ *      drops (real gravity, in real time) into the coconut oil and floats
+ *   3  the slices fry pale -> gold under bubbling oil, stirred with a jhara
+ *   4  they are lifted out and into the pack
+ * The background (gradient, doodle pattern, steam, embers) is CSS, driven by
+ * the same progress through custom properties on the pinned stage. */
 function initStory(assets) {
   const canvas = document.getElementById('story-canvas');
   const bar = document.getElementById('story-bar');
+  const pin = storyEl.querySelector('.story-pin');
   storyEl.dataset.mode = '3d';
 
   const renderer = makeRenderer(canvas);
@@ -490,96 +526,197 @@ function initStory(assets) {
   const dpr = adaptiveDPR(renderer);
   addEnvironment(renderer, scene, 0.5);
   addLights(scene);
-  const glow = new THREE.PointLight(0xffb84a, 0, 6, 1.6);
-  glow.position.set(0, 1.1, 1.2);
-  scene.add(glow);
+  const fire = new THREE.PointLight(0xffa640, 0, 5, 1.6);
+  scene.add(fire);
 
   const world = new THREE.Group();
   scene.add(world);
 
-  /* Banana: a curved tube, tapered to the tips, with Nendran's soft ridges. */
+  const BLADE_Y = 0.42;          // slicer blade height
+  const URULI_Y = -0.78;         // uruli rim reference
+  const URULI_S = 0.85;
+  const OIL_LOCAL = -0.2;        // oil surface inside the uruli (local units)
+
+  /* ── 1. Banana: flesh + four peel strips + stem ─────────────────── */
   const curve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-1.25, -0.25, 0), new THREE.Vector3(-0.65, 0.18, 0), new THREE.Vector3(0, 0.32, 0),
-    new THREE.Vector3(0.65, 0.18, 0), new THREE.Vector3(1.25, -0.25, 0),
+    new THREE.Vector3(-1.2, -0.22, 0), new THREE.Vector3(-0.62, 0.17, 0), new THREE.Vector3(0, 0.3, 0),
+    new THREE.Vector3(0.62, 0.17, 0), new THREE.Vector3(1.2, -0.22, 0),
   ]);
-  const TS = 72, RS = 30;
-  const bGeo = new THREE.TubeGeometry(curve, TS, 0.27, RS, false);
-  {
-    const pos = bGeo.attributes.position, c = new THREE.Vector3(), v = new THREE.Vector3();
-    for (let i = 0; i <= TS; i++) {
-      const t = i / TS;
-      curve.getPointAt(t, c);
-      const taper = Math.max(0.1, Math.pow(Math.sin(Math.PI * t), 0.42));
-      for (let j = 0; j <= RS; j++) {
-        const k = i * (RS + 1) + j;
-        v.fromBufferAttribute(pos, k).sub(c);
-        const ridge = 1 + 0.06 * Math.cos((j / RS) * Math.PI * 2 * 5);
-        v.multiplyScalar(taper * ridge).add(c);
-        pos.setXYZ(k, v.x, v.y, v.z);
-      }
-    }
-    bGeo.computeVertexNormals();
-  }
+  const TS = 64, RS = 32, R0 = 0.26;
+  const taper = (t) => Math.max(0.12, Math.pow(Math.sin(Math.PI * t), 0.42));
+  const frames = curve.computeFrenetFrames(TS, false);
+  const cAt = (i) => curve.getPointAt(i / TS);
   const banana = new THREE.Group();
-  banana.add(new THREE.Mesh(bGeo, new THREE.MeshStandardMaterial({ color: 0x7f9c34, roughness: 0.5 })));
-  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 0.22, 10), new THREE.MeshStandardMaterial({ color: 0x4a3b22, roughness: 0.8 }));
-  stem.position.set(1.3, -0.24, 0); stem.rotation.z = -0.9;
-  banana.add(stem);
   world.add(banana);
 
-  /* Uruli: a wide, shallow bell-metal pan, with coconut oil inside. */
+  // flesh (cream, slightly smaller than the skin)
+  const flesh = new THREE.Mesh(new THREE.TubeGeometry(curve, TS, R0 * 0.94, RS, false), new THREE.MeshStandardMaterial({ color: 0xEDE2B8, roughness: 0.75 }));
+  {
+    const pos = flesh.geometry.attributes.position, v = new THREE.Vector3();
+    for (let i = 0; i <= TS; i++) {
+      const c = cAt(i), k = taper(i / TS);
+      for (let j = 0; j <= RS; j++) { const n = i * (RS + 1) + j; v.fromBufferAttribute(pos, n).sub(c).multiplyScalar(k).add(c); pos.setXYZ(n, v.x, v.y, v.z); }
+    }
+    flesh.geometry.computeVertexNormals();
+  }
+  banana.add(flesh);
+
+  // skin as four strips; base positions stored so the peel can be recomputed each frame
+  const STRIPS = 4, SJ = 9, GAP = 0.04;
+  const skinMat = new THREE.MeshStandardMaterial({ color: 0x7F9C34, roughness: 0.55, side: THREE.DoubleSide, transparent: true });
+  const strips = [];
+  for (let k = 0; k < STRIPS; k++) {
+    const a0 = (k / STRIPS) * Math.PI * 2 + GAP, a1 = ((k + 1) / STRIPS) * Math.PI * 2 - GAP;
+    const pos = new Float32Array((TS + 1) * SJ * 3), idx = [];
+    for (let i = 0; i < TS; i++) for (let j = 0; j < SJ - 1; j++) {
+      const a = i * SJ + j, b = a + 1, c = a + SJ, d = c + 1; idx.push(a, c, b, b, c, d);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    const m = new THREE.Mesh(g, skinMat);
+    banana.add(m);
+    strips.push({ g, pos, a0, a1 });
+  }
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.05, 0.22, 10), new THREE.MeshStandardMaterial({ color: 0x4A3B22, roughness: 0.8 }));
+  stem.position.set(1.27, -0.24, 0); stem.rotation.z = -0.9;
+  banana.add(stem);
+
+  const tmpC = new THREE.Vector3(), tmpR = new THREE.Vector3(), tmpH = new THREE.Vector3(), tmpD = new THREE.Vector3();
+  let lastPeel = -1;
+  function layoutPeel(peel) {
+    if (Math.abs(peel - lastPeel) < 1e-4) return;
+    lastPeel = peel;
+    const hinge = Math.round((1 - peel * 0.92) * TS);          // strips come away from the stem end (t = 1)
+    const hc = cAt(hinge), T = frames.tangents[Math.min(hinge, TS)];
+    const segLen = curve.getLength() / TS;
+    for (const s of strips) {
+      for (let i = 0; i <= TS; i++) {
+        const t = i / TS, r = R0 * taper(t) * 1.02;
+        const c = i <= hinge ? cAt(i) : hc;
+        for (let j = 0; j < SJ; j++) {
+          const ang = s.a0 + (s.a1 - s.a0) * (j / (SJ - 1));
+          const fi = Math.min(i, hinge);
+          tmpR.copy(frames.normals[fi]).multiplyScalar(Math.cos(ang)).addScaledVector(frames.binormals[fi], Math.sin(ang));
+          if (i <= hinge) {
+            tmpC.copy(cAt(i)).addScaledVector(tmpR, r);
+          } else {
+            // curl outward and back from the hinge
+            const L = (i - hinge) * segLen;
+            const th = Math.min(2.5, 0.7 + L * 2.6);
+            tmpD.copy(T).multiplyScalar(Math.cos(th)).addScaledVector(tmpR, Math.sin(th));
+            tmpH.copy(hc).addScaledVector(tmpR, R0 * taper(hinge / TS) * 1.02);
+            tmpC.copy(tmpH).addScaledVector(tmpD, L * 0.9);
+          }
+          s.pos.set([tmpC.x, tmpC.y, tmpC.z], (i * SJ + j) * 3);
+        }
+      }
+      s.g.attributes.position.needsUpdate = true;
+      s.g.computeVertexNormals();
+      s.g.computeBoundingSphere();
+    }
+  }
+  layoutPeel(0);
+
+  /* ── 2. Upright peeled banana + slicer ──────────────────────────── */
+  const uprightGeo = new THREE.CylinderGeometry(0.19, 0.22, 1, 28, 1);
+  uprightGeo.translate(0, 0.5, 0);
+  const upright = new THREE.Mesh(uprightGeo, flesh.material);
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.19, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), flesh.material);
+  upright.add(cap);
+  world.add(upright);
+
+  const slicer = new THREE.Group();
+  const wood = new THREE.MeshStandardMaterial({ color: 0xB98552, roughness: 0.62 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0xDCE0E4, metalness: 0.9, roughness: 0.22 });
+  const boardL = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.05, 0.62), wood); boardL.position.x = -0.42;
+  const boardR = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.05, 0.62), wood); boardR.position.x = 0.42;
+  const rail1 = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.05, 0.12), wood); rail1.position.set(0, 0, 0.25);
+  const rail2 = rail1.clone(); rail2.position.z = -0.25;
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.012, 0.42), steel); blade.position.set(0.02, 0.012, 0); blade.rotation.y = 0.35;
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.5, 12), new THREE.MeshStandardMaterial({ color: 0x6B4426, roughness: 0.7 }));
+  handle.rotation.z = Math.PI / 2; handle.position.x = 0.98;
+  slicer.add(boardL, boardR, rail1, rail2, blade, handle);
+  slicer.position.y = BLADE_Y;
+  world.add(slicer);
+
+  /* ── 3. Uruli, oil, bubbles, ripples, jhara ─────────────────────── */
   const prof = [
     [0, -0.52], [0.5, -0.52], [0.92, -0.42], [1.18, -0.22], [1.3, 0.02], [1.38, 0.05], [1.36, 0.09],
     [1.24, 0.05], [1.12, -0.16], [0.88, -0.35], [0.48, -0.44], [0, -0.45],
   ].map(([x, y]) => new THREE.Vector2(x, y));
   const uruli = new THREE.Group();
-  const pan = new THREE.Mesh(new THREE.LatheGeometry(prof, 64), new THREE.MeshStandardMaterial({ color: 0xa8692f, metalness: 0.45, roughness: 0.35, side: THREE.DoubleSide }));
-  uruli.add(pan);
-  for (const s of [-1, 1]) {
-    const h = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.035, 10, 24), pan.material);
-    h.position.set(s * 1.44, 0.05, 0); h.rotation.y = Math.PI / 2;
-    uruli.add(h);
+  const panMat = new THREE.MeshStandardMaterial({ color: 0xA8692F, metalness: 0.55, roughness: 0.32, side: THREE.DoubleSide });
+  uruli.add(new THREE.Mesh(new THREE.LatheGeometry(prof, 72), panMat));
+  for (const sx of [-1, 1]) {
+    const h = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.035, 10, 24), panMat);
+    h.position.set(sx * 1.44, 0.05, 0); h.rotation.y = Math.PI / 2; uruli.add(h);
   }
-  const oilMat = new THREE.MeshStandardMaterial({ color: 0xe0a52a, emissive: 0x7a3f00, emissiveIntensity: 0, roughness: 0.12, metalness: 0.15, transparent: true, opacity: 0.92 });
-  const oil = new THREE.Mesh(new THREE.CircleGeometry(1.08, 64), oilMat);
-  oil.rotation.x = -Math.PI / 2; oil.position.y = -0.2;
+  const oilMat = new THREE.MeshPhysicalMaterial({ color: 0xD99A22, emissive: 0x6A3300, emissiveIntensity: 0.15, roughness: 0.08, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.05, transparent: true, opacity: 0.9 });
+  const oilGeo = new THREE.CircleGeometry(1.1, 96, 0, Math.PI * 2);
+  const oil = new THREE.Mesh(oilGeo, oilMat);
+  oil.rotation.x = -Math.PI / 2; oil.position.y = OIL_LOCAL;
   uruli.add(oil);
-  const BUB = 36;
-  const bubbles = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshStandardMaterial({ color: 0xfff1b8, roughness: 0.1, transparent: true, opacity: 0.75 }), BUB);
-  bubbles.frustumCulled = false;
-  uruli.add(bubbles);
-  const bubData = Array.from({ length: BUB }, () => ({ r: Math.sqrt(rand()) * 0.95, a: rand() * Math.PI * 2, ph: rand(), s: 0.015 + rand() * 0.03 }));
+  uruli.scale.setScalar(URULI_S);
   world.add(uruli);
+  const oilBase = Float32Array.from(oilGeo.attributes.position.array);
 
-  /* Slices → chips. */
-  const S = coarse ? 16 : 22;
-  const slices = makeChipMesh(assets, S);
-  const fry = slices.geometry.getAttribute('fry');
-  world.add(slices);
-  const sd = Array.from({ length: S }, (_, i) => {
-    const r = Math.sqrt(rand()) * 0.85, a = rand() * Math.PI * 2;
-    return {
-      fanA: (i / (S - 1) - 0.5) * Math.PI * 0.95,
-      bowl: new THREE.Vector3(Math.cos(a) * r, -0.16 + rand() * 0.06, Math.sin(a) * r),
-      tilt: new THREE.Euler((rand() - 0.5) * 0.5, rand() * 6, (rand() - 0.5) * 0.5),
-      swirl: rand() * Math.PI * 2,
-      delay: rand() * 0.3,
-    };
+  const BUB = coarse ? 60 : 110;
+  const bubbles = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshStandardMaterial({ color: 0xFFF2C2, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.8 }), BUB);
+  bubbles.frustumCulled = false;
+  world.add(bubbles);
+  const bub = Array.from({ length: BUB }, () => ({ chip: Math.floor(rand() * 1e6), ox: (rand() - 0.5) * 0.36, oz: (rand() - 0.5) * 0.36, ph: rand(), s: 0.012 + rand() * 0.022, sp: 0.8 + rand() * 1.4 }));
+
+  const RIP = 8;
+  const ripples = Array.from({ length: RIP }, () => {
+    const m = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 40), new THREE.MeshBasicMaterial({ color: 0xFFF0C0, transparent: true, opacity: 0, depthWrite: false }));
+    m.rotation.x = -Math.PI / 2; m.visible = false; world.add(m);
+    return { m, t: 1 };
   });
+  let ripI = 0;
+  const ripple = (x, y, z) => { const r = ripples[ripI++ % RIP]; r.m.position.set(x, y + 0.004, z); r.t = 0; r.m.visible = true; };
 
-  /* Pouch for the final beat, and a turmeric-and-salt dusting. */
-  const pouchPivot = makePack(assets);
-  world.add(pouchPivot);
+  // jhara: perforated steel disc on a long handle
+  const holes = document.createElement('canvas'); holes.width = holes.height = 256;
+  { const c = holes.getContext('2d'); c.fillStyle = '#fff'; c.beginPath(); c.arc(128, 128, 126, 0, Math.PI * 2); c.fill();
+    c.globalCompositeOperation = 'destination-out';
+    for (let y = 22; y < 240; y += 22) for (let x = 22; x < 240; x += 22) { if ((x - 128) ** 2 + (y - 128) ** 2 < 104 ** 2) { c.beginPath(); c.arc(x + ((y / 22) % 2) * 11, y, 6, 0, Math.PI * 2); c.fill(); } } }
+  const holeTex = new THREE.CanvasTexture(holes);
+  const jhara = new THREE.Group();
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(0.3, 48), new THREE.MeshStandardMaterial({ color: 0xD6DADF, metalness: 0.9, roughness: 0.25, alphaMap: holeTex, alphaTest: 0.5, side: THREE.DoubleSide }));
+  disc.rotation.x = -Math.PI / 2;
+  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, 1.6, 10), steel);
+  stick.rotation.z = -1.0; stick.position.set(0.62, 0.42, 0);
+  jhara.add(disc, stick);
+  world.add(jhara);
+
+  /* ── Chips: one instanced set from slice to pack ───────────────── */
+  const S = coarse ? 18 : 26;
+  const chips = makeChipMesh(assets, S);
+  const fry = chips.geometry.getAttribute('fry');
+  world.add(chips);
+  const SLICE_A = 0.33, SLICE_B = 0.53, FALL_G = 3.4;
+  const cs = Array.from({ length: S }, (_, i) => ({
+    t: SLICE_A + (i / S) * (SLICE_B - SLICE_A),
+    state: 0,                         // 0 waiting, 1 falling, 2 floating
+    p: new THREE.Vector3(), v: new THREE.Vector3(), rot: new THREE.Euler(), spin: new THREE.Vector3(),
+    r: 0.15 + Math.sqrt(rand()) * 0.62, a: rand() * Math.PI * 2, bob: rand() * 6, flat: new THREE.Euler((rand() - 0.5) * 0.18, rand() * 6, (rand() - 0.5) * 0.18),
+    lift: 0.76 + (i / S) * 0.11,
+  }));
+
+  /* ── 4. Pack + turmeric/salt dust ───────────────────────────────── */
+  const pack = makePack(assets);
+  world.add(pack);
   const DUST = coarse ? 160 : 320;
   const dustGeo = new THREE.BufferGeometry();
   const dustPos = new Float32Array(DUST * 3);
   const dustSeed = Array.from({ length: DUST }, () => [rand() * 2 - 1, rand(), rand() * 2 - 1, rand()]);
   dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
-  const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: 0xe9a516, size: 0.03, transparent: true, opacity: 0, depthWrite: false }));
+  const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({ color: 0xE9A516, size: 0.03, transparent: true, opacity: 0, depthWrite: false }));
   dust.frustumCulled = false;
   world.add(dust);
 
-  /* Layout: captions sit left on desktop and at the bottom on phones. */
+  /* Layout: captions left on desktop, at the bottom on phones. */
   let portrait = false;
   function fit() {
     const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -588,22 +725,20 @@ function initStory(assets) {
     camera.aspect = w / h;
     portrait = camera.aspect < 0.95;
     const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-    const needW = portrait ? 3.1 : 3.6, needH = 3.0;
+    const needW = portrait ? 3.2 : 3.9, needH = 3.3;
     const dist = Math.max(needH / 2 / t, needW / 2 / (t * camera.aspect));
-    camera.position.set(0, 1.0, dist);
-    camera.lookAt(0, 0, 0);
+    camera.position.set(0, 1.5, dist);
+    camera.lookAt(0, 0.0, 0);
     camera.updateProjectionMatrix();
-    world.position.set(portrait ? 0 : Math.min(1.15, (camera.aspect - 1) * 1.2 + 0.45), portrait ? 0.75 : 0, 0);
-    world.scale.setScalar(portrait ? 0.82 : 1);
+    world.position.set(portrait ? 0 : Math.min(1.15, (camera.aspect - 1) * 1.2 + 0.45), portrait ? 0.7 : 0.05, 0);
+    world.scale.setScalar(portrait ? 0.8 : 1);
   }
   new ResizeObserver(fit).observe(canvas);
   fit();
 
-  /* Scroll → progress, keyed to the caption cards so each beat plays while its
-   * card is on screen. Phones read a card in the lower part of the screen
-   * (the scene sits above it); desktop reads it at the vertical centre. */
+  /* Scroll -> progress, keyed to the caption cards. */
   const steps = [...storyEl.querySelectorAll('.story-step')];
-  const BEATS = [0.13, 0.38, 0.62, 0.885];
+  const BEATS = [0.13, 0.4, 0.62, 0.885];
   let anchors = [];
   function measure() {
     const vh = window.innerHeight, y = window.scrollY;
@@ -615,7 +750,7 @@ function initStory(assets) {
     anchors.start = r.top + y;
     anchors.end = r.top + y + r.height - vh;
   }
-  let target = 0, p = 0, active = -1;
+  let target = 0, p = 0, active = -1, completed = false;
   function readProgress() {
     if (!anchors.length) measure();
     const y = window.scrollY;
@@ -634,6 +769,8 @@ function initStory(assets) {
       steps.forEach((st, i) => st.classList.toggle('is-active', i === best));
       storyEl.dispatchEvent(new CustomEvent('v2:beat', { detail: { i: best } }));
     }
+    if (!completed && target > 0.965) { completed = true; storyEl.dispatchEvent(new CustomEvent('v2:story-complete')); }
+    if (completed && target < 0.9) completed = false;
   }
   window.addEventListener('scroll', readProgress, { passive: true });
   window.addEventListener('resize', () => { measure(); readProgress(); });
@@ -642,118 +779,182 @@ function initStory(assets) {
   readProgress();
   p = target;
 
-  // Background mixes in sRGB, so the fry beat lands a rich brown instead of a muddy grey.
-  const bgA = [251, 248, 238], bgOil = [44, 26, 12];
-  const dummy = new THREE.Object3D(), arc = new THREE.Vector3(), tip = new THREE.Vector3(), mouth = new THREE.Vector3(0, 0.62, 0);
-  const qa = new THREE.Quaternion(), qb = new THREE.Quaternion(), faceCam = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
-  curve.getPointAt(1, tip);
+  /* Background palette per beat (sRGB), interpolated and handed to CSS. */
+  const PAL = [
+    { at: 0.0, base: [246, 241, 220], a: [176, 196, 98, 0.55], b: [255, 214, 92, 0.32], steam: 0, ember: 0, pat: 0.7, vig: 0.05 },
+    { at: 0.38, base: [244, 236, 205], a: [233, 194, 2, 0.32], b: [176, 196, 98, 0.4], steam: 0.25, ember: 0, pat: 0.6, vig: 0.08 },
+    { at: 0.6, base: [44, 26, 12], a: [255, 136, 36, 0.55], b: [255, 196, 70, 0.3], steam: 1, ember: 1, pat: 0.16, vig: 0.45 },
+    { at: 0.72, base: [52, 31, 14], a: [255, 150, 40, 0.5], b: [255, 210, 90, 0.3], steam: 0.9, ember: 0.8, pat: 0.18, vig: 0.4 },
+    { at: 0.9, base: [251, 243, 214], a: [233, 194, 2, 0.45], b: [134, 170, 78, 0.35], steam: 0, ember: 0, pat: 0.6, vig: 0.05 },
+  ];
+  const mix = (x, y, k) => x + (y - x) * k;
+  function palette(q) {
+    let i = 0; while (i < PAL.length - 2 && q > PAL[i + 1].at) i++;
+    const A = PAL[i], B = PAL[i + 1], k = easeInOut(clamp01((q - A.at) / (B.at - A.at)));
+    const rgb = (u, v) => u.map((c, n) => (n < 3 ? Math.round(mix(c, v[n], k)) : mix(c, v[n], k).toFixed(3)));
+    const st = pin.style;
+    st.setProperty('--sbase', `rgb(${rgb(A.base, B.base).join(',')})`);
+    st.setProperty('--sga', `rgba(${rgb(A.a, B.a).join(',')})`);
+    st.setProperty('--sgb', `rgba(${rgb(A.b, B.b).join(',')})`);
+    for (const key of ['steam', 'ember', 'pat', 'vig']) st.setProperty('--' + key, mix(A[key], B[key], k).toFixed(3));
+    return mix(A.ember, B.ember, k);
+  }
 
+  const dummy = new THREE.Object3D(), mouth = new THREE.Vector3(), q1 = new THREE.Quaternion(), q2 = new THREE.Quaternion();
   let raf = 0, running = false, last = performance.now(), time = 0;
+
   function frame(now) {
     raf = requestAnimationFrame(frame);
-    const dt = Math.min(0.05, (now - last) / 1000);
+    const dt = Math.min(0.12, (now - last) / 1000);   // real time, even on slow devices
     last = now; time += dt;
     dpr(now);
     p += (target - p) * Math.min(1, dt * 8);
-
-    // Beat windows across the section's scroll.
-    const A = seg(p, 0.0, 0.3);       // banana turns
-    const B = seg(p, 0.26, 0.5);      // slice + fan out
-    const C = seg(p, 0.45, 0.64);      // into the oil, turning gold
-    const D = seg(p, 0.76, 0.97);     // out of the uruli, into the pouch
-
-    // Background: warm and dark only while frying.
-    const dark = Math.sin(Math.PI * seg(p, 0.46, 0.8));
-    const k = Math.min(1, dark * 1.15);
-    storyEl.style.setProperty('--story-bg', `rgb(${bgA.map((c, i) => Math.round(lerp(c, bgOil[i], k))).join(',')})`);
     bar.style.setProperty('--p', p.toFixed(4));
+    const heat = palette(p);
 
-    // Banana.
-    const bOut = easeInOut(B);
-    banana.visible = B < 1;
-    banana.position.set(-bOut * 1.2, 0.05 + Math.sin(time) * 0.04 - bOut * 0.35, 0);
-    banana.rotation.set(0.2 + A * 0.15, Math.sin(time * 0.5) * 0.35 - 0.2 + A * 0.5, -0.08);
-    banana.scale.setScalar(Math.max(0.001, (0.92 + A * 0.08) * (1 - bOut * 0.75)));
-    banana.updateMatrix();
+    // Banana: turn, peel, strips fall away, then stand up into the slicer.
+    const peel = easeInOut(seg(p, 0.06, 0.24));
+    const drop = seg(p, 0.23, 0.31);
+    const stand = easeInOut(seg(p, 0.26, 0.34));
+    layoutPeel(peel);
+    banana.visible = stand < 1;
+    banana.position.set(-0.15 * stand, 0.32 + stand * (BLADE_Y + 0.45 - 0.32) + Math.sin(time) * 0.03 * (1 - stand), 0);
+    banana.rotation.set(0.25 * (1 - stand), (Math.sin(time * 0.45) * 0.35 - 0.15) * (1 - stand), -Math.PI / 2 * stand * 0.98);
+    banana.scale.setScalar(0.78 - stand * 0.14);
+    skinMat.opacity = 1 - drop;
+    strips.forEach((s, k) => { banana.children[k + 1].position.set(0, -drop * 1.8, (k % 2 ? 1 : -1) * drop * 0.6); });
 
-    // Uruli rises for the fry, sinks after.
-    const uIn = easeOutCubic(seg(p, 0.38, 0.52)), uOut = easeInOut(seg(p, 0.8, 0.95));
+    // Upright flesh shortens as it is sliced.
+    const sliceT = seg(p, SLICE_A, SLICE_B);
+    upright.visible = stand >= 1 && sliceT < 0.999;
+    upright.position.set(0, BLADE_Y + 0.03, 0);
+    upright.scale.set(1, Math.max(0.02, 0.95 * (1 - sliceT)), 1);
+    cap.scale.set(1, 1 / Math.max(0.02, 0.95 * (1 - sliceT)), 1);
+    cap.position.y = 1;
+    // a little push-and-saw motion while slicing
+    upright.position.x = sliceT > 0 && sliceT < 1 ? Math.sin(time * 14) * 0.012 : 0;
+
+    // Slicer slides in over the uruli, leaves after the slicing.
+    const slIn = easeOutCubic(seg(p, 0.26, 0.34)), slOut = easeInOut(seg(p, 0.55, 0.62));
+    slicer.visible = slIn > 0 && slOut < 1;
+    slicer.position.set(-2.6 * (1 - slIn) + 2.6 * slOut, BLADE_Y, 0);
+    slicer.rotation.set(0, 0, 0.04);
+
+    // Uruli rises in as the banana stands up, sinks before the seal.
+    const uIn = easeOutCubic(seg(p, 0.2, 0.33)), uOut = easeInOut(seg(p, 0.86, 0.96));
     uruli.visible = uIn > 0 && uOut < 1;
-    uruli.position.set(0, -0.45 - (1 - uIn) * 2.6 - uOut * 2.6, 0);
-    uruli.scale.setScalar(0.8);
-    uruli.rotation.y = time * 0.12;
-    oilMat.emissiveIntensity = dark * (0.55 + Math.sin(time * 9) * 0.06);
-    glow.intensity = dark * 2.5;
+    uruli.position.set(0, URULI_Y - (1 - uIn) * 2.6 - uOut * 2.8, 0);
+    uruli.rotation.y = time * 0.05;
+    const oilY = uruli.position.y + OIL_LOCAL * URULI_S;
+    const frying = clamp01(seg(p, 0.34, 0.5) * 0.6 + seg(p, 0.5, 0.6) * 0.4) * (1 - seg(p, 0.8, 0.9));
+    oilMat.emissiveIntensity = 0.15 + heat * 0.45 + Math.sin(time * 9) * 0.03 * frying;
+    fire.position.set(world.position.x, oilY + 1.1, 1.4);
+    fire.intensity = heat * 1.8;
+    // oil surface shimmer
+    { const pos = oilGeo.attributes.position; const amp = 0.006 + frying * 0.012;
+      for (let i = 0; i < pos.count; i++) { const x = oilBase[i * 3], y = oilBase[i * 3 + 1];
+        pos.setZ(i, Math.sin(x * 9 + time * 3) * amp + Math.cos(y * 11 - time * 2.4) * amp); }
+      pos.needsUpdate = true; }
 
-    // Bubbles while frying.
+    // Jhara: dips and stirs during the fry, then lifts away.
+    const jIn = easeOutCubic(seg(p, 0.52, 0.58)), jOut = easeInOut(seg(p, 0.76, 0.84));
+    jhara.visible = jIn > 0 && jOut < 1;
+    const stirA = time * 1.1;
+    jhara.position.set(Math.cos(stirA) * 0.45 + (1 - jIn) * 2.4 + jOut * 0.4, oilY + 0.02 + (1 - jIn) * 1.2 + jOut * 1.4 + Math.max(0, Math.sin(time * 2.2)) * 0.06, Math.sin(stirA) * 0.3);
+    jhara.rotation.set(0, -stirA * 0.3, 0.12);
+    const stir = jIn * (1 - jOut);
+
+    // Ripples.
+    for (const r of ripples) {
+      if (!r.m.visible) continue;
+      r.t += dt / 0.8;
+      if (r.t >= 1) { r.m.visible = false; continue; }
+      r.m.scale.setScalar(0.06 + r.t * 0.32);
+      r.m.material.opacity = 0.55 * (1 - r.t);
+    }
+
+    // Pack rises for the seal.
+    const pIn = easeOutBack(seg(p, 0.76, 0.87));
+    const seal = Math.sin(Math.PI * seg(p, 0.93, 0.99)) * 0.06;
+    pack.visible = pIn > 0.001;
+    pack.position.set(0, -0.05 - (1 - pIn) * 2.4, -0.15);
+    pack.rotation.set(0.04, -0.32 + Math.sin(time * 0.6) * 0.25 + (1 - pIn) * 1.4, 0);
+    pack.scale.set(pIn * (1 + seal), pIn * (1 - seal * 0.5), pIn);
+    mouth.set(0, pack.position.y + (pack.userData.height || 1.3) * 0.5 * pIn, -0.15);
+
+    // Chips.
+    for (let i = 0; i < S; i++) {
+      const c = cs[i];
+      // spawn / un-spawn with the scroll
+      if (p >= c.t && c.state === 0) {
+        c.state = 1;
+        c.p.set((rand() - 0.5) * 0.1, BLADE_Y - 0.04, (rand() - 0.5) * 0.1);
+        c.v.set(Math.cos(c.a) * c.r * 0.55, -0.15, Math.sin(c.a) * c.r * 0.55);
+        c.rot.set(Math.PI / 2 * 0.2, rand() * 6, 0);
+        c.spin.set((rand() - 0.5) * 9, (rand() - 0.5) * 5, (rand() - 0.5) * 9);
+      } else if (p < c.t - 0.004 && c.state !== 0) c.state = 0;
+
+      const lift = easeInOut(seg(p, c.lift, c.lift + 0.06));
+      let scale = 0.92;
+      if (c.state === 0) { scale = 0; dummy.position.set(0, BLADE_Y, 0); }
+      else if (c.state === 1) {
+        c.v.y -= FALL_G * dt;
+        c.p.addScaledVector(c.v, dt);
+        c.rot.x += c.spin.x * dt; c.rot.y += c.spin.y * dt; c.rot.z += c.spin.z * dt;
+        if (c.p.y <= oilY + 0.006) { c.state = 2; c.p.y = oilY + 0.006; ripple(c.p.x, oilY, c.p.z); c.a = Math.atan2(c.p.z, c.p.x); c.r = Math.min(0.78, Math.hypot(c.p.x, c.p.z)); }
+        dummy.position.copy(c.p);
+        dummy.rotation.copy(c.rot);
+      }
+      if (c.state === 2) {
+        // float: slow convection swirl, faster while the jhara stirs
+        c.a += dt * (0.12 + stir * 0.9);
+        const y = oilY + 0.008 + Math.sin(time * 2.2 + c.bob) * 0.006;
+        dummy.position.set(Math.cos(c.a) * c.r, y, Math.sin(c.a) * c.r);
+        dummy.rotation.set(c.flat.x + Math.sin(time * 1.7 + c.bob) * 0.06, c.flat.y + c.a, c.flat.z);
+      }
+      if (c.state === 2 && lift > 0) {
+        // out of the oil, up and into the pack
+        const from = dummy.position.clone();
+        const ang = c.a + lift * Math.PI * 2.2, rad = (1 - lift) * c.r;
+        const to = new THREE.Vector3(mouth.x + Math.cos(ang) * rad, mouth.y, mouth.z + Math.sin(ang) * rad);
+        dummy.position.lerpVectors(from, to, lift);
+        dummy.position.y += Math.sin(lift * Math.PI) * 0.9;
+        q1.copy(dummy.quaternion.setFromEuler(dummy.rotation));
+        q2.setFromEuler(new THREE.Euler(lift * 7, lift * 4, lift * 2));
+        dummy.quaternion.copy(q1).multiply(q2);
+        dummy.rotation.setFromQuaternion(dummy.quaternion);
+        scale *= 1 - Math.pow(lift, 3);
+      }
+      dummy.scale.setScalar(Math.max(0.0001, scale));
+      dummy.updateMatrix();
+      chips.setMatrixAt(i, dummy.matrix);
+      // raw -> golden through the fry
+      fry.setX(i, clamp01((p - 0.5 - (i / S) * 0.06) / 0.14));
+    }
+    chips.instanceMatrix.needsUpdate = true;
+    fry.needsUpdate = true;
+
+    // Bubbles cluster around the floating chips.
     for (let i = 0; i < BUB; i++) {
-      const b = bubData[i];
-      const life = (time * 0.9 + b.ph) % 1;
-      dummy.position.set(Math.cos(b.a) * b.r, -0.2 + life * 0.08, Math.sin(b.a) * b.r);
+      const b = bub[i], c = cs[b.chip % S];
+      const life = (time * b.sp + b.ph) % 1;
+      const on = c.state === 2 && uruli.visible ? frying : 0;
+      const cx = Math.cos(c.a) * c.r + b.ox, cz = Math.sin(c.a) * c.r + b.oz;
+      dummy.position.set(cx, oilY + 0.004 + life * 0.03, cz);
       dummy.rotation.set(0, 0, 0);
-      dummy.scale.setScalar(b.s * Math.sin(life * Math.PI) * C * (1 - D));
+      dummy.scale.setScalar(b.s * Math.sin(life * Math.PI) * on);
       dummy.updateMatrix();
       bubbles.setMatrixAt(i, dummy.matrix);
     }
     bubbles.instanceMatrix.needsUpdate = true;
 
-    // Slices: tip of the banana → fan in the air → the oil → the pouch.
-    for (let i = 0; i < S; i++) {
-      const s = sd[i];
-      const emerge = easeOutBack(clamp01(B * 1.5 - (i / S) * 0.5));
-      const fall = easeInOut(clamp01(C * 1.35 - s.delay));
-      const lift = easeInOut(clamp01(D * 1.3 - s.delay * 0.8));
-
-      // fan position
-      arc.set(Math.sin(s.fanA) * 1.0 - 0.1, 0.2 + Math.cos(s.fanA) * 0.32, 0.2 + Math.cos(s.fanA) * 0.15);
-      dummy.position.copy(tip).applyMatrix4(banana.matrix).lerp(arc, emerge);
-      qa.copy(faceCam).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -s.fanA * 0.6));
-
-      // into the bowl
-      if (fall > 0) {
-        const bowl = s.bowl.clone().multiplyScalar(0.8);
-        bowl.y += uruli.position.y + 0.45 + Math.sin(time * 6 + i) * 0.01 * (1 - D);
-        dummy.position.lerp(bowl, fall);
-        dummy.position.y += Math.sin(fall * Math.PI) * 0.35;
-        qb.setFromEuler(new THREE.Euler(s.tilt.x, s.tilt.y + time * 0.12, s.tilt.z));
-        qa.slerp(qb, fall);
-      }
-      // swirl up into the pouch mouth
-      if (lift > 0) {
-        const ang = s.swirl + lift * Math.PI * 3;
-        const rad = (1 - lift) * 0.9;
-        const from = dummy.position.clone();
-        const to = new THREE.Vector3(Math.cos(ang) * rad, lerp(from.y, mouth.y, lift) + Math.sin(lift * Math.PI) * 0.4, Math.sin(ang) * rad);
-        dummy.position.lerpVectors(from, to, lift);
-        qa.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(lift * 6, lift * 4, 0)));
-      }
-      dummy.quaternion.copy(qa);
-      const scale = (B > 0 ? 0.95 * Math.min(1, emerge) : 0) * (1 - Math.pow(lift, 3));
-      dummy.scale.setScalar(Math.max(0.0001, scale));
-      dummy.updateMatrix();
-      slices.setMatrixAt(i, dummy.matrix);
-      fry.setX(i, clamp01((C - 0.25 - s.delay * 0.4) * 2.2));
-    }
-    slices.instanceMatrix.needsUpdate = true;
-    fry.needsUpdate = true;
-
-    // Pouch arrives for the last beat, then a little "seal" pulse.
-    const pIn = easeOutBack(seg(p, 0.74, 0.86));
-    const seal = Math.sin(Math.PI * seg(p, 0.93, 0.99)) * 0.06;
-    pouchPivot.visible = pIn > 0.001;
-    pouchPivot.position.set(0, -0.15 - (1 - pIn) * 2.2, 0);
-    pouchPivot.rotation.set(0.05, -0.3 + Math.sin(time * 0.6) * 0.28 + (1 - pIn) * 1.4, 0);
-    pouchPivot.scale.set(pIn * (1 + seal), pIn * (1 - seal * 0.5), pIn);
-    mouth.set(0, pouchPivot.position.y + 0.7, 0);
-
-    // Turmeric and salt dust settling over the chips.
-    const dIn = Math.sin(Math.PI * seg(p, 0.68, 0.86));
+    // Turmeric and salt settle over the chips as they leave the oil.
+    const dIn = Math.sin(Math.PI * seg(p, 0.7, 0.86));
     dust.material.opacity = dIn * 0.85;
     if (dIn > 0) {
       for (let i = 0; i < DUST; i++) {
         const d = dustSeed[i];
-        const y = 1.4 - ((time * 0.25 + d[3]) % 1) * 1.7;
-        dustPos[i * 3] = d[0] * 1.0; dustPos[i * 3 + 1] = y; dustPos[i * 3 + 2] = d[2] * 0.8;
+        dustPos[i * 3] = d[0] * 0.9; dustPos[i * 3 + 1] = oilY + 1.6 - ((time * 0.25 + d[3]) % 1) * 1.6; dustPos[i * 3 + 2] = d[2] * 0.7;
       }
       dustGeo.attributes.position.needsUpdate = true;
     }

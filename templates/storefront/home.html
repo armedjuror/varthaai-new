@@ -1,15 +1,15 @@
 {% extends 'storefront/base.html' %}
 {% load static %}
 
-{% block title %}Varthaai | Kerala Banana Chips Fried in Coconut Oil, Bengaluru{% endblock %}
+{% block title %}Varthaai | Kerala Banana Chips to Snack, Share and Gift{% endblock %}
 {% block body_class %}page-home{% endblock %}
 
 {% block meta_description %}<meta name="description"
-      content="Varthaai banana chips: Nendran bananas, sliced thin and fried in pure coconut oil with turmeric and salt, the Calicut way. Order fresh in Bengaluru.">{% endblock %}
+      content="Golden Kerala banana chips fried in pure coconut oil. Snack on them, share them, or gift a pack to someone you love. Delivered fresh in Bengaluru.">{% endblock %}
 
 {% block og_tags %}
-<meta property="og:title" content="Varthaai | Kerala Banana Chips, the Calicut way">
-<meta property="og:description" content="Nendran bananas, coconut oil, turmeric and salt. Nothing else. Order fresh in Bengaluru.">
+<meta property="og:title" content="Varthaai | Snack it. Share it. Gift it with love.">
+<meta property="og:description" content="Golden Kerala banana chips fried in pure coconut oil. A pack for you, and one for someone you love.">
 <meta property="og:image" content="https://varthaai.com{% static 'images/home/og-home.jpg' %}">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -19,7 +19,7 @@
 {% block extra_head %}
 <link rel="preload" as="image" href="{% static 'images/home/pack-front.webp' %}" fetchpriority="high">
 <link rel="stylesheet" href="{% static 'css/home-v2.css' %}">
-<script type="importmap">{"imports": {"three": "{% static 'js/vendor/three.module.min.js' %}", "three-room-env": "{% static 'js/vendor/three-room-env.js' %}"}}</script>
+<script type="importmap">{"imports": {"three": "{% static 'js/vendor/three.module.min.js' %}", "three-room-env": "{% static 'js/vendor/three-room-env.js' %}", "three/addons/": "{% static 'js/vendor/three-addons/' %}"}}</script>
 <link rel="modulepreload" href="{% static 'js/home/home-3d.js' %}">
 <script type="application/ld+json">
 {
@@ -67,8 +67,8 @@
   <div class="wrap hero-grid">
     <div class="hero-copy">
       <p class="eyebrow reveal"><span class="ml" lang="ml">വറുത്ത കായ</span> · Kerala banana chips</p>
-      <h1 id="hero-title" class="display reveal"><span class="nowrap">Varutha kaaya,</span><br><span class="hl">the Calicut way.</span></h1>
-      <p class="lede reveal">Nendran bananas, sliced thin and fried in pure coconut oil with a pinch of turmeric and salt. Nothing else goes in the pack.</p>
+      <h1 id="hero-title" class="display reveal"><span class="nowrap">Snack it. Share it.</span><br><span class="hl">Gift it with love.</span></h1>
+      <p class="lede reveal">Golden banana chips, fried in pure coconut oil. One pack for movie night, one for the office, and one for someone who deserves a little crunch.</p>
 
       <div class="hero-meta reveal">
         {% if from_price %}
@@ -90,7 +90,7 @@
         <a href="/shop/" class="btn-v2 btn-v2--primary order-this-flavor" data-hop>
           Order now <span class="btn-arrow" aria-hidden="true">→</span>
         </a>
-        <a href="#about" class="btn-v2 btn-v2--ghost">See how it's made</a>
+        <a href="/shop/" class="btn-v2 btn-v2--ghost" data-hop data-gift><span aria-hidden="true">🎁</span> Gift a pack</a>
       </div>
     </div>
 
@@ -98,7 +98,8 @@
          data-pack-front="{% static 'images/home/pack-front.webp' %}"
          data-pack-back="{% static 'images/home/pack-back.webp' %}"
          data-pack-side="{% static 'images/home/pack-side.webp' %}"
-         data-chip="{% static 'images/home/chip.webp' %}">
+         data-chip="{% static 'images/home/chip.webp' %}"
+         {% if pack_model %}data-pack-model="{{ pack_model }}"{% endif %}>
       <!-- Poster renders first (LCP); the 3D carton fades in over it on capable devices. -->
       <div class="hero-poster" aria-hidden="true">
         <img class="poster-pack" src="{% static 'images/home/pack-front.webp' %}" alt="" width="708" height="988" fetchpriority="high">
@@ -120,6 +121,12 @@
 <!-- ═══ STORY (pinned 3D scroll) ══════════════════════════════════ -->
 <section class="story" id="about" aria-labelledby="story-title" data-mode="static">
   <div class="story-pin">
+    <div class="story-bg" aria-hidden="true">
+      <div class="story-pattern"></div>
+      <div class="story-steam"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="story-embers"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="story-vignette"></div>
+    </div>
     <canvas class="stage-canvas" id="story-canvas" aria-hidden="true"></canvas>
     <div class="story-mascot" aria-hidden="true">
       <vt-mascot id="story-mascot" emotion="thinking" track></vt-mascot>
@@ -129,14 +136,14 @@
   </div>
   <div class="story-steps">
     <header class="story-head wrap">
-      <p class="eyebrow">From grove to pouch</p>
+      <p class="eyebrow">From grove to pack</p>
       <h2 id="story-title" class="display">Four things happen.<br>That's the whole recipe.</h2>
     </header>
     <article class="story-step" data-step="0">
       <div class="step-card">
         <span class="step-num">01</span>
         <h3>The banana</h3>
-        <p>Raw Nendran, the long Kerala banana with the firm, starchy flesh that turns crisp instead of soggy. Picked green, never ripe.</p>
+        <p>Raw Nendran, the long Kerala banana with firm, starchy flesh that turns crisp instead of soggy. Picked green, then peeled by hand.</p>
         <img class="step-img" src="{% static 'images/banana.png' %}" alt="" loading="lazy">
       </div>
     </article>
@@ -144,7 +151,7 @@
       <div class="step-card">
         <span class="step-num">02</span>
         <h3>The slice</h3>
-        <p>Peeled and sliced paper-thin, straight into the oil. Thin enough to shatter, thick enough to hold the crunch.</p>
+        <p>Sliced paper-thin over the uruli, so every slice drops straight into the hot oil. Thin enough to shatter, thick enough to hold the crunch.</p>
         <img class="step-img" src="{% static 'images/chopped.png' %}" alt="" loading="lazy">
       </div>
     </article>
@@ -152,7 +159,7 @@
       <div class="step-card">
         <span class="step-num">03</span>
         <h3>The coconut oil</h3>
-        <p>Fried in pure coconut oil in a wide uruli, with turmeric water for that deep gold. This is the smell of every Kerala bakery.</p>
+        <p>The slices float and fizz in pure coconut oil, stirred with a slotted ladle until the edges turn deep gold. The smell of every Kerala bakery.</p>
         <img class="step-img" src="{% static 'images/coconut.png' %}" alt="" loading="lazy">
       </div>
     </article>
@@ -160,7 +167,7 @@
       <div class="step-card">
         <span class="step-num">04</span>
         <h3>The seal</h3>
-        <p>A pinch of salt, cooled, and packed. That's it: four ingredients, and you can pronounce all of them.</p>
+        <p>Lifted out, dusted with turmeric and salt, cooled and packed. Four ingredients, all of them pronounceable.</p>
         <img class="step-img" src="{% static 'images/home/pack-front.webp' %}" alt="" loading="lazy">
         <a href="/shop/" class="btn-v2 btn-v2--primary btn-v2--sm order-this-flavor">Get a pack</a>
       </div>
@@ -409,7 +416,7 @@
   </div>
 </div>
 
-<div class="modal fade" id="reviewSuccessModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="reviewSuccessModal" tabindex="-1" aria-hidden="true" data-celebrate>
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
@@ -417,7 +424,10 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body text-center">
-        <div class="success-icon mb-4"><i class="fas fa-check-circle"></i></div>
+        <div class="celebrate-stage" aria-hidden="true">
+          <vt-mascot emotion="surprised" track></vt-mascot>
+          <div class="vt-bubble">You made my day!</div>
+        </div>
         <h4>Thank You for Your Review</h4>
         <p>It will get featured once approved!</p>
         <div class="order-details mt-4">
