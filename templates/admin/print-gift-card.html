@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gift Card - {{ order.id }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500&family=Dancing+Script:wght@500&family=Plus+Jakarta+Sans:wght@400;600&family=Playfair+Display:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    /* A6 = A4 cut in four. Landscape: 148mm x 105mm. */
+    @page { size: 148mm 105mm; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { background: #e5e7eb; font-family: 'Plus Jakarta Sans', Arial, sans-serif; }
+
+    .toolbar { position: sticky; top: 0; z-index: 5; background: #111827; color: #fff; padding: 10px 16px;
+      display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; font-size: 13px; }
+    .toolbar label { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: #9ca3af; }
+    .toolbar select, .toolbar input[type=text] { padding: 4px 6px; border-radius: 6px; border: 0; font-size: 13px; }
+    .toolbar input[type=range] { width: 110px; }
+    .toolbar .chk { flex-direction: row; align-items: center; gap: 6px; color: #fff; font-size: 13px; }
+    .toolbar button { background: #85aa4e; color: #fff; border: 0; border-radius: 8px; padding: 8px 16px; font-weight: 600; cursor: pointer; margin-left: auto; }
+    .hint { padding: 8px 16px; font-size: 12px; color: #6b7280; }
+
+    .stage { display: flex; justify-content: center; padding: 16px; }
+    .card { width: 148mm; height: 105mm; background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.2);
+      position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: center; padding: 14mm 16mm; }
+    .card.frame-simple::before, .card.frame-double::before { content: ''; position: absolute; inset: 6mm; border: .4mm solid #85aa4e; pointer-events: none; }
+    .card.frame-double::after { content: ''; position: absolute; inset: 8mm; border: .2mm solid #85aa4e; pointer-events: none; }
+
+    .note { white-space: pre-wrap; word-break: break-word; line-height: 1.45; color: #1f2937; outline: none; }
+    .sign { margin-top: 6mm; color: #374151; outline: none; }
+    .brand { position: absolute; left: 0; right: 0; bottom: 9mm; text-align: center; font-size: 8pt; letter-spacing: .15em; text-transform: uppercase; color: #85aa4e; }
+
+    @media print {
+      html, body { background: #fff; }
+      .toolbar, .hint { display: none !important; }
+      .stage { padding: 0; display: block; }
+      .card { box-shadow: none; page-break-after: avoid; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <label>Font
+      <select id="optFont">
+        <option value="'Plus Jakarta Sans', sans-serif">Clean (Plus Jakarta Sans)</option>
+        <option value="'Playfair Display', serif">Elegant (Playfair Display)</option>
+        <option value="'Dancing Script', cursive">Script (Dancing Script)</option>
+        <option value="'Caveat', cursive">Handwritten (Caveat)</option>
+      </select>
+    </label>
+    <label>Size <span id="sizeVal"></span>
+      <input type="range" id="optSize" min="10" max="30" step="1">
+    </label>
+    <label>Align
+      <select id="optAlign">
+        <option value="left">Left</option>
+        <option value="center">Center</option>
+        <option value="right">Right</option>
+      </select>
+    </label>
+    <label>Border
+      <select id="optFrame">
+        <option value="none">None</option>
+        <option value="simple">Single line</option>
+        <option value="double">Double line</option>
+      </select>
+    </label>
+    <label>Signature (optional)
+      <input type="text" id="optSign" maxlength="60" placeholder="e.g. With love, Anu">
+    </label>
+    <label class="chk"><input type="checkbox" id="optBrand"> Brand name at bottom</label>
+    <button onclick="window.print()"><span style="margin-right:6px">&#128424;</span>Print</button>
+  </div>
+  <div class="hint">
+    Paper: A6 landscape (148 &times; 105 mm, an A4 sheet cut in four). In the print dialog choose paper size A6 (or A4 and cut), scale 100%, margins none.
+    You can edit the text directly on the card. Settings are remembered on this computer.
+  </div>
+
+  <div class="stage">
+    <div class="card" id="card">
+      <div class="note" id="note" contenteditable="true">{{ order.gift_note }}</div>
+      <div class="sign" id="sign" contenteditable="true"></div>
+      {% if brand %}<div class="brand" id="brandName">{{ brand.name }}</div>{% endif %}
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var KEY = 'giftCardFormat.v1';
+      var defaults = { font: "'Plus Jakarta Sans', sans-serif", size: 16, align: 'center', frame: 'simple', sign: '', brand: false };
+      var saved = {};
+      try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
+      var s = Object.assign({}, defaults, saved);
+
+      var el = function (id) { return document.getElementById(id); };
+      var card = el('card'), note = el('note'), sign = el('sign'), brandName = el('brandName');
+
+      function apply() {
+        note.style.fontFamily = sign.style.fontFamily = s.font;
+        note.style.fontSize = s.size + 'pt';
+        sign.style.fontSize = Math.max(9, s.size - 3) + 'pt';
+        note.style.textAlign = sign.style.textAlign = s.align;
+        card.className = 'card frame-' + s.frame;
+        sign.textContent = s.sign;
+        sign.style.display = s.sign ? '' : 'none';
+        if (brandName) brandName.style.display = s.brand ? '' : 'none';
+        el('sizeVal').textContent = s.size + 'pt';
+      }
+      function save() { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} }
+
+      el('optFont').value = s.font; el('optSize').value = s.size; el('optAlign').value = s.align;
+      el('optFrame').value = s.frame; el('optSign').value = s.sign; el('optBrand').checked = s.brand;
+
+      [['optFont', 'font'], ['optSize', 'size'], ['optAlign', 'align'], ['optFrame', 'frame'], ['optSign', 'sign']].forEach(function (p) {
+        el(p[0]).addEventListener('input', function () {
+          s[p[1]] = p[1] === 'size' ? parseInt(this.value, 10) : this.value; apply(); save();
+        });
+      });
+      el('optBrand').addEventListener('change', function () { s.brand = this.checked; apply(); save(); });
+      // Typed signature edits on the card itself are for this print only.
+      apply();
+    })();
+  </script>
+</body>
+</html>

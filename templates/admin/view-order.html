@@ -37,6 +37,11 @@
       <button class="btn btn-sm btn-outline-secondary" onclick="window.open('{% url 'orders:print_invoice' order.id %}','_blank','width=800,height=600')">
         <i class="fas fa-print me-1"></i>Order Summary
       </button>
+      {% if order.gift_note %}
+      <button class="btn btn-sm btn-outline-secondary" onclick="window.open('{% url 'orders:print_gift_card' order.id %}','_blank','width=900,height=700')">
+        <i class="fas fa-gift me-1"></i>Print Gift Card
+      </button>
+      {% endif %}
       {% if gst.invoice %}
       <button class="btn btn-sm btn-outline-secondary" onclick="window.open('{% url 'billing:invoice_print' gst.invoice.id %}','_blank','width=900,height=700')">
         <i class="fas fa-file-invoice me-1"></i>Tax Invoice

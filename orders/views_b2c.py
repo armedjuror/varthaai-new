@@ -394,6 +394,19 @@ def edit_order(request, pk):
 
 @admin_login_required
 @require_module('orders')
+def print_gift_card(request, pk):
+    """Gift note laid out for the A6 (A4 quartered) greeting card, landscape."""
+    order = _order_or_redirect(request, pk)
+    if not order:
+        return redirect('orders:orders')
+    if not order.gift_note:
+        return redirect('orders:view_order', pk=order.id)
+    brand = Brand.objects.filter(id=current_brand_id(request)).first()
+    return render(request, 'admin/print-gift-card.html', {'order': order, 'brand': brand})
+
+
+@admin_login_required
+@require_module('orders')
 def print_invoice(request, pk):
     order = _order_or_redirect(request, pk)
     if not order:
