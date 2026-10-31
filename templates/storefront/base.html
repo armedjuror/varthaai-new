@@ -25,7 +25,7 @@
   <meta property="og:title" content="Varthaai - Premium Kerala Banana Chips">
   <meta property="og:description"
         content="Experience the authentic taste of Kerala with Varthaai premium banana chips.">
-  <meta property="og:image" content="https://varthaai.com/images/favicon.png">
+  <meta property="og:image" content="https://varthaai.com{% static 'images/home/og-home.jpg' %}">
   <meta property="og:url" content="https://varthaai.com">
   {% endblock %}
   <meta property="og:type" content="website">
@@ -53,7 +53,7 @@
   <link rel="stylesheet" href="{% static 'css/loader.css' %}">
   {% block extra_head %}{% endblock %}
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
 {% if gtm_container_id %}
 <!-- Google Tag Manager (noscript) -->
 <noscript><iframe src="https://www.googletagmanager.com/ns.html?id={{ gtm_container_id }}"

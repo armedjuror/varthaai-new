@@ -22,7 +22,7 @@ from billing import services as billing
 from billing.models import CreditNote
 from billing.pdf import pdf_guard
 from core.models import Setting
-from marketing.models import Blog
+from marketing.models import Blog, Review
 from orders.models import Order
 from products.models import Flavor
 
@@ -68,12 +68,49 @@ def _blog_excerpt(blog_obj):
     return (plain[:150] + '...') if len(plain) > 150 else plain
 
 
+def _home_flavors():
+    """Active flavors with per-100 g prices, ready for server-side rendering."""
+    flavors = list(Flavor.objects.filter(is_active=True).order_by('id'))
+    for f in flavors:
+        f.price_100g = round(f.price_per_kg / 10)
+        f.sale_100g = round(f.sale_price_per_kg / 10)
+        f.discount_pct = (
+            round((f.price_per_kg - f.sale_price_per_kg) / f.price_per_kg * 100)
+            if f.price_per_kg and f.sale_price_per_kg < f.price_per_kg else 0
+        )
+        f.ingredient_list = [i.strip() for i in (f.ingredients or '').split(',') if i.strip()]
+        facts = f.nutrition_fact if isinstance(f.nutrition_fact, dict) else {}
+        f.nutrition_items = list(facts.items())
+        f.absolute_image_url = SITE_URL + f.image.url if f.image else ''
+    return flavors
+
+
+def _home_reviews(limit=12):
+    rows = list(
+        Review.objects.filter(brand_id=services.storefront_brand_id(), is_approved=True)
+        .select_related('user').order_by('-created_at')
+    )
+    count = len(rows)
+    avg = round(sum(r.rating for r in rows) / count, 1) if count else None
+    return rows[:limit], count, avg
+
+
 @ensure_csrf_cookie
 def home(request):
     latest_blogs = list(_published_blogs().order_by('-published_at', '-created_at')[:3])
     for b in latest_blogs:
         b.list_excerpt = _blog_excerpt(b)
-    return render(request, 'storefront/home.html', _ctx(request, latest_blogs=latest_blogs))
+    flavors = _home_flavors()
+    reviews, review_count, review_avg = _home_reviews()
+    return render(request, 'storefront/home.html', _ctx(
+        request,
+        latest_blogs=latest_blogs,
+        flavors=flavors,
+        from_price=min((f.sale_100g for f in flavors), default=None),
+        reviews=reviews,
+        review_count=review_count,
+        review_avg=review_avg,
+    ))
 
 
 @ensure_csrf_cookie
