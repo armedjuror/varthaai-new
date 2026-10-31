@@ -76,6 +76,9 @@ def _order_details(order):
     }
 
 
+GIFT_NOTE_MAX = 300  # keep in sync with the textarea maxlength on the checkout form
+
+
 class PlaceOrderAPI(StorefrontAPIView):
     """POST checkout -> creates the order + Razorpay order."""
 
@@ -109,6 +112,7 @@ class PlaceOrderAPI(StorefrontAPIView):
         if gstin_error:
             return Response({'success': False, 'message': f'GSTIN: {gstin_error}'})
         billing_legal_name = (body.get('gst_name') or '').strip()[:255]
+        gift_note = (body.get('gift_note') or '').strip()[:GIFT_NOTE_MAX]
 
         brand = _brand()
         user, _ = User.objects.get_or_create(
@@ -174,6 +178,7 @@ class PlaceOrderAPI(StorefrontAPIView):
                     coupon_discount=coupon_discount, delivery_charge=delivery_charge,
                     status='pending', payment_status='pending', shipping_state_code=state_code,
                     billing_gstin=billing_gstin, billing_legal_name=billing_legal_name,
+                    gift_note=gift_note,
                 )
                 OrderItem.objects.bulk_create([
                     OrderItem(
