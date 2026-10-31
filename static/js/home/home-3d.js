@@ -449,6 +449,7 @@ function initHero(assets) {
     pop: 0,
   }));
   const dummy = new THREE.Object3D();
+  let orbitK = 1, orbitX = packHome.x;
 
   function fit() {
     const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -460,6 +461,15 @@ function initHero(assets) {
     const dist = Math.max(needH / 2 / t, needW / 2 / (t * camera.aspect));
     // Mascot sits at the stage's left on wide screens, so nudge the scene right.
     rig.position.x = camera.aspect > 1.05 ? 0.2 : 0.05;
+    // Keep the chip orbit inside the frame: the room on the tighter side of the
+    // pack, less the chip's own size and the extra reach of a burst and of
+    // chips swinging towards the camera.
+    // The orbit is centred between the pack and the middle of the frame, so it
+    // doesn't run off the side the pack is nudged towards.
+    const halfW = dist * t * camera.aspect;
+    orbitX = packHome.x * 0.35 - rig.position.x * 0.5;
+    const room = halfW - Math.abs(rig.position.x + orbitX) - 0.2;
+    orbitK = Math.max(0.55, Math.min(1, room / (1.22 * 1.15 * 1.2)));
     camera.position.set(0, 0.42, dist);
     camera.lookAt(0, -0.04, 0);
     camera.updateProjectionMatrix();
@@ -555,9 +565,9 @@ function initHero(assets) {
       const appear = easeOutBack(clamp01(intro.chips * 1.6 - (i / N) * 0.6));
       const burstK = 1 + o.pop * 0.45;
       dummy.position.set(
-        packHome.x + Math.cos(a) * o.rx * burstK,
+        orbitX + Math.cos(a) * o.rx * burstK * orbitK,
         o.y + Math.sin(t * 1.3 + o.bob) * 0.06 + o.pop * 0.22,
-        Math.sin(a) * o.rz * burstK,
+        Math.sin(a) * o.rz * burstK * orbitK,
       );
       dummy.rotation.set(o.rot0.x + t * o.spin.x * 0.5 + o.pop * 3, o.rot0.y + t * o.spin.y * 0.5, o.rot0.z + t * o.spin.z * 0.5);
       dummy.scale.setScalar(o.s * appear);
