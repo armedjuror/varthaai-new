@@ -10,8 +10,8 @@ var _crunchAudioUrl = ''; // real uploaded sound, set from config — falls back
 
 /* Crunch sound, in order of preference: the admin-uploaded sound, our recorded
  * crunch (static/audio/crunch.mp3), then a synthesized one. The recorded crunch
- * is decoded once into Web Audio so taps play instantly. */
-var _crunchBuffer = null, _crunchLoading = false, _crunchPlaying = null;
+ * is decoded once into Web Audio so rapid taps play instantly and can overlap. */
+var _crunchBuffer = null, _crunchLoading = false;
 
 function _crunchCtx() {
   var Ctx = window.AudioContext || window.webkitAudioContext;
@@ -45,19 +45,7 @@ function _playCrunchBuffer() {
   var gain = ctx.createGain();
   gain.gain.value = 0.9;
   src.connect(gain).connect(ctx.destination);
-  // A new tap cuts the chewing short: fade the previous crunch out quickly
-  // instead of stacking several 1.5 s sounds into noise.
-  var now = ctx.currentTime;
-  if (_crunchPlaying) {
-    var prev = _crunchPlaying;
-    prev.gain.gain.cancelScheduledValues(now);
-    prev.gain.gain.setValueAtTime(prev.gain.gain.value, now);
-    prev.gain.gain.linearRampToValueAtTime(0, now + 0.08);
-    try { prev.src.stop(now + 0.1); } catch (e) {}
-  }
-  _crunchPlaying = { src: src, gain: gain };
-  src.onended = function () { if (_crunchPlaying && _crunchPlaying.src === src) _crunchPlaying = null; };
-  src.start(now);
+  src.start();
   return true;
 }
 
