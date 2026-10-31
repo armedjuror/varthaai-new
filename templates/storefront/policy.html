@@ -3,21 +3,33 @@
 
 {% block title %}Varthaai - Terms and Conditions{% endblock %}
 
+{% block body_class %}page-content{% endblock %}
+
 {% block extra_head %}
-<style>
-  .policy-section { padding: 120px 0 60px; }
-  .policy-content { background-color: #fff; border-radius: 15px; padding: 30px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05); }
-  .policy-content h2 { color: var(--dark-color); margin-bottom: 20px; font-weight: 700; }
-  .policy-content h3 { color: var(--primary-color); margin: 25px 0 15px; font-weight: 600; }
-  .policy-content p { margin-bottom: 15px; line-height: 1.8; }
-  .policy-content ul { margin-bottom: 20px; }
-  .policy-content li { margin-bottom: 10px; line-height: 1.8; }
-</style>
+<link rel="stylesheet" href="{% static 'css/content-v2.css' %}">
 {% endblock %}
 
 {% block content %}
+<section class="page-hero">
+  {% include 'storefront/_grove.html' with compact=1 %}
+  <div class="wrap">
+    <div class="reveal">
+      <p class="eyebrow">Policies</p>
+      <h1>The fine print.</h1>
+      <p>Terms, privacy, shipping, cancellations and refunds, in plain words.</p>
+      <nav class="policy-toc" aria-label="On this page">
+        <a href="#terms">Terms</a><a href="#privacy">Privacy</a><a href="#shipping">Shipping</a><a href="#cancellation">Cancellation</a><a href="#return">Returns</a>
+      </nav>
+    </div>
+    <div class="mascot-wrap" data-talk='["Short version: we fry, we pack, we ship.","Questions? WhatsApp us anytime."]'>
+      <vt-mascot emotion="wink" track></vt-mascot>
+      <div class="vt-bubble" role="status" aria-live="polite"></div>
+    </div>
+  </div>
+</section>
+
 <section class="policy-section">
-  <div class="container">
+  <div class="wrap">
     <div class="policy-content">
       <h2 id="terms">Terms &amp; Conditions</h2>
       <p>By using our this site, you agree to these terms and conditions. All products are sold as described, with images representing approximate appearance. We reserve the right to modify prices and product availability without prior notice. Payment is required at checkout to confirm your order. We are not responsible for delivery delays caused by shipping partners or circumstances beyond our control. Any disputes will be resolved according to applicable laws in jurisdiction of Kozhikode.</p>

@@ -6,6 +6,7 @@
  * WebGL, Save-Data, very low memory).
  */
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three-room-env';
 
 const heroStage = document.getElementById('hero-stage');
 const storyEl = document.getElementById('about');
@@ -47,17 +48,45 @@ function makeRenderer(canvas) {
   r.setPixelRatio(Math.min(window.devicePixelRatio || 1, coarse ? 1.5 : 2));
   r.outputColorSpace = THREE.SRGBColorSpace;
   r.toneMapping = THREE.NeutralToneMapping;
-  r.toneMappingExposure = 1.05;
+  r.toneMappingExposure = 0.92;
   r.setClearColor(0x000000, 0);
+  r.shadowMap.enabled = true;
+  r.shadowMap.type = THREE.PCFSoftShadowMap;
   return r;
 }
 
-function addLights(scene) {
-  scene.add(new THREE.HemisphereLight(0xfff6dc, 0xb0c462, 1.6));
-  const key = new THREE.DirectionalLight(0xfff1cc, 2.4);
-  key.position.set(3, 4, 5);
+/* Soft studio reflections, so the paper and the uruli read as real materials. */
+function addEnvironment(renderer, scene, intensity = 0.55) {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environmentIntensity = intensity;
+  pmrem.dispose();
+}
+
+/* A key light that casts a soft shadow onto an invisible ground. */
+function addShadowGround(scene, y, size = 6, opacity = 0.22) {
+  const key = new THREE.DirectionalLight(0xfff3d6, 1.35);
+  key.position.set(2.5, 5, 3.5);
+  key.castShadow = true;
+  key.shadow.mapSize.set(1024, 1024);
+  key.shadow.radius = 6;
+  key.shadow.bias = -0.0008;
+  Object.assign(key.shadow.camera, { left: -2.5, right: 2.5, top: 2.5, bottom: -2.5, near: 0.5, far: 14 });
   scene.add(key);
-  const rim = new THREE.DirectionalLight(0xe9c202, 1.4);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.ShadowMaterial({ opacity }));
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = y;
+  ground.receiveShadow = true;
+  scene.add(ground);
+  return { key, ground };
+}
+
+function addLights(scene) {
+  scene.add(new THREE.HemisphereLight(0xfff6dc, 0x9fb85a, 0.55));
+  const key = new THREE.DirectionalLight(0xfff1cc, 0.9);
+  key.position.set(-3, 3, 5);
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(0xe9c202, 1.0);
   rim.position.set(-4, 2, -3);
   scene.add(rim);
 }
@@ -118,28 +147,94 @@ function loadAssets(onReady) {
     t.anisotropy = 4;
     return t;
   };
-  const assets = { pouch: tex(d.pouch), chip: tex(d.chip), mascot: tex(d.mascot) };
+  const assets = { front: tex(d.packFront), back: tex(d.packBack), side: tex(d.packSide), chip: tex(d.chip) };
   manager.onLoad = () => onReady(assets);
   manager.onError = (url) => console.warn('[v2] texture failed', url);
 }
 
-/* Stand-up pouch: a subdivided box, pillowed across its width and crimped
- * flat at the top seal. Front and back carry the real label art. */
-function makePouch(assets) {
-  const W = 1, H = 1.43, D = 0.34;
-  const g = new THREE.BoxGeometry(W, H, D, 28, 36, 6);
-  const pos = g.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const nx = pos.getX(i) / (W / 2), ny = pos.getY(i) / (H / 2);
-    let f = Math.sqrt(Math.max(0, 1 - Math.pow(Math.abs(nx), 5)));
-    if (ny > 0.8) f *= Math.max(0, 1 - (ny - 0.8) / 0.11);
-    if (ny < -0.85) f = Math.max(f, 0.55 * (1 - Math.pow(Math.abs(nx), 6)));
-    pos.setZ(i, pos.getZ(i) * Math.max(f, 0.03));
+/* The Varthaai carton, modelled from the 360° shoot: a gable-top box.
+ * Width : depth : height = 1 : 0.42 : 1.33. Straight walls rise to a crease
+ * just above the logo, then two flat roof slopes meet at the ridge, and the
+ * side panels are house-shaped. Front and back carry the real printed art
+ * (the front label and the back story panel run from the base, over the
+ * crease, up to the ridge); the sides carry the side panel from the video. */
+const PACK = { W: 1, D: 0.42, LABEL: 708 / 988, CREASE: 0.73 };
+function packProfile() {
+  const labelLen = PACK.W / PACK.LABEL;          // printed panel length, base to ridge
+  const wall = labelLen * PACK.CREASE;           // vertical wall up to the crease
+  const roof = labelLen - wall;                  // roof slope length, crease to ridge
+  const rise = Math.sqrt(Math.max(0.01, roof * roof - (PACK.D / 2) ** 2));
+  return { labelLen, wall, roof, rise, top: wall + rise };
+}
+
+function makePack(assets) {
+  const { W, D } = PACK;
+  const P = packProfile();
+  const group = new THREE.Group();
+  const board = (map) => new THREE.MeshPhysicalMaterial({ map, roughness: 0.58, sheen: 0.3, sheenRoughness: 0.8, sheenColor: 0xfff4d6, clearcoat: 0.1, clearcoatRoughness: 0.6 });
+
+  // Front and back: one sheet each, folded at the crease.
+  const NU = 24, NV = 48;
+  function face(sign) {
+    const pos = [], uv = [], idx = [];
+    for (let j = 0; j <= NV; j++) {
+      const v = j / NV, L = v * P.labelLen;
+      let y, z;
+      if (L <= P.wall) { y = L; z = D / 2; }
+      else { const t = (L - P.wall) / P.roof; y = P.wall + t * P.rise; z = (D / 2) * (1 - t); }
+      for (let i = 0; i <= NU; i++) {
+        const u = i / NU;
+        // board bows out a touch between the folds, as a filled carton does
+        const bow = L <= P.wall ? 0.012 * Math.sin(Math.PI * u) * Math.sin(Math.PI * Math.min(1, L / P.wall)) : 0;
+        pos.push((sign > 0 ? u - 0.5 : 0.5 - u) * W, y, sign * (z + bow));
+        uv.push(u, v);
+      }
+    }
+    for (let j = 0; j < NV; j++) for (let i = 0; i < NU; i++) {
+      const a = j * (NU + 1) + i, b = a + 1, c = a + NU + 1, d = c + 1;
+      idx.push(a, b, d, a, d, c);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
   }
-  g.computeVertexNormals();
-  const label = new THREE.MeshPhysicalMaterial({ map: assets.pouch, roughness: 0.42, clearcoat: 0.55, clearcoatRoughness: 0.35 });
-  const side = new THREE.MeshStandardMaterial({ color: 0xe6dfc4, roughness: 0.6 });
-  return new THREE.Mesh(g, [side, side, side, side, label, label]);
+  const front = new THREE.Mesh(face(1), board(assets.front));
+  const back = new THREE.Mesh(face(-1), board(assets.back || assets.front));
+  group.add(front, back);
+
+  // Sides: a rectangle with a gable on top, cut to the same crease and ridge.
+  const shape = new THREE.Shape();
+  shape.moveTo(-D / 2, 0); shape.lineTo(D / 2, 0); shape.lineTo(D / 2, P.wall);
+  shape.lineTo(0, P.top); shape.lineTo(-D / 2, P.wall); shape.lineTo(-D / 2, 0);
+  const sideGeo = new THREE.ShapeGeometry(shape);
+  const sp = sideGeo.attributes.position, suv = sideGeo.attributes.uv;
+  for (let i = 0; i < sp.count; i++) suv.setXY(i, (sp.getX(i) + D / 2) / D, sp.getY(i) / P.top);
+  const sideMat = board(assets.side);
+  for (const sx of [1, -1]) {
+    const g = sideGeo.clone();
+    g.rotateY(sx * Math.PI / 2);
+    g.translate(sx * W / 2, 0, 0);
+    group.add(new THREE.Mesh(g, sideMat));
+  }
+  // Base.
+  const base = new THREE.Mesh(new THREE.PlaneGeometry(W, D), new THREE.MeshStandardMaterial({ color: 0xa8c266, roughness: 0.8 }));
+  base.rotation.x = Math.PI / 2;
+  group.add(base);
+  // A thin fold line along the ridge and the creases catches the light like scored board.
+  const crease = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 });
+  const pts = (arr) => new THREE.BufferGeometry().setFromPoints(arr.map(([x, y, z]) => new THREE.Vector3(x, y, z)));
+  group.add(new THREE.Line(pts([[-W / 2, P.top + 0.001, 0], [W / 2, P.top + 0.001, 0]]), crease));
+  for (const sz of [1, -1]) group.add(new THREE.Line(pts([[-W / 2, P.wall, sz * (D / 2 + 0.002)], [W / 2, P.wall, sz * (D / 2 + 0.002)]]), crease));
+
+  group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  group.position.y = -P.top / 2;                 // centre on the pivot
+  const pivot = new THREE.Group();
+  pivot.add(group);
+  pivot.userData.height = P.top;
+  return pivot;
 }
 
 /* A banana chip: a thin wavy disc with a slight cup, its caps textured from
@@ -210,98 +305,95 @@ function run() {
 }
 
 /* ═══ HERO ═════════════════════════════════════════════════════════════ */
+/* The carton stands in the grove; chips drift around it. The mascot is a DOM
+ * component beside the canvas; this scene tells it what's happening through
+ * `v2:pack` events (hover, grab, spin, release, tap). */
 function initHero(assets) {
   const canvas = document.getElementById('hero-canvas');
-  const bubble = document.getElementById('mascot-bubble');
   const renderer = makeRenderer(canvas);
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(30, 1, 0.1, 50);
   const tweens = createTweens();
   const dpr = adaptiveDPR(renderer);
+  addEnvironment(renderer, scene, 0.32);
   addLights(scene);
 
   const rig = new THREE.Group();
   scene.add(rig);
 
-  const pouchPivot = new THREE.Group();
-  pouchPivot.position.set(0.32, 0.02, 0);
-  rig.add(pouchPivot);
-  const pouch = makePouch(assets);
-  pouchPivot.add(pouch);
-  const shadow = softShadow(1.6, 0.45);
-  shadow.position.set(0.32, -0.8, 0);
-  rig.add(shadow);
+  const pack = makePack(assets);
+  const H = pack.userData.height;
+  const packHome = new THREE.Vector3(0.28, 0.02, 0);
+  pack.position.copy(packHome);
+  rig.add(pack);
+  pack.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  const { ground } = addShadowGround(scene, packHome.y - H / 2 - 0.002, 6, 0.24);
+  const contact = softShadow(1.5, 0.32);
+  contact.position.set(packHome.x, packHome.y - H / 2 + 0.002, 0.02);
+  rig.add(contact);
 
-  // Mascot: the real artwork as a cut-out standee that reacts to the visitor.
-  const mascotPivot = new THREE.Group();
-  mascotPivot.position.set(-0.78, -0.38, 0.45);
-  rig.add(mascotPivot);
-  const mascot = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.8, 0.736),
-    new THREE.MeshBasicMaterial({ map: assets.mascot, transparent: true, alphaTest: 0.05, side: THREE.DoubleSide, toneMapped: false }),
-  );
-  mascot.position.y = 0.368; // pivot at the feet, so squash and hop read right
-  mascotPivot.add(mascot);
-  const mShadow = softShadow(0.7, 0.35);
-  mShadow.position.set(-0.78, -0.375, 0.45);
-  rig.add(mShadow);
-
-  // Chips drifting around the pouch.
-  const N = coarse ? 18 : 28;
+  // Chips drifting around the carton.
+  const N = coarse ? 12 : 18;
   const chips = makeChipMesh(assets, N);
   rig.add(chips);
   const orbit = Array.from({ length: N }, (_, i) => ({
     a: (i / N) * Math.PI * 2 + rand() * 0.4,
-    rx: 0.78 + rand() * 0.32,
-    rz: 0.55 + rand() * 0.35,
-    y: -0.55 + rand() * 1.2,
-    speed: 0.12 + rand() * 0.12,
+    rx: 0.92 + rand() * 0.3,
+    rz: 0.5 + rand() * 0.3,
+    y: -0.5 + rand() * 1.15,
+    speed: 0.1 + rand() * 0.12,
     bob: rand() * Math.PI * 2,
     spin: new THREE.Vector3(rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1).multiplyScalar(1.4),
     rot0: new THREE.Euler(rand() * 6, rand() * 6, rand() * 6),
-    s: 0.55 + rand() * 0.38,
+    s: 0.45 + rand() * 0.3,
     pop: 0,
   }));
   const dummy = new THREE.Object3D();
 
-  // Layout: fit the pouch + mascot into whatever box the stage has.
   function fit() {
     const w = canvas.clientWidth, h = canvas.clientHeight;
     if (!w || !h) return;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-    const needH = 2.05, needW = 3.0;
+    const needH = 2.0, needW = 2.5;
     const dist = Math.max(needH / 2 / t, needW / 2 / (t * camera.aspect));
-    camera.position.set(0, 0.1, dist);
-    camera.lookAt(0, 0, 0);
+    // Mascot sits at the stage's left on wide screens, so nudge the scene right.
+    rig.position.x = camera.aspect > 1.05 ? 0.2 : 0.05;
+    camera.position.set(0, 0.42, dist);
+    camera.lookAt(0, -0.04, 0);
     camera.updateProjectionMatrix();
   }
   new ResizeObserver(fit).observe(canvas);
   fit();
 
-  // Input: gaze (anywhere over the hero), drag to spin the pouch, tap the mascot.
-  const pointer = new THREE.Vector2(0, 0);
-  const gaze = new THREE.Vector2(0, 0);
+  const emit = (type, extra) => heroStage.dispatchEvent(new CustomEvent('v2:pack', { detail: Object.assign({ type }, extra) }));
+
+  // Input: gaze parallax, hover/grab the carton, drag to spin with inertia.
+  const pointer = new THREE.Vector2(0, 0), gaze = new THREE.Vector2(0, 0);
+  const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
   const hero = heroStage.closest('.hero') || heroStage;
+  function overPack(e) {
+    const r = canvas.getBoundingClientRect();
+    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -(((e.clientY - r.top) / r.height) * 2 - 1));
+    ray.setFromCamera(ndc, camera);
+    return ray.intersectObject(pack, true).length > 0;
+  }
+  let hovering = false;
   hero.addEventListener('pointermove', (e) => {
     const r = heroStage.getBoundingClientRect();
     pointer.set(((e.clientX - r.left) / r.width) * 2 - 1, -(((e.clientY - r.top) / r.height) * 2 - 1));
-    if (!coarse) heroStage.classList.toggle('is-over-mascot', hitMascot(e));
+    if (coarse || dragging) return;
+    const over = overPack(e);
+    if (over !== hovering) { hovering = over; heroStage.classList.toggle('is-over-pack', over); emit(over ? 'hover' : 'leave'); }
   });
 
-  const ray = new THREE.Raycaster();
-  function hitMascot(e) {
-    const r = canvas.getBoundingClientRect();
-    const v = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -(((e.clientY - r.top) / r.height) * 2 - 1));
-    ray.setFromCamera(v, camera);
-    return ray.intersectObject(mascot).length > 0;
-  }
-
-  let spin = 0, spinVel = 0, dragging = false, lastX = 0, downX = 0, downT = 0;
-  canvas.style.pointerEvents = 'auto';
-  heroStage.addEventListener('pointerdown', (e) => {
-    dragging = true; lastX = downX = e.clientX; downT = performance.now();
+  let spin = 0, spinVel = 0, dragging = false, lastX = 0, downX = 0, downT = 0, spun = 0, lift = 0;
+  canvas.addEventListener('pointerdown', (e) => {
+    if (!overPack(e)) return;
+    dragging = true; lastX = downX = e.clientX; downT = performance.now(); spun = 0;
+    heroStage.classList.add('is-grabbing');
+    emit('grab');
   });
   window.addEventListener('pointermove', (e) => {
     if (!dragging) return;
@@ -309,124 +401,71 @@ function initHero(assets) {
     lastX = e.clientX;
     spinVel = dx * 0.012;
     spin += spinVel;
+    spun += Math.abs(dx);
+    if (spun > 260) { spun = -1e9; emit('spin'); }
   }, { passive: true });
   window.addEventListener('pointerup', (e) => {
     if (!dragging) return;
     dragging = false;
-    const moved = Math.abs(e.clientX - downX);
-    if (moved < 6 && performance.now() - downT < 400) {
-      if (hitMascot(e)) pokeMascot();
-      else if (e.target.closest && e.target.closest('#hero-stage')) wiggleChips();
-    }
+    heroStage.classList.remove('is-grabbing');
+    const tap = Math.abs(e.clientX - downX) < 6 && performance.now() - downT < 350;
+    emit(tap ? 'tap' : 'release', { speed: Math.abs(spinVel) });
+    if (tap) { burst(); tweens.add(520, (t) => { lift = Math.sin(t * Math.PI); }, { ease: (x) => x }); spinVel = 0.22; }
   });
-
-  // Speech bubble, pinned above the mascot's head in screen space.
-  const lines = [
-    'Hey! That tickles.',
-    'Fried in pure coconut oil. Every single time.',
-    'Nendran banana, turmeric, salt. That\'s me.',
-    'Drag the pouch around. Go on.',
-    'Tap Order now and I\'ll hop in.',
-  ];
-  let lineIdx = 0, bubbleTimer;
-  function say(text, ms = 2600) {
-    bubble.textContent = text;
-    bubble.classList.add('is-on');
-    clearTimeout(bubbleTimer);
-    bubbleTimer = setTimeout(() => bubble.classList.remove('is-on'), ms);
-  }
-  const head = new THREE.Vector3();
-  function placeBubble() {
-    mascot.getWorldPosition(head);
-    head.y += 0.42;
-    head.project(camera);
-    bubble.style.left = ((head.x + 1) / 2) * canvas.clientWidth + 'px';
-    bubble.style.top = ((1 - head.y) / 2) * canvas.clientHeight + 'px';
-  }
-
-  // Mascot behaviours.
-  const m = { squash: 0, hop: 0, flinch: 0, wave: 0 };
-  function pokeMascot() {
-    crunch();
-    if (navigator.vibrate) navigator.vibrate(15);
-    say(lines[lineIdx++ % lines.length]);
-    tweens.add(520, (t) => { m.flinch = Math.sin(t * Math.PI) * (1 - t * 0.3); });
-  }
-  function hopMascot() {
-    tweens.add(620, (t) => { m.hop = Math.sin(t * Math.PI); m.squash = Math.sin(t * Math.PI * 2) * 0.12; }, { ease: (x) => x });
-  }
-  function wiggleChips() {
+  function burst() {
     orbit.forEach((o) => { o.pop = 1; });
-    tweens.add(700, (t) => orbit.forEach((o) => { o.pop = 1 - t; }));
+    tweens.add(800, (t) => orbit.forEach((o) => { o.pop = 1 - t; }));
   }
-  document.querySelectorAll('[data-hop]').forEach((el) => {
-    el.addEventListener('mouseenter', hopMascot);
-    el.addEventListener('focus', hopMascot);
-  });
+  heroStage.addEventListener('v2:burst', burst);
 
-  // Intro: pouch drops in, chips pop out one by one, mascot waves hello.
-  let intro = { pouch: 0, chips: 0 };
+  // Intro: the carton drops in with a little settle, then the chips pop out.
+  const intro = { pack: 0, chips: 0 };
   function playIntro() {
-    tweens.add(900, (t) => { intro.pouch = t; }, { ease: easeOutBack });
-    tweens.add(1400, (t) => { intro.chips = t; }, { delay: 250 });
-    tweens.add(1600, (t) => { m.wave = Math.sin(t * Math.PI * 4) * (1 - t); }, { delay: 600, ease: (x) => x });
-    setTimeout(() => say('Hi! I\'m a Varthaai chip. Tap me.', 3200), 1100);
+    tweens.add(950, (t) => { intro.pack = t; }, { ease: easeOutBack });
+    tweens.add(1400, (t) => { intro.chips = t; }, { delay: 300 });
   }
 
-  // Loop.
-  let running = false, raf = 0, last = performance.now(), introPlayed = false;
-  const clock = { t: 0 };
+  let running = false, raf = 0, last = performance.now(), t = 0;
   function frame(now) {
     raf = requestAnimationFrame(frame);
     const dt = Math.min(0.05, (now - last) / 1000);
-    last = now;
-    clock.t += dt;
-    const t = clock.t;
+    last = now; t += dt;
     tweens.tick(now);
     dpr(now);
 
     gaze.lerp(pointer, 0.06);
-    rig.rotation.y = gaze.x * 0.18;
-    rig.rotation.x = -gaze.y * 0.06;
+    rig.rotation.y = gaze.x * 0.16;
+    rig.rotation.x = -gaze.y * 0.05;
 
-    // Pouch: drop-in, idle sway, drag spin with inertia.
-    if (!dragging) { spinVel *= 0.94; spin += spinVel; spin *= 0.985; }
-    const ip = intro.pouch;
-    pouchPivot.position.y = 0.02 + (1 - ip) * 1.6 + Math.sin(t * 1.1) * 0.035;
-    pouchPivot.rotation.set(Math.sin(t * 0.7) * 0.04, -0.32 + Math.sin(t * 0.45) * 0.22 + spin, 0.05 + Math.sin(t * 0.9) * 0.02);
-    pouchPivot.scale.setScalar(Math.max(0.001, ip));
-    shadow.material.opacity = ip * (0.9 - Math.sin(t * 1.1) * 0.08);
+    if (!dragging) { spinVel *= 0.95; spin += spinVel; spin *= 0.988; }
+    const ip = intro.pack;
+    const hoverLift = hovering || dragging ? 0.05 : 0;
+    pack.userData.lift = THREE.MathUtils.lerp(pack.userData.lift || 0, hoverLift, 0.12);
+    pack.position.y = packHome.y + (1 - ip) * 1.6 + pack.userData.lift + lift * 0.18 + Math.sin(t * 1.1) * 0.012;
+    pack.rotation.set(Math.sin(t * 0.7) * 0.02 - lift * 0.08, -0.42 + Math.sin(t * 0.4) * 0.2 + spin, Math.sin(t * 0.9) * 0.012);
+    pack.scale.setScalar(Math.max(0.001, ip));
+    const air = pack.position.y - packHome.y;
+    contact.material.opacity = ip * Math.max(0, 1 - air * 3);
+    contact.scale.setScalar(1 + air * 0.8);
+    ground.material.opacity = 0.24 * ip;
 
-    // Mascot: bob, squash, gaze, wave, flinch, hop.
-    const bob = Math.sin(t * 2.4) * 0.025;
-    mascotPivot.position.y = -0.38 + bob + m.hop * 0.42;
-    const sq = 1 + Math.sin(t * 4.8) * 0.015 + m.squash - m.flinch * 0.12;
-    mascotPivot.scale.set(1 / Math.sqrt(sq), sq, 1);
-    mascotPivot.rotation.y = THREE.MathUtils.clamp(gaze.x * 0.45, -0.38, 0.38);
-    mascotPivot.rotation.x = THREE.MathUtils.clamp(-gaze.y * 0.15, -0.15, 0.15);
-    mascotPivot.rotation.z = Math.sin(t * 1.3) * 0.04 + m.wave * 0.22 - m.flinch * 0.25;
-    mShadow.scale.setScalar(1 - m.hop * 0.4);
-
-    // Chips.
     for (let i = 0; i < N; i++) {
       const o = orbit[i];
       const a = o.a + t * o.speed;
-      const appear = easeOutBack(clamp01(intro.chips * 1.6 - i / N * 0.6));
-      const burst = 1 + o.pop * 0.35;
+      const appear = easeOutBack(clamp01(intro.chips * 1.6 - (i / N) * 0.6));
+      const burstK = 1 + o.pop * 0.45;
       dummy.position.set(
-        0.32 + Math.cos(a) * o.rx * burst,
-        o.y + Math.sin(t * 1.3 + o.bob) * 0.06 + o.pop * 0.15,
-        Math.sin(a) * o.rz * burst,
+        packHome.x + Math.cos(a) * o.rx * burstK,
+        o.y + Math.sin(t * 1.3 + o.bob) * 0.06 + o.pop * 0.22,
+        Math.sin(a) * o.rz * burstK,
       );
-      dummy.rotation.set(o.rot0.x + t * o.spin.x * 0.5, o.rot0.y + t * o.spin.y * 0.5, o.rot0.z + t * o.spin.z * 0.5);
+      dummy.rotation.set(o.rot0.x + t * o.spin.x * 0.5 + o.pop * 3, o.rot0.y + t * o.spin.y * 0.5, o.rot0.z + t * o.spin.z * 0.5);
       dummy.scale.setScalar(o.s * appear);
       dummy.updateMatrix();
       chips.setMatrixAt(i, dummy.matrix);
     }
     chips.instanceMatrix.needsUpdate = true;
-
     renderer.render(scene, camera);
-    if (bubble.classList.contains('is-on')) placeBubble();
   }
 
   visibilityGate(heroStage, (on) => {
@@ -434,13 +473,8 @@ function initHero(assets) {
     if (!on && running) { running = false; cancelAnimationFrame(raf); }
   });
 
-  // Hand over from the poster once the first frame is on the canvas.
   renderer.compile(scene, camera);
-  requestAnimationFrame(() => {
-    heroStage.dataset.mode = '3d';
-    if (!introPlayed) { introPlayed = true; playIntro(); }
-  });
-
+  requestAnimationFrame(() => { heroStage.dataset.mode = '3d'; playIntro(); emit('ready'); });
   canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); cancelAnimationFrame(raf); running = false; heroStage.dataset.mode = 'poster'; });
 }
 
@@ -454,6 +488,7 @@ function initStory(assets) {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(34, 1, 0.1, 60);
   const dpr = adaptiveDPR(renderer);
+  addEnvironment(renderer, scene, 0.5);
   addLights(scene);
   const glow = new THREE.PointLight(0xffb84a, 0, 6, 1.6);
   glow.position.set(0, 1.1, 1.2);
@@ -533,9 +568,7 @@ function initStory(assets) {
   });
 
   /* Pouch for the final beat, and a turmeric-and-salt dusting. */
-  const pouch = makePouch(assets);
-  const pouchPivot = new THREE.Group();
-  pouchPivot.add(pouch);
+  const pouchPivot = makePack(assets);
   world.add(pouchPivot);
   const DUST = coarse ? 160 : 320;
   const dustGeo = new THREE.BufferGeometry();
@@ -596,7 +629,11 @@ function initStory(assets) {
     target = clamp01(v);
     let best = 0;
     BEATS.forEach((b, i) => { if (Math.abs(target - b) < Math.abs(target - BEATS[best])) best = i; });
-    if (best !== active) { active = best; steps.forEach((st, i) => st.classList.toggle('is-active', i === best)); }
+    if (best !== active) {
+      active = best;
+      steps.forEach((st, i) => st.classList.toggle('is-active', i === best));
+      storyEl.dispatchEvent(new CustomEvent('v2:beat', { detail: { i: best } }));
+    }
   }
   window.addEventListener('scroll', readProgress, { passive: true });
   window.addEventListener('resize', () => { measure(); readProgress(); });
@@ -707,7 +744,7 @@ function initStory(assets) {
     pouchPivot.position.set(0, -0.15 - (1 - pIn) * 2.2, 0);
     pouchPivot.rotation.set(0.05, -0.3 + Math.sin(time * 0.6) * 0.28 + (1 - pIn) * 1.4, 0);
     pouchPivot.scale.set(pIn * (1 + seal), pIn * (1 - seal * 0.5), pIn);
-    mouth.set(0, pouchPivot.position.y + 0.85, 0);
+    mouth.set(0, pouchPivot.position.y + 0.7, 0);
 
     // Turmeric and salt dust settling over the chips.
     const dIn = Math.sin(Math.PI * seg(p, 0.68, 0.86));

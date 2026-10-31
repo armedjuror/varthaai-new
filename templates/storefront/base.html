@@ -48,12 +48,15 @@
         rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/slick-carousel/1.9.0/slick.css"
         crossorigin="anonymous" referrerpolicy="no-referrer"/>
-  <!-- Custom CSS -->
+  <!-- Custom CSS: legacy base, then the v2 storefront theme on top -->
   <link rel="stylesheet" href="{% static 'css/style.css' %}">
   <link rel="stylesheet" href="{% static 'css/loader.css' %}">
+  <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Manjari:wght@700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'css/storefront-v2.css' %}">
+  <script src="{% static 'js/mascot.js' %}" defer></script>
   {% block extra_head %}{% endblock %}
 </head>
-<body class="{% block body_class %}{% endblock %}">
+<body class="v2 {% block body_class %}{% endblock %}">
 {% if gtm_container_id %}
 <!-- Google Tag Manager (noscript) -->
 <noscript><iframe src="https://www.googletagmanager.com/ns.html?id={{ gtm_container_id }}"
@@ -64,7 +67,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   <div class="loader-wrapper">
     <div class="spinner"></div>
     <div class="mascot">
-      <img src="{% static 'images/mascot.png' %}" alt="Varthaai Mascot" class="img-fluid mascot-image">
+      <vt-mascot emotion="thinking" track></vt-mascot>
     </div>
     <div class="speech-bubble">
       <p id="fact" class="fact"></p>
@@ -93,7 +96,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
         <span class="lead-popup-ribbon d-none" id="lead-popup-badge-text"></span>
         <div class="lead-popup-mascot-wrap">
           <button type="button" id="crunch-btn" class="lead-popup-mascot-btn" aria-label="Tap to hear the crunch">
-            <img src="{% static 'images/mascot.png' %}" alt="Varthaai Mascot" id="lead-popup-mascot" class="crunch-mascot">
+            <vt-mascot id="lead-popup-mascot" class="crunch-mascot" emotion="happy" track wave></vt-mascot>
             <span class="lead-popup-speaker"><i class="fas fa-volume-high"></i></span>
           </button>
         </div>
@@ -135,6 +138,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
   var STOREFRONT_LOGGED_IN = {% if is_loggedin %}true{% else %}false{% endif %};
 </script>
 <script src="{% static 'js/lead-popup.js' %}"></script>
+<script src="{% static 'js/storefront-v2.js' %}"></script>
 
 {% block extra_js %}{% endblock %}
 </body>

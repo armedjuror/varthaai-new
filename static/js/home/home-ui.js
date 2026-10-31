@@ -7,24 +7,6 @@
   var root = document.body;
   var reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  /* ── Reveal on scroll ─────────────────────────────────────────────── */
-  function initReveal() {
-    var els = [].slice.call(document.querySelectorAll('.v2 .reveal'));
-    if (!('IntersectionObserver' in window) || reduceMotion) return;
-    var vh = window.innerHeight;
-    // Mark what's already on screen first so nothing above the fold flickers.
-    els.forEach(function (el) { if (el.getBoundingClientRect().top < vh * 0.92) el.classList.add('in'); });
-    root.classList.add('reveal-ready');
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) {
-        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
-      });
-    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.12 });
-    els.forEach(function (el, i) {
-      if (!el.classList.contains('in')) { el.style.transitionDelay = (i % 3) * 70 + 'ms'; io.observe(el); }
-    });
-  }
-
   /* ── Flavour tabs (WAI-ARIA tabs pattern) ─────────────────────────── */
   function initTabs() {
     var tabs = [].slice.call(document.querySelectorAll('.flavour-tab'));
@@ -117,7 +99,7 @@
       crunchSound();
       if (navigator.vibrate) navigator.vibrate(18);
       btn.classList.add('is-crunched');
-      mascot.classList.add('is-cheer');
+      if (window.VT) window.VT.react(mascot, n > 0 && (n + 1) % 10 === 0 ? 'love' : 'laughing', 1100, 'hop');
       n += 1; counter.textContent = n;
       try { localStorage.setItem(KEY, String(n)); } catch (e) {}
       if (!reduceMotion) {
@@ -133,8 +115,68 @@
           setTimeout(function (el) { el.remove(); }, 950, c);
         }
       }
-      setTimeout(function () { btn.classList.remove('is-crunched'); mascot.classList.remove('is-cheer'); }, 900);
+      setTimeout(function () { btn.classList.remove('is-crunched'); }, 900);
       setTimeout(function () { busy = false; }, 1100);
+    });
+  }
+
+  /* ── Hero mascot: reacts to the visitor and to the 3D pack ───────── */
+  function initHeroMascot() {
+    var m = document.getElementById('hero-mascot');
+    var btn = document.getElementById('hero-mascot-btn');
+    var bubble = document.getElementById('mascot-bubble');
+    var stage = document.getElementById('hero-stage');
+    if (!m || !window.VT) return;
+    var VT = window.VT;
+    var pokes = [
+      ['ouch', 'Ow! I\'m crunchy, not squishy.'],
+      ['laughing', 'Haha, that tickles!'],
+      ['love', 'Fried in pure coconut oil. Every time.'],
+      ['wink', 'Psst. Try the pack, it\'s my house.'],
+      ['surprised', 'Nendran banana, turmeric, salt. That\'s all of me.'],
+    ];
+    var k = 0;
+    btn.addEventListener('click', function () {
+      var p = pokes[k++ % pokes.length];
+      VT.react(m, p[0], 1700, 'squash');
+      VT.say(bubble, p[1]);
+      if (typeof window.playCrunchSound === 'function') window.playCrunchSound();
+      if (navigator.vibrate) navigator.vibrate(15);
+    });
+    setTimeout(function () { VT.say(bubble, 'Hi! I\'m the Varthaai chip. Tap me.', 3400); }, 1300);
+    document.querySelectorAll('[data-hop]').forEach(function (el) {
+      var go = function () { VT.react(m, 'excited', 1400, 'hop'); VT.say(bubble, 'Yes! Order now!', 1600); };
+      el.addEventListener('mouseenter', go);
+      el.addEventListener('focus', go);
+    });
+    if (stage) stage.addEventListener('v2:pack', function (e) {
+      var t = e.detail.type;
+      if (t === 'hover') VT.react(m, 'excited', 1200);
+      else if (t === 'grab') VT.react(m, 'surprised', 900);
+      else if (t === 'spin') { VT.react(m, 'laughing', 1600); VT.say(bubble, 'Wheee! Not too fast!', 1800); }
+      else if (t === 'release' && e.detail.speed > 0.15) VT.react(m, 'ouch', 1200, 'squash');
+      else if (t === 'tap') { VT.react(m, 'love', 1500, 'hop'); VT.say(bubble, 'That\'s the Varthaai pack. Chips inside!', 2200); }
+    });
+  }
+
+  /* ── Story mascot: feels each beat of the scroll story ──────────── */
+  function initStoryMascot() {
+    var story = document.getElementById('about');
+    var m = document.getElementById('story-mascot');
+    var bubble = document.getElementById('story-bubble');
+    if (!story || !m || !window.VT) return;
+    var beats = [
+      ['thinking', 'A raw Nendran. Long, green, firm.'],
+      ['surprised', 'Whoa. Paper-thin!'],
+      ['excited', 'Hot coconut oil. My favourite bath.'],
+      ['love', 'Salted, cooled, packed. Hi!'],
+    ];
+    story.addEventListener('v2:beat', function (e) {
+      var b = beats[e.detail.i];
+      if (!b) return;
+      m.emote(b[0]);
+      m.hop();
+      window.VT.say(bubble, b[1], 2600);
     });
   }
 
@@ -227,11 +269,12 @@
 
   function init() {
     if (window.gsap && window.ScrollTrigger) window.gsap.registerPlugin(window.ScrollTrigger);
-    initReveal();
     initTabs();
     initRings();
     initCrunch();
     initMarquee();
+    initHeroMascot();
+    initStoryMascot();
     initRoute();
     initStickyBar();
     window.V2 = { lenis: initSmoothScroll(), reduceMotion: reduceMotion };

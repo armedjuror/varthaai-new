@@ -3,78 +3,30 @@
 
 {% block title %}Dashboard - Varthaai{% endblock %}
 
+{% block body_class %}page-account{% endblock %}
+
 {% block extra_head %}
-<style>
-  .dashboard-section { padding: 120px 0 60px; min-height: 80vh; }
-  .user-info { background-color: #fff; border-radius: 15px; padding: 25px; margin-bottom: 30px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05); }
-  .points-badge { background-color: var(--primary-color); color: white; padding: 10px 15px; border-radius: 20px; font-weight: 700; display: inline-flex; align-items: center; gap: 10px; }
-  .points-badge i { font-size: 1.2rem; }
-  .tab-content { background-color: #fff; border-radius: 15px; padding: 25px; box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05); }
-  #myTab.nav-tabs { border-bottom: none; margin-bottom: 20px; }
-  #myTab.nav-tabs .nav-link { border: none; border-radius: 30px; padding: 10px 20px; margin-right: 10px; color: #333 !important; font-weight: 600; transition: all 0.3s ease; background-color: transparent; }
-  #myTab.nav-tabs .nav-link:hover { background-color: rgba(134, 170, 78, 0.1) !important; color: var(--primary-color) !important; }
-  #myTab.nav-tabs .nav-link.active { background-color: var(--primary-color) !important; color: #fff !important; }
-  #myTab.nav-tabs .nav-link.active:hover { background-color: var(--primary-color) !important; color: #fff !important; }
-  .order-card { border: 1px solid #eee; border-radius: 10px; padding: 20px; margin-bottom: 20px; transition: all 0.3s ease; }
-  .order-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1); }
-  .order-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eee; cursor: pointer; transition: opacity 0.3s ease; }
-  .order-header:hover { opacity: 0.8; }
-  .order-id { font-weight: 700; color: var(--dark-color); }
-  .order-date { color: #666; font-size: 0.9rem; }
-  .order-status { padding: 5px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
-  .status-pending { background-color: #ffecb3; color: #e6a700; }
-  .status-confirmed { background-color: #b3e5fc; color: #0288d1; }
-  .status-processing { background-color: #c8e6c9; color: #388e3c; }
-  .status-shipped { background-color: #bbdefb; color: #1976d2; }
-  .status-delivered { background-color: #dcedc8; color: #689f38; }
-  .status-cancelled { background-color: #ffcdd2; color: #d32f2f; }
-  .transaction-card { border: 1px solid #eee; border-radius: 10px; padding: 15px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
-  .transaction-info { flex-grow: 1; }
-  .transaction-type { font-weight: 600; margin-bottom: 5px; }
-  .transaction-date { font-size: 0.8rem; color: #666; }
-  .transaction-points { font-weight: 700; font-size: 1.2rem; }
-  .referral-link { background-color: #f5f5f5; padding: 15px; border-radius: 10px; margin-top: 20px; }
-  .referral-input-group { margin-bottom: 15px; }
-  .order-items-table { width: 100%; margin-top: 15px; margin-bottom: 15px; }
-  .order-items-table th, .order-items-table td { padding: 8px; text-align: left; border-bottom: 1px solid #eee; }
-  .order-items-table th { background-color: #f8f9fa; font-weight: 600; font-size: 0.85rem; }
-  .order-items-table .text-end { text-align: right; }
-  .order-actions { margin-top: 15px; display: flex; gap: 10px; flex-wrap: wrap; }
-  .contact-support-card { background: linear-gradient(135deg, #25D366 0%, #128C7E 100%); color: white; border-radius: 15px; padding: 25px; margin-top: 20px; text-align: center; }
-  .contact-support-card h4 { color: white; margin-bottom: 15px; }
-  .contact-support-card p { color: rgba(255, 255, 255, 0.9); margin-bottom: 20px; }
-  .whatsapp-btn { background-color: white; color: #25D366; border: none; padding: 12px 30px; border-radius: 25px; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 10px; transition: all 0.3s ease; }
-  .whatsapp-btn:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2); color: #128C7E; }
-  .points-reference { font-size: 0.85rem; color: #666; margin-top: 5px; }
-  .points-reference a { color: var(--primary-color); text-decoration: none; }
-  .points-reference a:hover { text-decoration: underline; }
-  .order-toggle-icon { transition: transform 0.3s ease; margin-left: 10px; display: inline-block; }
-  .order-header[aria-expanded="false"] .order-toggle-icon, .order-header.collapsed .order-toggle-icon { transform: rotate(180deg); }
-  .order-details-collapse { transition: all 0.3s ease; }
-  .transaction-status-credited-positive { color: var(--primary-color); }
-  .transaction-status-credited-negative { color: #d32f2f; }
-  .transaction-status-other { color: #666; }
-  .review-card { border: 1px solid #eee; border-radius: 10px; padding: 20px; margin-bottom: 20px; transition: all 0.3s ease; }
-  .review-card:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1); }
-  .review-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eee; }
-  .review-rating { display: flex; align-items: center; gap: 5px; }
-  .review-rating .star { color: #ffc107; font-size: 1.2rem; }
-  .review-rating .star.empty { color: #ddd; }
-  .review-date { color: #666; font-size: 0.9rem; }
-  .review-status { padding: 5px 10px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; }
-  .review-status-approved { background-color: #dcedc8; color: #689f38; }
-  .review-status-pending { background-color: #ffecb3; color: #e6a700; }
-  .review-text { color: #333; line-height: 1.6; margin-top: 10px; }
-  .rating { display: flex; gap: 5px; font-size: 1.5rem; cursor: pointer; }
-  .rating i { color: #ddd; transition: color 0.2s; }
-  .rating i.fas { color: #ffc107; }
-  .rating i:hover { color: #ffc107; }
-</style>
+<link rel="stylesheet" href="{% static 'css/account-v2.css' %}">
 {% endblock %}
 
 {% block content %}
+<section class="page-hero account-hero">
+  {% include 'storefront/_grove.html' with compact=1 %}
+  <div class="wrap">
+    <div class="reveal">
+      <p class="eyebrow">Your account</p>
+      <h1>Welcome back{% if storefront_user.name %}, <span class="hl">{{ storefront_user.name }}</span>{% endif %}.</h1>
+      <p>Your orders, points, reviews and referrals, all in one place.</p>
+    </div>
+    <div class="mascot-wrap" data-talk='["Every point is a rupee off.","Refer a friend, earn 50 points.","Reviews earn points too!"]' data-greet="Good to see you again!">
+      <vt-mascot id="account-mascot" emotion="happy" track wave doze></vt-mascot>
+      <div class="vt-bubble" role="status" aria-live="polite"></div>
+    </div>
+  </div>
+</section>
+
 <section class="dashboard-section">
-  <div class="container">
+  <div class="wrap">
     <div class="user-info" id="user-info">
       <div class="text-center py-4"><p class="mt-2">Loading user information...</p></div>
     </div>
@@ -152,7 +104,8 @@
 
       <div class="tab-pane fade" id="support" role="tabpanel" aria-labelledby="support-tab">
         <div class="contact-support-card">
-          <h4><i class="fab fa-whatsapp"></i> Need Help?</h4>
+          <vt-mascot emotion="excited" pose="wave" class="support-mascot"></vt-mascot>
+          <h4>Need help?</h4>
           <p>Our support team is here to assist you. Contact us via WhatsApp for quick assistance with your orders, questions, or any concerns.</p>
           <a href="https://wa.me/919400557445?text=Hello%2C%20I%20need%20help%20with%20my%20order" target="_blank" class="whatsapp-btn">
             <i class="fab fa-whatsapp" style="font-size: 1.5rem;"></i> Chat with Support
@@ -384,16 +337,16 @@
       ? `<p><i class="fas fa-address-card"></i> Designation: <span id="user-designation">${escapeHtml(user.designation)}</span></p>`
       : '<p><i class="fas fa-address-card"></i> Designation not added</p>';
     $('#user-info').html(`
-        <div class="row">
+        <div class="row g-3 align-items-center">
             <div class="col-md-8">
-                <h2>Welcome, <span id="user-name">${escapeHtml(user.name || 'User')}</span></h2>
+                <h2 class="account-name"><span id="user-name">${escapeHtml(user.name || 'User')}</span></h2>
                 <p><i class="fas fa-phone"></i> Phone: <span id="user-phone">${escapeHtml(user.mobile)}</span></p>
                 ${addressHtml}
                 ${designationHtml}
             </div>
             <div class="col-md-4 text-md-end">
-                <div class="points-badge"><i class="fas fa-coins"></i> ${user.loyalty_points} Points</div>
-                <p class="mt-2">1 point = ₹1 discount</p>
+                <div class="points-badge"><span class="points-coin" aria-hidden="true"></span><strong>${user.loyalty_points}</strong> points</div>
+                <p class="mt-2 points-note">1 point = ₹1 off your next order</p>
                 <div class="d-flex gap-2 justify-content-md-end mt-2">
                     <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editProfileModal">
                         <i class="fas fa-edit"></i> Edit Profile
@@ -410,11 +363,11 @@
   function renderOrders(orders) {
     if (orders.length === 0) {
       $('#orders-content').html(`
-          <div class="text-center py-5">
-              <i class="fas fa-shopping-cart fa-3x mb-3 text-muted"></i>
+          <div class="empty-state py-4">
+              <vt-mascot emotion="thinking" track></vt-mascot>
               <h4>No orders yet</h4>
-              <p>You haven't placed any orders yet.</p>
-              <a href="/shop/" class="btn btn-primary mt-3">Shop Now</a>
+              <p>Your first pack is one tap away.</p>
+              <a href="/shop/" class="btn btn-primary mt-2">Shop now</a>
           </div>`);
       return;
     }
@@ -505,10 +458,10 @@
         <h5>Points History</h5>`;
     if (transactions.length === 0) {
       pointsHtml += `
-          <div class="text-center py-4">
-              <i class="fas fa-coins fa-3x mb-3 text-muted"></i>
-              <h4>No point transactions yet</h4>
-              <p>You haven't earned or redeemed any points yet.</p>
+          <div class="empty-state py-3">
+              <vt-mascot emotion="wink"></vt-mascot>
+              <h4>No points yet</h4>
+              <p>Order, review or refer a friend to start earning.</p>
           </div>`;
     } else {
       const typeLabels = { 'purchase': 'Purchase Reward', 'review': 'Review Bonus', 'feedback': 'Feedback Bonus', 'referral': 'Referral Bonus', 'redemption': 'Points Redemption' };
@@ -556,10 +509,10 @@
   function renderReviews(reviews) {
     if (reviews.length === 0) {
       $('#reviews-content').html(`
-          <div class="text-center py-5">
-              <i class="fas fa-star fa-3x mb-3 text-muted"></i>
+          <div class="empty-state py-4">
+              <vt-mascot emotion="love"></vt-mascot>
               <h4>No reviews yet</h4>
-              <p>You haven't submitted any reviews yet.</p>
+              <p>Tell us what you thought. Reviews earn points too.</p>
           </div>`);
       return;
     }

@@ -3,30 +3,30 @@
 
 {% block title %}Blog - Varthaai{% endblock %}
 
+{% block body_class %}page-content{% endblock %}
+
 {% block extra_head %}
-<style>
-  .blog-section { padding: 120px 0 60px; min-height: 80vh; }
-  .blog-card { border: 1px solid #eee; border-radius: 10px; overflow: hidden; transition: transform 0.3s ease, box-shadow 0.3s ease; height: 100%; display: flex; flex-direction: column; }
-  .blog-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1); }
-  .blog-card img { width: 100%; height: 250px; object-fit: cover; }
-  .blog-card-body { padding: 20px; flex-grow: 1; display: flex; flex-direction: column; }
-  .blog-card-title { font-size: 1.25rem; font-weight: 600; margin-bottom: 10px; color: var(--dark-color); }
-  .blog-card-title a { color: inherit; text-decoration: none; }
-  .blog-card-title a:hover { color: var(--primary-color); }
-  .blog-meta { color: #666; font-size: 0.9rem; margin-bottom: 15px; }
-  .blog-excerpt { color: #666; margin-bottom: 15px; flex-grow: 1; }
-</style>
+<link rel="stylesheet" href="{% static 'css/content-v2.css' %}">
 {% endblock %}
 
 {% block content %}
-<section class="blog-section">
-  <div class="container">
-    <div class="section-heading text-center mb-5">
-      <h2>Our Blog</h2>
-      <div class="separator"></div>
-      <p class="lead mt-3">Stories, recipes, and insights from Varthaai</p>
+<section class="page-hero">
+  {% include 'storefront/_grove.html' with compact=1 %}
+  <div class="wrap">
+    <div class="reveal">
+      <p class="eyebrow">The journal</p>
+      <h1>Snack reading.</h1>
+      <p>Stories, recipes and the odd food-science rabbit hole from the Varthaai kitchen.</p>
     </div>
+    <div class="mascot-wrap" data-talk='["Grab a snack, then a story.","I\u2019m in most of these, by the way."]'>
+      <vt-mascot emotion="thinking" track doze></vt-mascot>
+      <div class="vt-bubble" role="status" aria-live="polite"></div>
+    </div>
+  </div>
+</section>
 
+<section class="blog-section">
+  <div class="wrap">
     <div class="row g-4">
       {% for blog in page_obj %}
       <div class="col-md-4">
@@ -34,7 +34,7 @@
           {% if blog.featured_image %}
           <img src="{{ blog.featured_image.url }}" alt="{{ blog.title }}" class="img-fluid">
           {% else %}
-          <div style="height: 250px; background: #f0f0f0; display: flex; align-items: center; justify-content: center;"><i class="fas fa-image fa-3x text-muted"></i></div>
+          <div class="blog-card-placeholder"><vt-mascot emotion="happy" static></vt-mascot><i hidden class="fas fa-image fa-3x text-muted"></i></div>
           {% endif %}
           <div class="blog-card-body">
             <h5 class="blog-card-title"><a href="/blog-detail/?slug={{ blog.slug }}">{{ blog.title }}</a></h5>
@@ -43,13 +43,13 @@
               {% if blog.created_by.name %}<span class="ms-3"><i class="far fa-user me-1"></i> {{ blog.created_by.name }}</span>{% endif %}
             </div>
             <p class="blog-excerpt">{{ blog.list_excerpt }}</p>
-            <a href="/blog-detail/?slug={{ blog.slug }}" class="btn btn-sm btn-outline-primary">Read More</a>
+            <a href="/blog-detail/?slug={{ blog.slug }}" class="read-more">Read <span aria-hidden="true">→</span></a>
           </div>
         </div>
       </div>
       {% empty %}
-      <div class="col-12 text-center">
-        <p class="text-muted">No blog posts available yet.</p>
+      <div class="col-12">
+        <div class="empty-state card-v2"><vt-mascot emotion="sleepy"></vt-mascot><h4>Nothing here yet</h4><p>Our first story is still in the fryer.</p></div>
       </div>
       {% endfor %}
     </div>
