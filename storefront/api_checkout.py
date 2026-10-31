@@ -139,11 +139,15 @@ class PlaceOrderAPI(StorefrontAPIView):
             candidate = Coupon.objects.filter(
                 brand_id=brand.id, code=coupon_code, is_active=True,
             ).first()
-            if candidate:
-                disc, error = _validate_coupon(candidate, sale_total, len(items), flavor_ids)
-                if not error:
-                    coupon = candidate
-                    coupon_discount = disc
+            if not candidate:
+                return Response({'success': False, 'message': 'This coupon is not valid'})
+            disc, error = _validate_coupon(candidate, sale_total, len(items), flavor_ids)
+            if error:
+                # The page showed the customer a discount; don't silently
+                # charge full price for it.
+                return Response({'success': False, 'message': error})
+            coupon = candidate
+            coupon_discount = disc
 
         delivery_charge = 50 if sale_total < 300 else 0
         final_amount = sale_total - coupon_discount + delivery_charge
@@ -166,7 +170,7 @@ class PlaceOrderAPI(StorefrontAPIView):
                 order = Order.objects.create(
                     id=order_id, brand_id=brand.id, user=user,
                     name=name, mobile=clean, address=address, pincode=pincode,
-                    referral=referral_user, coupon=coupon, coupon_code=coupon_code,
+                    referral=referral_user, coupon=coupon, coupon_code=coupon.code if coupon else '',
                     coupon_discount=coupon_discount, delivery_charge=delivery_charge,
                     status='pending', payment_status='pending', shipping_state_code=state_code,
                     billing_gstin=billing_gstin, billing_legal_name=billing_legal_name,
