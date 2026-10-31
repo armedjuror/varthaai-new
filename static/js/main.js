@@ -85,6 +85,7 @@ async function loadProducts() {
         dataType: 'json',
         success: function(data) {
             window.GST_PRICE_MODE = data.gst_price_mode || 'inclusive';
+            window.GST_ACTIVE = !!data.gst_active;
             if (data.flavors && data.flavors.length > 0) {
               data.flavors.forEach(function (flavor) {
                 products[flavor.id] = flavor;
@@ -232,21 +233,29 @@ function processOrder(){
     }else{
       order.deliveryCharge = 0;
     }
-    // GST on top (exclusive pricing): an estimate for display — the server
-    // computes the exact amount (and the Razorpay amount) when the order is placed.
+    // GST estimate for display, kept in sync with the admin B2C price mode
+    // (Settings -> GST). The server computes the exact amount (and the
+    // Razorpay amount) when the order is placed.
+    //   exclusive: GST is added on top of the payable amount
+    //   inclusive: GST is already inside the prices (shown for information)
     order.gst = 0;
-    if (window.GST_PRICE_MODE === 'exclusive' && order.saleTotal > 0) {
-        let weighted = 0;
+    order.gstMode = window.GST_ACTIVE ? (window.GST_PRICE_MODE || 'inclusive') : null;
+    const payable = order.saleTotal - order.couponDiscount + order.deliveryCharge;
+    if (order.gstMode && order.saleTotal > 0 && payable > 0) {
+        // Coupon and delivery are spread over the lines in proportion to goods value.
+        let tax = 0;
         order.items.forEach(function (it) {
             const p = products[it.id] || {};
-            weighted += it.salePrice * (parseFloat(p.gst_rate) || 0);
+            const rate = parseFloat(p.gst_rate) || 0;
+            const net = it.salePrice * payable / order.saleTotal;
+            tax += order.gstMode === 'exclusive' ? net * rate / 100 : net * rate / (100 + rate);
         });
-        const rate = weighted / order.saleTotal;
-        const base = order.saleTotal - order.couponDiscount + order.deliveryCharge;
-        order.gst = Math.round(base * rate) / 100;
-        order.final = Math.round((base + order.gst) * 100) / 100;
+        order.gst = Math.round(tax * 100) / 100;
+    }
+    if (order.gstMode === 'exclusive') {
+        order.final = Math.round((payable + order.gst) * 100) / 100;
     } else {
-        order.final = Math.round(order.saleTotal - order.couponDiscount + order.deliveryCharge);
+        order.final = Math.round(payable);
     }
     return Promise.resolve(order);
 }
