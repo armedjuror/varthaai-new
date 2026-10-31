@@ -8,22 +8,71 @@ var LEAD_POPUP_FIELD_DEFS = []; // [{key, label, type, required, extra}] built f
 var _crunchAudioCtx = null;
 var _crunchAudioUrl = ''; // real uploaded sound, set from config — falls back to synthesized
 
-/* Real uploaded sound if the admin has set one; else a synthesized crunch. */
+/* Crunch sound, in order of preference: the admin-uploaded sound, our recorded
+ * crunch (static/audio/crunch.mp3), then a synthesized one. The recorded crunch
+ * is decoded once into Web Audio so rapid taps play instantly and can overlap. */
+var _crunchBuffer = null, _crunchLoading = false;
+
+function _crunchCtx() {
+  var Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!_crunchAudioCtx) _crunchAudioCtx = new Ctx();
+  if (_crunchAudioCtx.state === 'suspended') _crunchAudioCtx.resume();
+  return _crunchAudioCtx;
+}
+
+function _loadDefaultCrunch(then) {
+  var el = document.getElementById('lead-popup-crunch-audio');
+  var src = el && el.getAttribute('data-default-src');
+  var ctx = _crunchCtx();
+  if (!src || !ctx || !window.fetch) { then(false); return; }
+  if (_crunchLoading) { then(false); return; }
+  _crunchLoading = true;
+  fetch(src).then(function (r) { return r.arrayBuffer(); })
+    .then(function (data) {
+      return new Promise(function (ok, fail) { ctx.decodeAudioData(data, ok, fail); });
+    })
+    .then(function (buf) { _crunchBuffer = buf; _crunchLoading = false; then(true); },
+          function () { _crunchLoading = false; then(false); });
+}
+
+function _playCrunchBuffer() {
+  var ctx = _crunchCtx();
+  if (!ctx || !_crunchBuffer) return false;
+  var src = ctx.createBufferSource();
+  src.buffer = _crunchBuffer;
+  src.playbackRate.value = 0.94 + Math.random() * 0.12;   // no two crunches quite alike
+  var gain = ctx.createGain();
+  gain.gain.value = 0.9;
+  src.connect(gain).connect(ctx.destination);
+  src.start();
+  return true;
+}
+
 function playCrunchSound() {
   if (_crunchAudioUrl) {
     var el = document.getElementById('lead-popup-crunch-audio');
     if (el) {
       try {
         el.currentTime = 0;
-        el.play();
+        var p = el.play();
+        if (p && p.catch) p.catch(function () {});
         return;
       } catch (e) {
-        // fall through to synthesized sound
+        // fall through to the recorded crunch
       }
     }
   }
-  playSynthesizedCrunch();
+  if (_playCrunchBuffer()) return;
+  _loadDefaultCrunch(function (ok) { if (!(ok && _playCrunchBuffer())) playSynthesizedCrunch(); });
 }
+
+// Warm the recorded crunch on the visitor's first touch or click (audio may
+// only start after a user gesture), so even the first crunch plays instantly.
+document.addEventListener('pointerdown', function warmCrunch() {
+  document.removeEventListener('pointerdown', warmCrunch, true);
+  if (!_crunchAudioUrl && !_crunchBuffer) _loadDefaultCrunch(function () {});
+}, true);
 
 /* Synthesized crunch — filtered noise bursts, no audio file/licensing needed. */
 function playSynthesizedCrunch() {

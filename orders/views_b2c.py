@@ -152,6 +152,11 @@ def _validate_coupon(coupon, sale_total, item_count, flavor_ids):
         return None, f'Minimum order value of ₹{coupon.min_order_value} required for this coupon'
     if coupon.min_quantity is not None and item_count < coupon.min_quantity:
         return None, f'Minimum order of quantity {coupon.min_quantity} required for this coupon'
+    return _coupon_discount(coupon, sale_total), None
+
+
+def _coupon_discount(coupon, sale_total):
+    """Discount a coupon gives on `sale_total`, never more than the goods."""
     discount = 0.0
     if coupon.discount_amount:
         discount = coupon.discount_amount
@@ -159,7 +164,36 @@ def _validate_coupon(coupon, sale_total, item_count, flavor_ids):
         discount = sale_total * coupon.discount_percentage / 100
         if coupon.max_discount_amount and discount > float(coupon.max_discount_amount):
             discount = float(coupon.max_discount_amount)
-    return round(discount, 2), None
+    return round(min(discount, sale_total), 2)
+
+
+class CouponError(Exception):
+    pass
+
+
+def _apply_order_coupon(order, coupon, validate):
+    """Pin `coupon` on the order and recompute coupon_discount / coupon_code
+    from the order's current items. `validate` re-runs the eligibility rules
+    (use it when the coupon is newly chosen); an unchanged coupon is only
+    re-priced, since the customer already qualified for it."""
+    items = list(order.items.all())
+    subtotal = sum(it.quantity * it.sale_price_per_kg / 1000 for it in items)
+    if coupon is None:
+        discount, code = 0.0, ''
+    else:
+        if validate:
+            discount, error = _validate_coupon(
+                coupon, subtotal, len(items), [it.flavor_id for it in items],
+            )
+            if error:
+                raise CouponError(error)
+        else:
+            discount = _coupon_discount(coupon, subtotal)
+        code = coupon.code
+    order.coupon = coupon
+    order.coupon_code = code
+    order.coupon_discount = discount
+    order.save(update_fields=['coupon', 'coupon_code', 'coupon_discount', 'updated_at'])
 
 
 def _gst_on_top(order):
@@ -334,6 +368,8 @@ def edit_order(request, pk):
     coupons = Coupon.objects.filter(brand_id=brand_id, is_active=True).filter(
         Q(expiry_date__isnull=True) | Q(expiry_date__gte=timezone.now()),
     ).order_by('code')
+    if order.coupon_id and not any(c.id == order.coupon_id for c in coupons):
+        coupons = [order.coupon, *coupons]
     users = User.objects.filter(brand_id=brand_id).order_by('name')
 
     order_loyalty = PointsTransaction.objects.filter(
@@ -573,6 +609,12 @@ class OrdersAPI(APIView):
         coupon_id = data.get('coupon_id')
         user_id = data.get('user_id')
         new_status = data.get('status') or order.status
+        coupon = None
+        if coupon_id:
+            coupon = Coupon.objects.filter(id=_int(coupon_id), brand_id=order.brand_id).first()
+            if not coupon:
+                return err('Coupon not found.')
+        coupon_changed = (coupon.id if coupon else None) != order.coupon_id
         new_values = {
             'name': name,
             'address': (data.get('address') or '').strip(),
@@ -580,7 +622,7 @@ class OrdersAPI(APIView):
             'shipping_state_code': normalise_state_code(data.get('shipping_state_code'))
             if 'shipping_state_code' in data else order.shipping_state_code,
             'delivery_charge': _float(data.get('delivery_charge')),
-            'coupon_id': _int(coupon_id) if coupon_id else None,
+            'coupon_id': coupon.id if coupon else None,
         }
         item_changes = {
             _int(item_id): _int(qty) for item_id, qty in (data.get('item_quantities') or {}).items()
@@ -598,7 +640,8 @@ class OrdersAPI(APIView):
             with transaction.atomic():
                 order.mobile = mobile
                 for key, value in new_values.items():
-                    setattr(order, key, value)
+                    if key != 'coupon_id':
+                        setattr(order, key, value)
                 order.payment_status = payment_status
                 order.user_id = _int(user_id) if user_id else None
                 order.save()
@@ -607,10 +650,13 @@ class OrdersAPI(APIView):
                         OrderItem.objects.filter(id=item_id, order_id=order.id).update(quantity=qty)
                     else:
                         OrderItem.objects.filter(id=item_id, order_id=order.id).delete()
+                # The discount follows the coupon and the items: a newly chosen
+                # coupon is validated, an existing one re-priced (percentage).
+                _apply_order_coupon(order, coupon, validate=coupon_changed)
                 billing.refresh_b2c_gst(order)
                 if new_status != order.status:
                     _apply_status(order, new_status, request.user)
-        except billing.BillingError as exc:
+        except (billing.BillingError, CouponError) as exc:
             return err(str(exc))
 
         if order.user_id and payment_status != old_payment:
@@ -651,6 +697,7 @@ class OrdersAPI(APIView):
             sale_price_per_kg=sale_price_per_kg, quantity=quantity,
             pack_label=pack_label,
         )
+        _apply_order_coupon(order, order.coupon, validate=False)
         billing.refresh_b2c_gst(order)
         sync_b2c_order_income(order)
         return ok({
@@ -678,6 +725,7 @@ class OrdersAPI(APIView):
             id=item_id, order_id=order.id,
         ).delete()
         if deleted:
+            _apply_order_coupon(order, order.coupon, validate=False)
             billing.refresh_b2c_gst(order)
             sync_b2c_order_income(order)
         return ok(message='Item removed.') if deleted else err('Item not found.')
@@ -818,7 +866,7 @@ class CreateOrderAPI(APIView):
             order = Order.objects.create(
                 id=order_id, brand_id=brand_id, user=user,
                 name=name, mobile=mobile, address=address, pincode=pincode,
-                referral=referral_user, coupon=coupon, coupon_code=coupon_code,
+                referral=referral_user, coupon=coupon, coupon_code=coupon.code if coupon else '',
                 coupon_discount=coupon_discount, delivery_charge=delivery_charge,
                 status='pending', payment_status='pending',
                 order_date=order_date, shipping_state_code=state_code,

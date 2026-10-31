@@ -1,0 +1,87 @@
+/* Varthaai customer dashboard (v2). Shared theme: storefront-v2.css.
+   Class names and IDs are the ones dashboard.html's JS renders into. */
+
+.v2 .page-hero .hl { color: var(--leaf-deep); }
+.v2 .dashboard-section { padding: 0 0 var(--section); min-height: 0; margin-top: -48px; position: relative; z-index: 1; }
+
+/* Profile card */
+.v2 .user-info { background: var(--paper); border-radius: 24px; padding: clamp(18px, 3vw, 28px); margin-bottom: 22px; box-shadow: var(--shadow); }
+.v2 .user-info p { color: var(--muted); margin: 4px 0; }
+.v2 .user-info p i { width: 18px; color: var(--leaf); margin-right: 6px; }
+.v2 .account-name { font-family: var(--font-display); font-weight: 800; font-size: clamp(1.6rem, 4vw, 2.1rem); margin: 0 0 6px; }
+.v2 .points-badge { display: inline-flex; align-items: center; gap: 10px; padding: 10px 18px 10px 10px; border-radius: 999px;
+  background: linear-gradient(135deg, #FFE27A, var(--chip)); color: var(--ink); font-weight: 700; box-shadow: 0 6px 18px -8px rgba(187, 113, 11, .6); }
+.v2 .points-badge strong { font-family: var(--font-display); font-size: 1.5rem; line-height: 1; }
+.v2 .points-coin { width: 34px; height: 34px; border-radius: 50%; background: url("../images/home/chip.webp") center / cover; box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .6); }
+.v2 .points-note { font-size: .85rem; }
+.v2 .user-info .btn-outline-danger { border-radius: 999px; font-weight: 700; }
+
+/* Tabs live in storefront-v2.css (#myTab). Panel: */
+.v2 .tab-content { background: var(--paper); border-radius: 24px; padding: clamp(18px, 3vw, 28px); box-shadow: var(--shadow); }
+
+/* Orders */
+.v2 .order-card { border: 1.5px solid rgba(119, 107, 71, .16); border-radius: 18px; padding: 18px; margin-bottom: 14px; background: #fff; transition: transform .3s var(--ease-out), box-shadow .3s; }
+.v2 .order-card:hover { transform: translateY(-3px); box-shadow: var(--shadow); }
+.v2 .order-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed rgba(119, 107, 71, .25); cursor: pointer; }
+.v2 .order-id { font-weight: 800; color: var(--ink); }
+.v2 .order-date { color: var(--muted); font-size: .88rem; }
+.v2 .order-status { padding: 5px 12px; border-radius: 999px; font-size: .78rem; font-weight: 700; }
+.v2 .status-pending { background: #FFF1C2; color: #8A6400; }
+.v2 .status-confirmed { background: #DDEFF9; color: #0B5E8E; }
+.v2 .status-processing { background: #E6F2D3; color: #3F6B1F; }
+.v2 .status-shipped { background: #DCE9FA; color: #1F57A3; }
+.v2 .status-delivered { background: #D7EBC4; color: #2F5A17; }
+.v2 .status-cancelled { background: #FBE0DE; color: #9F2620; }
+.v2 .order-toggle-icon { transition: transform .3s ease; margin-left: 8px; display: inline-block; color: var(--leaf-deep); }
+.v2 .order-header[aria-expanded="false"] .order-toggle-icon, .v2 .order-header.collapsed .order-toggle-icon { transform: rotate(180deg); }
+.v2 .order-items-table { width: 100%; margin: 12px 0; border-collapse: separate; border-spacing: 0; }
+.v2 .order-items-table th, .v2 .order-items-table td { padding: 9px 10px; text-align: left; border-bottom: 1px solid rgba(119, 107, 71, .14); }
+.v2 .order-items-table th { background: var(--cream); font-weight: 700; font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.v2 .order-items-table th:first-child { border-radius: 10px 0 0 10px; } .v2 .order-items-table th:last-child { border-radius: 0 10px 10px 0; }
+.v2 .order-items-table .text-end { text-align: right; }
+.v2 .order-actions { margin-top: 12px; display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 600px) { .v2 .order-items-table { font-size: .88rem; } .v2 .order-items-table th, .v2 .order-items-table td { padding: 8px 6px; } }
+
+/* Points */
+.v2 .points-summary h4 { font-family: var(--font-display); font-weight: 800; }
+.v2 .transaction-card { border: 1.5px solid rgba(119, 107, 71, .16); background: #fff; border-radius: 16px; padding: 14px 16px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.v2 .transaction-info { flex-grow: 1; }
+.v2 .transaction-type { font-weight: 700; margin-bottom: 2px; }
+.v2 .transaction-date { font-size: .8rem; color: var(--muted); }
+.v2 .transaction-points { font-family: var(--font-display); font-weight: 800; font-size: 1.35rem; }
+.v2 .transaction-status-credited-positive { color: var(--leaf-deep); }
+.v2 .transaction-status-credited-negative { color: #B4372E; }
+.v2 .transaction-status-other { color: var(--muted); }
+.v2 .points-reference { font-size: .85rem; color: var(--muted); margin-top: 4px; }
+.v2 .points-reference a { color: var(--leaf-deep); text-decoration: none; }
+
+/* Referral */
+.v2 .referral-info h4 { font-family: var(--font-display); font-weight: 800; }
+.v2 .referral-link { background: var(--cream); padding: 18px; border-radius: 18px; margin-top: 16px; }
+.v2 .referral-input-group { margin-bottom: 14px; }
+.v2 .social-sharing { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.v2 .social-sharing .btn-success { background: #25D366; border-color: #25D366; }
+.v2 .social-sharing .btn-info { background: #DDEFF9; border-color: #DDEFF9; color: #0B5E8E; }
+
+/* Reviews */
+.v2 .review-card { border: 1.5px solid rgba(119, 107, 71, .16); background: #fff; border-radius: 18px; padding: 18px; margin-bottom: 14px; }
+.v2 .review-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed rgba(119, 107, 71, .25); }
+.v2 .review-rating { display: flex; align-items: center; gap: 4px; }
+.v2 .review-rating .star { color: var(--chip); font-size: 1.15rem; }
+.v2 .review-rating .star.empty { color: #D3CCB0; }
+.v2 .review-date { color: var(--muted); font-size: .88rem; }
+.v2 .review-status { padding: 5px 12px; border-radius: 999px; font-size: .78rem; font-weight: 700; }
+.v2 .review-status-approved { background: #D7EBC4; color: #2F5A17; }
+.v2 .review-status-pending { background: #FFF1C2; color: #8A6400; }
+.v2 .review-text { color: var(--ink); line-height: 1.6; margin-top: 8px; }
+.v2 .rating { display: flex; gap: 6px; font-size: 1.6rem; cursor: pointer; }
+.v2 .rating i { color: #D3CCB0; transition: color .2s, transform .2s; }
+.v2 .rating i.fas, .v2 .rating i:hover { color: var(--chip); transform: scale(1.1); }
+
+/* Support */
+.v2 .contact-support-card { position: relative; overflow: hidden; background: linear-gradient(135deg, var(--leaf) 0%, var(--forest) 100%); color: #fff; border-radius: 22px; padding: 28px 24px; margin-top: 4px; text-align: center; }
+.v2 .contact-support-card h4 { color: #fff; font-family: var(--font-display); font-weight: 800; font-size: 1.7rem; margin-bottom: 10px; }
+.v2 .contact-support-card p { color: rgba(255, 255, 255, .9); margin-bottom: 18px; }
+.v2 .support-mascot { width: 110px; display: block; margin: 0 auto 6px; }
+.v2 .whatsapp-btn { background: #fff; color: #128C7E; border: 0; padding: 12px 26px; border-radius: 999px; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 10px; transition: transform .25s var(--ease-out), box-shadow .25s; }
+.v2 .whatsapp-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0, 0, 0, .2); color: #128C7E; }

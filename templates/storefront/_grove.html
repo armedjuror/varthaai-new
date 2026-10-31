@@ -1,0 +1,75 @@
+{% load static %}{% comment %}
+Illustrated banana grove. The plants are the banana tree from the pack dieline
+(static/images/grove/tree-*.webp: near, mid and far versions). Decorative only.
+   {% include 'storefront/_grove.html' %}                -> full (home hero)
+   {% include 'storefront/_grove.html' with compact=1 %} -> page headers
+   Parallax: storefront-v2.js sets --mx / --my on .grove from the pointer.
+{% endcomment %}
+<div class="grove{% if compact %} grove--compact{% endif %}" aria-hidden="true">
+  <div class="grove-sun"></div>
+  <div class="grove-rays"></div>
+  <svg class="grove-svg" viewBox="0 0 1600 700" preserveAspectRatio="xMidYMax slice" focusable="false">
+    <defs>
+      <linearGradient id="gv-haze" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#F3EFDC" stop-opacity="0"/>
+        <stop offset="1" stop-color="#F3EFDC" stop-opacity=".85"/>
+      </linearGradient>
+    </defs>
+
+    <!-- far row: pale, small, hazy -->
+    <g class="gv-layer" style="--d:.25">
+      <g color="#C9D7A1">
+        <g transform="translate(120 520) scale(.42)"><image class="gv-sway" href="{% static 'images/grove/tree-far.webp' %}" x="-157" y="-470" width="437" height="470"/></g>
+        <g transform="translate(330 530) scale(.36) scale(-1 1)"><image class="gv-sway gv-s2" href="{% static 'images/grove/tree-far.webp' %}" x="-157" y="-470" width="437" height="470"/></g>
+        <g transform="translate(560 515) scale(.45)"><image class="gv-sway gv-s3" href="{% static 'images/grove/tree-far.webp' %}" x="-157" y="-470" width="437" height="470"/></g>
+        {% if not compact %}<g transform="translate(800 525) scale(.38) scale(-1 1)"><image class="gv-sway" href="{% static 'images/grove/tree-far.webp' %}" x="-157" y="-470" width="437" height="470"/></g>{% endif %}
+        <g transform="translate(1040 515) scale(.44)"><image class="gv-sway gv-s2" href="{% static 'images/grove/tree-far.webp' %}" x="-157" y="-470" width="437" height="470"/></g>
+        <g transform="translate(1270 528) scale(.37) scale(-1 1)"><image class="gv-sway gv-s3" href="{% static 'images/grove/tree-far.webp' %}" x="-157" y="-470" width="437" height="470"/></g>
+        <g transform="translate(1490 518) scale(.43)"><image class="gv-sway" href="{% static 'images/grove/tree-far.webp' %}" x="-157" y="-470" width="437" height="470"/></g>
+      </g>
+      <rect x="0" y="330" width="1600" height="240" fill="url(#gv-haze)"/>
+    </g>
+
+    <!-- back hill -->
+    <g class="gv-layer" style="--d:.4">
+      <path d="M-40 560 C200 500 420 520 640 545 C900 575 1120 505 1360 520 C1480 528 1560 540 1640 548 L1640 700 L-40 700Z" fill="#D2DEA3"/>
+    </g>
+
+    <!-- mid row -->
+    <g class="gv-layer" style="--d:.6">
+      <g color="#9DBB6B">
+        <g transform="translate(210 600) scale(.66)"><image class="gv-sway gv-s2" href="{% static 'images/grove/tree-mid.webp' %}" x="-157" y="-470" width="437" height="470"/></g>
+        {% if not compact %}<g transform="translate(470 610) scale(.58) scale(-1 1)"><image class="gv-sway" href="{% static 'images/grove/tree-mid.webp' %}" x="-157" y="-470" width="437" height="470"/></g>{% endif %}
+        <g transform="translate(1500 612) scale(.6)"><image class="gv-sway gv-s3" href="{% static 'images/grove/tree-mid.webp' %}" x="-157" y="-470" width="437" height="470"/></g>
+        <g transform="translate(1585 598) scale(.7) scale(-1 1)"><image class="gv-sway" href="{% static 'images/grove/tree-mid.webp' %}" x="-157" y="-470" width="437" height="470"/></g>
+      </g>
+    </g>
+
+    <!-- front hill + painted grass -->
+    <g class="gv-layer" style="--d:.85">
+      <path d="M-40 620 C220 585 520 600 800 615 C1080 630 1340 585 1640 600 L1640 700 L-40 700Z" fill="#B3C96E"/>
+      <path d="M-40 650 C300 632 640 646 960 652 C1240 657 1460 640 1640 646 L1640 700 L-40 700Z" fill="#A2C060"/>
+      <g stroke="#7FA654" stroke-width="5" stroke-linecap="round" fill="none">
+        <path d="M60 612 l-3 -20 M74 610 l2 -24 M88 611 l-1 -18 M330 603 l-2 -22 M344 602 l3 -18 M640 608 l-2 -24 M654 609 l1 -17 M668 610 l-3 -21 M930 618 l2 -20 M944 619 l-2 -26 M1210 606 l-2 -19 M1224 604 l3 -23 M1500 598 l-1 -21 M1514 599 l2 -17"/>
+      </g>
+      <g stroke="#6E9A48" stroke-width="5" stroke-linecap="round" fill="none" opacity=".75">
+        <path d="M180 670 l-1 -16 M192 671 l1 -19 M204 672 l-1 -14 M1080 668 l-1 -18 M1092 668 l2 -14 M1104 669 l-1 -17"/>
+      </g>
+    </g>
+
+    <!-- near framing plants, mostly off the edges -->
+    {% if not compact %}
+    <g class="gv-layer" style="--d:1.2">
+      <g color="#6F9A4C">
+        <g transform="translate(-30 760) scale(1.25)"><image class="gv-sway gv-near" href="{% static 'images/grove/tree-near.webp' %}" x="-157" y="-470" width="437" height="470"/></g>
+        <g transform="translate(1660 780) scale(1.15) scale(-1 1)"><image class="gv-sway gv-near gv-s2" href="{% static 'images/grove/tree-near.webp' %}" x="-157" y="-470" width="437" height="470"/></g>
+      </g>
+    </g>
+    {% endif %}
+  </svg>
+  <div class="grove-pollen">
+    <i style="--x:12%;--y:62%;--t:9s;--dl:-2s"></i><i style="--x:28%;--y:48%;--t:12s;--dl:-6s"></i>
+    <i style="--x:47%;--y:70%;--t:10s;--dl:-1s"></i><i style="--x:63%;--y:40%;--t:13s;--dl:-8s"></i>
+    <i style="--x:78%;--y:58%;--t:11s;--dl:-4s"></i><i style="--x:90%;--y:35%;--t:14s;--dl:-9s"></i>
+  </div>
+</div>

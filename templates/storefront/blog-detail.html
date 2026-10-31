@@ -18,7 +18,10 @@
 {% endif %}
 {% endblock %}
 
+{% block body_class %}page-content page-article{% endblock %}
+
 {% block extra_head %}
+<link rel="stylesheet" href="{% static 'css/content-v2.css' %}">
 {% if blog %}
 <script type="application/ld+json">
 {
@@ -34,42 +37,17 @@
 }
 </script>
 {% endif %}
-<style>
-  .blog-detail-section { padding: 120px 0 60px; min-height: 80vh; }
-  .blog-header { margin-bottom: 40px; }
-  .blog-title { font-size: 2.5rem; font-weight: 700; margin-bottom: 20px; color: var(--dark-color); }
-  .blog-meta { color: #666; font-size: 1rem; margin-bottom: 30px; }
-  .blog-featured-image { width: 100%; max-height: 500px; object-fit: cover; border-radius: 10px; margin-bottom: 30px; }
-  .blog-content { font-size: 1.1rem; line-height: 1.8; color: #333; }
-  .blog-content p { margin-bottom: 20px; }
-  .blog-content img { max-width: 100%; height: auto; border-radius: 8px; margin: 20px 0; }
-  .blog-content h2, .blog-content h3, .blog-content h4, .blog-content h5, .blog-content h6 { margin-top: 30px; margin-bottom: 15px; font-weight: 600; color: var(--dark-color); }
-  .blog-content h2 { font-size: 1.75rem; }
-  .blog-content h3 { font-size: 1.5rem; }
-  .blog-content h4 { font-size: 1.25rem; }
-  .blog-content ul, .blog-content ol { margin-bottom: 20px; padding-left: 30px; }
-  .blog-content li { margin-bottom: 10px; }
-  .blog-content code { background-color: #f4f4f4; padding: 2px 6px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 0.9em; }
-  .blog-content pre { background-color: #f4f4f4; padding: 15px; border-radius: 8px; overflow-x: auto; margin: 20px 0; }
-  .blog-content pre code { background-color: transparent; padding: 0; }
-  .blog-content blockquote { border-left: 4px solid var(--primary-color); padding-left: 20px; margin: 20px 0; font-style: italic; color: #666; }
-  .blog-content a { color: var(--primary-color); text-decoration: none; }
-  .blog-content a:hover { text-decoration: underline; }
-  .blog-content strong { font-weight: 600; }
-  .blog-content em { font-style: italic; }
-  .back-link { margin-bottom: 30px; }
-</style>
 {% endblock %}
+
+{% block extra_js %}{% if blog %}<script src="{% static 'js/blog-read.js' %}" defer></script>{% endif %}{% endblock %}
 
 {% block content %}
 <section class="blog-detail-section">
-  <div class="container">
+  <div class="wrap">
     <div class="row">
       <div class="col-lg-8 mx-auto">
         <div class="back-link">
-          <a href="/blog/" class="btn btn-outline-secondary">
-            <i class="fas fa-arrow-left me-2"></i>Back to Blog
-          </a>
+          <a href="/blog/" class="back-pill"><span aria-hidden="true">←</span> All posts</a>
         </div>
         {% if blog %}
         <div class="blog-header">
@@ -77,6 +55,7 @@
           <div class="blog-meta">
             <i class="far fa-calendar me-1"></i> {{ blog.published_at|default:blog.created_at|date:"F j, Y" }}
             {% if blog.created_by.name %}<span class="ms-3"><i class="far fa-user me-1"></i> {{ blog.created_by.name }}</span>{% endif %}
+            <span class="ms-3"><i class="far fa-clock me-1"></i> {{ blog.read_minutes }} min read</span>
           </div>
         </div>
         {% if blog.featured_image %}
@@ -85,8 +64,23 @@
         <div class="blog-content">
           {{ blog.content_html }}
         </div>
+        <div class="read-buddy" id="read-buddy" data-minutes="{{ blog.read_minutes }}" hidden>
+          <span class="vt-bubble" id="read-bubble" role="status" aria-live="polite"></span>
+          <button type="button" class="read-buddy-btn" aria-label="How much of this post is left">
+            <svg class="read-ring" viewBox="0 0 120 120" aria-hidden="true"><circle class="read-ring-track" cx="60" cy="60" r="55"/><circle class="read-ring-bar" cx="60" cy="60" r="55" pathLength="100"/></svg>
+            <vt-mascot emotion="happy" track></vt-mascot>
+          </button>
+        </div>
+        <aside class="article-end card-v2">
+          <vt-mascot emotion="love" track></vt-mascot>
+          <div>
+            <h3>Hungry now?</h3>
+            <p>Nendran banana, coconut oil, turmeric and salt. That's the whole pack.</p>
+            <a href="/shop/" class="btn btn-primary">Shop Varthaai</a>
+          </div>
+        </aside>
         {% else %}
-        <div class="alert alert-danger">Blog post not found.</div>
+        <div class="empty-state card-v2"><vt-mascot emotion="sad"></vt-mascot><h4>Post not found</h4><p>It may have moved. <a href="/blog/">See all posts</a>.</p></div>
         {% endif %}
       </div>
     </div>
