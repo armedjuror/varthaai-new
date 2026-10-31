@@ -337,8 +337,8 @@ function fromModel(model) {
   return pivot;
 }
 
-/* A banana chip: a thin wavy disc with a slight cup, its caps textured from
- * a real product photo. A per-instance `fry` attribute blends raw slice to
+/* A banana chip: a thin flat disc with a slightly uneven hand-cut outline,
+ * its caps textured from a real chip photo. A per-instance `fry` attribute blends raw slice to
  * golden chip in the shader. */
 function makeChipMesh(assets, count) {
   const R = 0.16;
@@ -347,9 +347,9 @@ function makeChipMesh(assets, count) {
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
     const a = Math.atan2(z, x);
-    const edge = 1 + 0.05 * Math.sin(5 * a) + 0.03 * Math.sin(9 * a + 1.3);
+    // Low-frequency wobble only: a sliced banana is roundish, never petalled.
+    const edge = 1 + 0.025 * Math.sin(2 * a + 0.7) + 0.015 * Math.sin(3 * a + 2.1);
     pos.setX(i, x * edge); pos.setZ(i, z * edge);
-    pos.setY(i, pos.getY(i) + 0.05 * ((x * x + z * z) / (R * R)) + 0.012 * Math.sin(3 * a));
   }
   g.computeVertexNormals();
   g.setAttribute('fry', new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1));
