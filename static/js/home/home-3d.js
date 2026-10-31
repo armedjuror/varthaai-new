@@ -147,7 +147,7 @@ function loadAssets(onReady) {
     t.anisotropy = 4;
     return t;
   };
-  const assets = { front: tex(d.packFront), back: tex(d.packBack), sideA: tex(d.packSideA), sideB: tex(d.packSideB), chip: tex(d.chip) };
+  const assets = { front: tex(d.packFront), back: tex(d.packBack), sideA: tex(d.packSideA), sideB: tex(d.packSideB), flap: tex(d.packFlap), chip: tex(d.chip) };
   manager.onLoad = async () => {
     // A designed pack model (static/models/pack.glb) replaces the built-in carton.
     if (d.packModel) {
@@ -161,53 +161,79 @@ function loadAssets(onReady) {
   manager.onError = (url) => console.warn('[v2] texture failed', url);
 }
 
-/* The Varthaai carton, built from the print dieline (Chips Box 21.5 x 14.5 x 10 cm).
- * Panels are 14.5 cm (front/back) and 10 cm (sides) wide and 21.5 cm tall flat.
- * Scored creases on the side panels make a milk-carton gable: walls rise to
- * 11.97 cm, the side gusset folds in along two 45° diagonals that meet 4.57 cm
- * below the top, the front and back roofs meet at a ridge at 16.93 cm, and the
- * last 2.5 cm of front and back stand together as the top seal fin.
- * Every face is textured with its own panel cut straight from the dieline, so
- * the art wraps round the corners exactly as printed.
- * World units: 1 = 14.5 cm (the front width). */
+/* The Varthaai carton, built from the print dieline (Chips Box 21.5 x 14.5 x 10 cm)
+ * and checked against the 360° video.
+ *  - Panels are 14.5 cm (front/back) and 10 cm (sides) wide, 21.5 cm long.
+ *  - Front and back stand straight to the side crease at 11.97 cm, then the
+ *    board bends in one gradual curve (no hard crease) over its last 9.53 cm
+ *    to meet the other panel at the ridge. The curve is solved so its length
+ *    is exactly 9.53 cm, so the printed art lands where it does on the box.
+ *  - The side gussets fold inward under the ridge, leaving a V recess above
+ *    each side wall, folded on the dieline's creases.
+ *  - The top flap printed above the front wraps over the ridge and is glued
+ *    down the back roof: the tear strip and thumb notch seen in the video.
+ * Every surface samples its own panel cut from the dieline. 1 unit = 14.5 cm. */
 const CM = 1 / 14.5;
 const PACK = {
   W: 14.5 * CM, D: 10 * CM, FLAT: 21.5 * CM,
-  SHOULDER: (21.5 - 9.53) * CM,          // where the side diagonals reach the edges
-  APEX: (21.5 - 4.57) * CM,              // ridge height (side gable apex)
+  WALL: (21.5 - 9.53) * CM,          // straight wall, to the side crease
+  CURVE: 9.53 * CM,                  // board length from the crease to the ridge
+  APEX: 4.57 * CM,                   // gusset centre crease length (ridge -> inner point)
+  FLAP: 7.24 * CM,                   // top flap length down the back roof
+  END: 50 * Math.PI / 180,           // curve direction at the ridge, from vertical
 };
+
+/* Front/back profile above the wall: a cubic that leaves the wall vertically
+ * and reaches z = 0 at the ridge. Returns samples by arc length. */
+let _profile = null;
 function packProfile() {
-  const rise = PACK.APEX - PACK.SHOULDER;
-  const roof = Math.hypot(PACK.D / 2, rise);          // roof slope length on front/back
-  const fin = PACK.FLAT - PACK.SHOULDER - roof;       // standing seal above the ridge
-  return { wall: PACK.SHOULDER, rise, roof, fin, ridge: PACK.APEX, top: PACK.APEX + fin };
+  if (_profile) return _profile;
+  const { WALL, CURVE, D, END } = PACK;
+  const make = (Hr) => {
+    const h = Hr - WALL;
+    const P0 = [WALL, D / 2], P1 = [WALL + 0.5 * h, D / 2];
+    const e = 0.42 * Math.hypot(h, D / 2);
+    const P3 = [Hr, 0], P2 = [Hr - e * Math.cos(END), e * Math.sin(END)];
+    const at = (t) => { const u = 1 - t; const a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t;
+      return [a * P0[0] + b * P1[0] + c * P2[0] + d * P3[0], a * P0[1] + b * P1[1] + c * P2[1] + d * P3[1]]; };
+    const N = 240, pts = [at(0)], len = [0];
+    for (let i = 1; i <= N; i++) { const p = at(i / N), q = pts[i - 1]; pts.push(p); len.push(len[i - 1] + Math.hypot(p[0] - q[0], p[1] - q[1])); }
+    return { pts, len, total: len[N], Hr };
+  };
+  let lo = WALL + 0.2 * CURVE, hi = WALL + CURVE, c;
+  for (let k = 0; k < 40; k++) { const mid = (lo + hi) / 2; c = make(mid); if (c.total > CURVE) hi = mid; else lo = mid; }
+  // point on the curve at arc length s (0..CURVE), as [y, z]
+  const point = (s) => {
+    const { pts, len } = c; if (s <= 0) return pts[0];
+    let i = 1; while (i < len.length - 1 && len[i] < s) i++;
+    const t = (s - len[i - 1]) / (len[i] - len[i - 1] || 1);
+    return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * t, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * t];
+  };
+  // panel length L from the base (0..FLAT) -> [y, z] on the front sheet
+  const along = (L) => (L <= WALL ? [L, D / 2] : point(Math.min(CURVE, L - WALL)));
+  _profile = { ridge: c.Hr, top: c.Hr, wall: WALL, point, along };
+  return _profile;
 }
 
 function makePack(assets) {
   if (assets.model) return fromModel(assets.model);
-  const { W, D, FLAT } = PACK;
+  const { W, D, FLAT, WALL, CURVE } = PACK;
   const P = packProfile();
   const group = new THREE.Group();
   const board = (map) => {
     map.anisotropy = 8;
     return new THREE.MeshPhysicalMaterial({ map, roughness: 0.55, sheen: 0.3, sheenRoughness: 0.8, sheenColor: 0xfff4d6, clearcoat: 0.12, clearcoatRoughness: 0.55, side: THREE.DoubleSide });
   };
-
-  // Front and back: one printed panel each, folded at the shoulder and the ridge.
-  const NU = 20, NV = 64;
-  function sheet(sign) {
-    const pos = [], uv = [], idx = [];
+  const sheetGeo = (sign, from, to, offset, uvV) => {
+    const NU = 20, NV = 72, pos = [], uv = [], idx = [];
     for (let j = 0; j <= NV; j++) {
-      const v = j / NV, L = v * FLAT;
-      let y, z;
-      if (L <= P.wall) { y = L; z = D / 2; }
-      else if (L <= P.wall + P.roof) { const t = (L - P.wall) / P.roof; y = P.wall + t * P.rise; z = (D / 2) * (1 - t); }
-      else { y = P.ridge + (L - P.wall - P.roof); z = 0.004; }
+      const L = from + (to - from) * (j / NV);
+      const [y, z] = P.along(L);
       for (let i = 0; i <= NU; i++) {
         const u = i / NU;
-        const bow = L <= P.wall ? 0.01 * Math.sin(Math.PI * u) * Math.sin(Math.PI * Math.min(1, L / P.wall)) : 0;
-        pos.push((sign > 0 ? u - 0.5 : 0.5 - u) * W, y, sign * (z + bow));
-        uv.push(u, v);
+        const bow = L <= WALL ? 0.01 * Math.sin(Math.PI * u) * Math.sin(Math.PI * Math.min(1, L / WALL)) : 0;
+        pos.push((sign > 0 ? u - 0.5 : 0.5 - u) * W, y + (offset ? offset * 0.3 : 0), sign * (z + bow + (offset || 0)));
+        uv.push(u, uvV(L));
       }
     }
     for (let j = 0; j < NV; j++) for (let i = 0; i < NU; i++) {
@@ -220,41 +246,71 @@ function makePack(assets) {
     g.setIndex(sign > 0 ? idx : idx.slice().reverse());
     g.computeVertexNormals();
     return g;
+  };
+  // Front and back: base to ridge, the whole printed panel.
+  group.add(new THREE.Mesh(sheetGeo(1, 0, FLAT, 0, (L) => L / FLAT), board(assets.front)));
+  group.add(new THREE.Mesh(sheetGeo(-1, 0, FLAT, 0, (L) => L / FLAT), board(assets.back || assets.front)));
+  // Top flap: hinged on the front's top edge, folded over the ridge and glued
+  // down the back roof (its free edge lowest). Sits a hair above the back board.
+  if (assets.flap) {
+    const flapGeo = sheetGeo(-1, FLAT - PACK.FLAP, FLAT, 0.0025, (L) => (FLAT - L) / PACK.FLAP);   // fold edge at the ridge, free edge lowest
+    // the flap's printed u runs the other way round once folded over
+    const uv = flapGeo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));
+    group.add(new THREE.Mesh(flapGeo, board(assets.flap)));
   }
-  group.add(new THREE.Mesh(sheet(1), board(assets.front)));
-  group.add(new THREE.Mesh(sheet(-1), board(assets.back || assets.front)));
 
-  // Sides: the visible part of each side panel is the wall plus the gable
-  // triangle; the gusset above the diagonals tucks inside. s runs along the
-  // panel from its dieline-left edge, so the texture lands exactly as printed.
-  const shape = new THREE.Shape();
-  shape.moveTo(0, 0); shape.lineTo(D, 0); shape.lineTo(D, P.wall); shape.lineTo(D / 2, P.ridge); shape.lineTo(0, P.wall); shape.lineTo(0, 0);
-  function side(right) {
-    const g = new THREE.ShapeGeometry(shape);
-    const pos = g.attributes.position, uv = g.attributes.uv;
-    for (let i = 0; i < pos.count; i++) {
-      const s = pos.getX(i), y = pos.getY(i);
-      uv.setXY(i, s / D, y / FLAT);
-      // right side (+x): its left edge meets the front; left side (-x): its right edge meets the front
-      if (right) pos.setXYZ(i, W / 2, y, D / 2 - s);
-      else pos.setXYZ(i, -W / 2, y, -D / 2 + s);
-    }
-    g.computeVertexNormals();
-    return g;
+  // Sides. Below the crease: a flat wall. Above it: the gusset folds inward,
+  // two facets per side meeting on the centre crease at an inner point I, with
+  // their outer edges following the curved front/back panels.
+  const R = [P.ridge, 0];                                    // ridge end, in (y, z)
+  // inner point: |I - ridge| = APEX crease, |I - shoulder corner| = diagonal crease
+  const diag = Math.hypot(D / 2, PACK.FLAT - PACK.APEX - WALL);
+  let yI = WALL, g = 0;
+  for (let lo = WALL, hi = P.ridge, k = 0; k < 50; k++) {    // solve for yI, then depth g
+    yI = (lo + hi) / 2;
+    const g2a = PACK.APEX ** 2 - (P.ridge - yI) ** 2;          // from the centre crease
+    const g2b = diag ** 2 - (yI - WALL) ** 2 - (D / 2) ** 2;    // from a diagonal crease
+    if (g2a > g2b) hi = yI; else lo = yI;
+    g = Math.sqrt(Math.max(0, g2a));
   }
-  group.add(new THREE.Mesh(side(true), board(assets.sideA || assets.side)));
-  group.add(new THREE.Mesh(side(false), board(assets.sideB || assets.side)));
+  const yA = PACK.FLAT - PACK.APEX;                          // inner point's place on the flat panel
+  function sideGeo(right) {
+    const pos = [], uv = [];
+    const X = right ? W / 2 : -W / 2, inward = right ? -1 : 1;
+    // s: distance along the flat panel from its dieline-left edge (0..D)
+    const zOf = (s) => (right ? D / 2 - s : -D / 2 + s);
+    const v = (sx, sy, sz, s, flatY) => { pos.push(sx, sy, sz); uv.push(s / D, flatY / FLAT); };
+    const tri = (a, b, c) => { v(...a); v(...b); v(...c); };
+    // wall
+    tri([X, 0, zOf(0), 0, 0], [X, 0, zOf(D), D, 0], [X, WALL, zOf(D), D, WALL]);
+    tri([X, 0, zOf(0), 0, 0], [X, WALL, zOf(D), D, WALL], [X, WALL, zOf(0), 0, WALL]);
+    // gusset
+    const I = [X + inward * g, yI, 0, D / 2, yA];
+    const N = 16;
+    for (const edge of [0, D]) {                              // each panel edge follows a curved roof
+      const sign = zOf(edge) > 0 ? 1 : -1;
+      let prev = null;
+      for (let k = 0; k <= N; k++) {
+        const s = (k / N) * CURVE, [y, z] = P.point(s);
+        const cur = [X, y, sign * z, edge, WALL + s];
+        if (prev) tri(prev, cur, I);
+        prev = cur;
+      }
+    }
+    tri([X, WALL, zOf(0), 0, WALL], [X, WALL, zOf(D), D, WALL], I);   // lower gusset triangle
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.computeVertexNormals();
+    return geo;
+  }
+  group.add(new THREE.Mesh(sideGeo(true), board(assets.sideA || assets.side)));
+  group.add(new THREE.Mesh(sideGeo(false), board(assets.sideB || assets.side)));
 
   // Base.
   const base = new THREE.Mesh(new THREE.PlaneGeometry(W, D), new THREE.MeshStandardMaterial({ color: 0xa8c266, roughness: 0.8 }));
   base.rotation.x = Math.PI / 2;
   group.add(base);
-
-  // Scored folds catch the light.
-  const crease = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 });
-  const line = (pts) => new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts.map(([x, y, z]) => new THREE.Vector3(x, y, z))), crease);
-  for (const sz of [1, -1]) group.add(line([[-W / 2, P.wall, sz * (D / 2 + 0.002)], [W / 2, P.wall, sz * (D / 2 + 0.002)]]));
-  group.add(line([[-W / 2, P.ridge, 0], [W / 2, P.ridge, 0]]));
 
   group.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   group.position.y = -P.top / 2;
