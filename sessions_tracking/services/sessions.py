@@ -9,6 +9,7 @@ below; nothing else should write to those fields.
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
+from crm.services import clean_flavor_counts
 from products.models import Flavor
 from sessions_tracking.models import PackingItem, Session, SessionEvent
 from sessions_tracking.timeutil import ist_now, is_after_cutoff
@@ -22,12 +23,16 @@ def get_open_session(user, for_update=False):
 
 
 @transaction.atomic
-def start_session(user, session_type, area=None):
+def start_session(user, session_type, area=None, carried_packs=None):
     if session_type not in Session.Type.values:
         raise ValidationError('Invalid session type.')
     area = (area or '').strip()
-    if session_type == Session.Type.SALES and not area:
-        raise ValidationError('Area is required to start a sales session.')
+    if session_type == Session.Type.SALES:
+        if not area:
+            raise ValidationError('Area is required to start a sales session.')
+        carried_packs = clean_flavor_counts(carried_packs, 'packs carried')
+    else:
+        carried_packs = None
     now = ist_now()
     # TEMPORARY: cutoff disabled for sales sessions to allow field-mode testing
     # outside business hours. Restore `if is_after_cutoff(now):` below before
@@ -40,7 +45,8 @@ def start_session(user, session_type, area=None):
         raise ValidationError(f'End your {existing.type} session first.')
 
     session = Session.objects.create(
-        user=user, type=session_type, area=area, started_at=now, status=Session.Status.ACTIVE,
+        user=user, type=session_type, area=area, carried_packs=carried_packs,
+        started_at=now, status=Session.Status.ACTIVE,
     )
     SessionEvent.objects.create(session=session, event=SessionEvent.Event.START, at=now)
     return session
