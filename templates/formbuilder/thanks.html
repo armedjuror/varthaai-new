@@ -1,12 +1,33 @@
 {% extends 'formbuilder/_base_public.html' %}
 {% block title %}{{ form.success_title }}{% endblock %}
+{% block body_class %}fx-page-done{% endblock %}
 {% block body %}
-<div class="center">
-  <h1>{{ form.success_title }}</h1>
-  {{ message_html }}
+<div class="fx-done" id="fx-done">
+  <div class="fx-stage">
+    <svg class="fx-rays" viewBox="0 0 200 200" aria-hidden="true">
+      {% for a in rays %}<path d="M100 100 L{{ a.0 }} {{ a.1 }} L{{ a.2 }} {{ a.3 }}Z"/>{% endfor %}
+    </svg>
+    {% if is_house %}
+    <vt-mascot id="fx-mascot" emotion="surprised" track></vt-mascot>
+    {% else %}
+    <svg class="fx-tick" viewBox="0 0 80 80" aria-hidden="true"><circle cx="40" cy="40" r="34"/><path d="M25 41l10 10 20-23"/></svg>
+    {% endif %}
+  </div>
+  <h1 class="fx-title">{{ form.success_title }}</h1>
+  <div class="fx-msg">{{ message_html }}</div>
   {% if code %}
-  <div class="code-box"><small>{{ form.code_label }}</small><strong>{{ code }}</strong></div>
+  <div class="fx-ticket">
+    <small>{{ form.code_label }}</small>
+    <strong id="fx-code">{{ code }}</strong>
+    <button type="button" class="fx-copy" data-copy="{{ code }}">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="6.5" y="6.5" width="10" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M13.5 4.5v-.5a2 2 0 0 0-2-2h-6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h1" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+      <span>Copy</span>
+    </button>
+  </div>
   {% endif %}
-  {% if form.success_redirect_url %}<a class="btn" href="{{ form.success_redirect_url }}" rel="noopener">Continue</a>{% endif %}
+  {% if form.success_redirect_url %}
+  <a class="fx-submit fx-submit--link" href="{{ form.success_redirect_url }}" rel="noopener"><span class="fx-submit-label">Continue</span>
+    <svg class="fx-submit-arrow" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11M11 5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+  {% endif %}
 </div>
 {% endblock %}

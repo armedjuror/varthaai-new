@@ -1,22 +1,45 @@
 {% extends 'formbuilder/_base_public.html' %}
+{% block body_class %}fx-page-form{% endblock %}
 {% block body %}
-<h1>{{ form.title }}</h1>
-{% if form.description %}<p class="desc">{{ form.description }}</p>{% endif %}
+<div class="fx-progress" id="fx-progress" role="progressbar" aria-label="Form progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+  <span class="fx-progress-bar" id="fx-progress-bar"></span>
+</div>
 
-{% if form_error %}<div class="alert">{{ form_error }}</div>{% endif %}
+<div class="fx-head">
+  {% if is_house %}
+  <div class="fx-mascot-wrap">
+    <span class="fx-bubble" id="fx-bubble" role="status" aria-live="polite"></span>
+    <button type="button" class="fx-mascot-btn" id="fx-mascot-btn" aria-label="Say hi to the Varthaai chip">
+      <vt-mascot id="fx-mascot" emotion="happy" track wave></vt-mascot>
+    </button>
+  </div>
+  {% endif %}
+  <h1 class="fx-title">{{ form.title }}</h1>
+  {% if form.description %}<p class="fx-desc">{{ form.description }}</p>{% endif %}
+  <p class="fx-meta">
+    <span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3h12v14H4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 7h6M7 10h6M7 13h4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      {{ items|length }} question{{ items|length|pluralize }}</span>
+    <span><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 6v4l2.5 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      about {{ minutes }} min</span>
+  </p>
+  <svg class="fx-wave" viewBox="0 0 400 18" preserveAspectRatio="none" aria-hidden="true"><path d="M0 9 Q 25 0 50 9 T 100 9 T 150 9 T 200 9 T 250 9 T 300 9 T 350 9 T 400 9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
+</div>
 
-<form method="post" action="{{ action }}" novalidate>
+{% if form_error %}<div class="fx-alert" role="alert"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8" fill="currentColor"/><path d="M10 5.5v5.5M10 13.6v.4" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>{{ form_error }}</div>{% endif %}
+
+<form method="post" action="{{ action }}" novalidate id="fx-form">
   {% csrf_token %}
   <div class="hp" aria-hidden="true"><input type="text" name="{{ honeypot }}" tabindex="-1" autocomplete="off"></div>
 
   {% for it in items %}
   {% with f=it.field %}
-  <div class="field{% if it.error %} has-error{% endif %}">
+  <div class="fx-field{% if it.error %} has-error{% endif %}" data-type="{{ f.field_type }}"{% if f.required %} data-required{% endif %} style="--i: {{ forloop.counter0 }}">
     {% if f.field_type == 'checkbox' %}
-      <label class="check"><input type="checkbox" name="{{ f.slug }}"{% if it.value %} checked{% endif %}>
-        <span>{{ f.label }}{% if f.required %} <span class="req">*</span>{% endif %}</span></label>
+      <label class="fx-check"><input type="checkbox" name="{{ f.slug }}"{% if it.value %} checked{% endif %}>
+        <span class="fx-check-box" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span>{{ f.label }}{% if f.required %} <span class="fx-req" aria-label="required">*</span>{% endif %}</span></label>
     {% else %}
-      <label class="lbl" for="f_{{ f.slug }}">{{ f.label }}{% if f.required %} <span class="req">*</span>{% endif %}</label>
+      <label class="fx-label" for="f_{{ f.slug }}"><span class="fx-num">{{ forloop.counter }}</span>{{ f.label }}{% if f.required %} <span class="fx-req" aria-label="required">*</span>{% endif %}</label>
       {% if f.field_type == 'long_text' %}
         <textarea id="f_{{ f.slug }}" name="{{ f.slug }}" placeholder="{{ f.placeholder }}" maxlength="5000">{{ it.value }}</textarea>
       {% elif f.field_type == 'dropdown' %}
@@ -25,9 +48,10 @@
           {% for opt in f.options %}<option value="{{ opt }}"{% if it.value == opt %} selected{% endif %}>{{ opt }}</option>{% endfor %}
         </select>
       {% elif f.field_type == 'rating' %}
-        <div class="rating" role="radiogroup" aria-label="{{ f.label }}">
-          {% for n in "12345" %}<label><input type="radio" name="{{ f.slug }}" value="{{ n }}"{% if it.value == n %} checked{% endif %}><span>{{ n }}</span></label>{% endfor %}
+        <div class="fx-rating" role="radiogroup" aria-label="{{ f.label }}">
+          {% for n in "12345" %}<label class="fx-rate"><input type="radio" name="{{ f.slug }}" value="{{ n }}"{% if it.value == n %} checked{% endif %}><span class="fx-rate-face" aria-hidden="true"></span><span class="fx-rate-n">{{ n }}</span></label>{% endfor %}
         </div>
+        <p class="fx-rate-say" aria-hidden="true"></p>
       {% else %}
         <input id="f_{{ f.slug }}" name="{{ f.slug }}" value="{{ it.value }}" placeholder="{{ f.placeholder }}"
           {% if f.field_type == 'number' %}type="number" step="any" inputmode="decimal"
@@ -37,13 +61,17 @@
           {% else %}type="text" maxlength="500"{% if f.role == 'user_name' %} autocomplete="name"{% endif %}{% endif %}>
       {% endif %}
     {% endif %}
-    {% if f.help_text %}<div class="help">{{ f.help_text }}</div>{% endif %}
-    {% if it.error %}<div class="err">{{ it.error }}</div>{% endif %}
+    {% if f.help_text %}<div class="fx-help">{{ f.help_text }}</div>{% endif %}
+    {% if it.error %}<div class="fx-err"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M8 4.5v4.2M8 11v.3" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>{{ it.error }}</div>{% endif %}
   </div>
   {% endwith %}
   {% endfor %}
 
-  <button type="submit" class="submit">Submit</button>
-  {% if form.consent_text %}<p class="consent">{{ form.consent_text }}</p>{% endif %}
+  <button type="submit" class="fx-submit" id="fx-submit">
+    <span class="fx-submit-label">Submit</span>
+    <svg class="fx-submit-arrow" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11M11 5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span class="fx-spinner" aria-hidden="true"></span>
+  </button>
+  {% if form.consent_text %}<p class="fx-consent"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5l5.5 2v4c0 3.4-2.4 6-5.5 7-3.1-1-5.5-3.6-5.5-7v-4z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M5.6 8.2l1.7 1.7 3.2-3.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>{{ form.consent_text }}</p>{% endif %}
 </form>
 {% endblock %}
