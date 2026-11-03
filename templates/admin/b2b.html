@@ -185,10 +185,50 @@
               <input type="date" class="form-control" id="addCreatedDate" max="{% now 'Y-m-d' %}">
               <div class="form-text">Leave blank to use today.</div>
             </div>
+            <div class="col-12">
+              <label class="form-label mb-1">Payment Terms</label>
+              <div class="row g-2">
+                <div class="col-md-3">
+                  <label class="form-label small text-muted mb-0">Upfront share (%)</label>
+                  <input type="number" class="form-control" id="addUpfrontPercent" value="0" min="0" max="100" step="0.01" list="addUpfrontPercentOptions" oninput="onPaymentTermsChange('add')">
+                  <datalist id="addUpfrontPercentOptions"><option value="0"><option value="25"><option value="50"><option value="100"></datalist>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label small text-muted mb-0">Upfront due</label>
+                  <select class="form-select" id="addUpfrontDue">
+                    <option value="advance">With order (advance)</option>
+                    <option value="delivery" selected>On delivery</option>
+                  </select>
+                </div>
+                <div class="col-md-3" id="addBalanceRuleWrap">
+                  <label class="form-label small text-muted mb-0">Balance rule</label>
+                  <select class="form-select" id="addBalanceRule" onchange="onPaymentTermsChange('add')">
+                    <option value="bill_to_bill">Bill to bill</option>
+                    <option value="weekly_as_sold">Weekly as sold</option>
+                    <option value="after_days">After N days</option>
+                    <option value="fixed_dates">Fixed dates</option>
+                  </select>
+                </div>
+                <div class="col-md-3" id="addPaymentDaysWrap">
+                  <label class="form-label small text-muted mb-0" id="addPaymentDaysLabel">Days (backstop)</label>
+                  <input type="number" class="form-control" id="addPaymentTerms" value="30" min="0" step="1">
+                </div>
+                <div class="col-md-3 d-none" id="addFixedDatesWrap">
+                  <label class="form-label small text-muted mb-0">Fixed dates</label>
+                  <input type="text" class="form-control" id="addFixedDates" placeholder="e.g. 1, 15">
+                </div>
+              </div>
+            </div>
             <div class="col-md-6">
-              <label class="form-label">Location URL</label>
-              <input type="url" class="form-control" id="addLocationUrl" placeholder="https://maps.google.com/…">
-              <div class="form-text">Google Maps / location link for this lead.</div>
+              <label class="form-label">Location</label>
+              <div class="d-flex gap-2 flex-wrap align-items-center">
+                <button type="button" class="btn btn-outline-primary btn-sm" id="addUseLocationBtn"><i class="fas fa-location-crosshairs me-1"></i>Use current location</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm d-none" id="addClearLocationBtn">Clear</button>
+              </div>
+              <input type="hidden" id="addLatitude"><input type="hidden" id="addLongitude">
+              <div class="form-text" id="addLocationStatus"><span class="text-muted">No location captured.</span></div>
+              <input type="url" class="form-control form-control-sm mt-2" id="addLocationUrl" placeholder="Or paste a Google Maps link…">
+              <div class="form-text">Paste a link only when you're not at the store (e.g. a lead found on Google).</div>
             </div>
             <div class="col-md-6">
               <label class="form-label">Photo</label>

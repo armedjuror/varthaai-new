@@ -81,12 +81,11 @@ function onCompanyChange() {
     $('#discountValue').val('');
   }
 
-  // Auto-fill due date from payment terms
-  if (company && parseInt(company.payment_terms_days) > 0) {
-    var due = new Date();
-    due.setDate(due.getDate() + parseInt(company.payment_terms_days));
-    $('#orderDueDate').val(due.toISOString().slice(0, 10));
-    $('#dueDateHint').text(company.payment_terms_days + ' days from today');
+  // Auto-fill due date from payment terms (computed server-side from the
+  // company's upfront share + balance rule)
+  if (company && company.default_due_date) {
+    $('#orderDueDate').val(company.default_due_date);
+    $('#dueDateHint').text(company.payment_terms_label || '');
   } else {
     $('#orderDueDate').val('');
     $('#dueDateHint').text('');

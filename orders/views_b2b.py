@@ -9,7 +9,7 @@ Stock changes go through the shared `products.services` (never re-implemented
 here). B2B balances are always computed from `total_amount - paid_amount`, never
 the stored `balance_amount` column.
 """
-from datetime import date, timedelta
+from datetime import date
 from types import SimpleNamespace
 from decimal import Decimal, InvalidOperation
 from uuid import uuid4
@@ -32,6 +32,7 @@ from billing.tax import PRICE_MODES
 from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
 from core.models import Brand, Setting
+from crm import services as crm_services
 from crm.models import B2BActivity, B2BCompany, B2BContact
 from finance.services import sync_b2b_order_income
 from orders.models import B2BOffer, B2BOrder, B2BOrderItem, B2BPayment, B2BReturn
@@ -346,6 +347,8 @@ class B2BOrdersAPI(APIView):
                 'discount_type': c.discount_type,
                 'discount_value': float(c.discount_value) if c.discount_value is not None else None,
                 'payment_terms_days': c.payment_terms_days,
+                'payment_terms_label': crm_services.payment_terms_label(c),
+                'default_due_date': crm_services.payment_due_date(c).isoformat(),
                 'credit_limit': float(c.credit_limit),
                 'contacts_raw': '|'.join(
                     f'{ct.id}:{ct.name}' for ct in c.active_contacts
@@ -503,9 +506,7 @@ class B2BOrdersAPI(APIView):
         raw = body.get('due_date')
         if raw:
             return raw
-        if company and company.payment_terms_days > 0:
-            return date.today() + timedelta(days=company.payment_terms_days)
-        return None
+        return crm_services.payment_due_date(company)
 
     def _compute_discount(self, disc_type, disc_val, subtotal):
         if disc_type == 'percentage' and disc_val and disc_val > 0:
