@@ -471,9 +471,10 @@ class MessageLog(OrderRefMixin):
 
 
 class Refund(models.Model):
-    """Money returned to a B2C customer (Razorpay refund or manual)."""
+    """Money returned to a B2C customer (gateway refund or manual)."""
     class Method(models.TextChoices):
         RAZORPAY = 'razorpay', 'Razorpay (original payment)'
+        CASHFREE = 'cashfree', 'Cashfree (original payment)'
         MANUAL = 'manual', 'Manual (cash / UPI / bank)'
 
     class Status(models.TextChoices):
@@ -488,6 +489,8 @@ class Refund(models.Model):
     method = models.CharField(max_length=10, choices=Method.choices)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.INITIATED)
     razorpay_refund_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    # Our refund_id sent to Cashfree (Cashfree echoes it back in webhooks).
+    cashfree_refund_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
     reference = models.CharField(max_length=100, blank=True)
     notes = models.TextField(blank=True)
     created_by = models.ForeignKey(

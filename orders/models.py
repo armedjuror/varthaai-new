@@ -72,6 +72,10 @@ class Order(models.Model):
     order_date = models.DateTimeField(default=timezone.now)
     razorpay_order_id = models.CharField(max_length=255, blank=True)
     razorpay_payment_id = models.CharField(max_length=255, blank=True)
+    # Which gateway took (or is taking) the online payment. Cashfree orders
+    # use the order id itself as the Cashfree order_id.
+    payment_gateway = models.CharField(max_length=20, blank=True, default='razorpay')
+    cashfree_payment_id = models.CharField(max_length=255, blank=True)
     payment_date = models.DateTimeField(null=True, blank=True)
     # GST (billing app). Delivery-address state = place of supply for B2C.
     shipping_state_code = models.CharField(max_length=2, blank=True)

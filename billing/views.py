@@ -219,7 +219,7 @@ class B2COrderBillingAPI(APIView):
         if order.status == 'cancelled':
             message += ' The order is fully credited and has been cancelled.'
         refund_method = body.get('refund_method') or ''
-        if refund_method in ('razorpay', 'manual') and refunds.refundable(order) > 0:
+        if refund_method in ('razorpay', 'cashfree', 'manual') and refunds.refundable(order) > 0:
             amount = min(cn.grand_total, refunds.refundable(order))
             try:
                 refund = refunds.issue_refund(order, amount, refund_method, request.user, credit_note=cn,

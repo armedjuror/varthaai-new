@@ -236,6 +236,18 @@ RAZORPAY_KEY_ID = env('RAZORPAY_KEY_ID', '')
 RAZORPAY_KEY_SECRET = env('RAZORPAY_KEY_SECRET', '')
 RAZORPAY_WEBHOOK_SECRET = env('RAZORPAY_WEBHOOK_SECRET', '')
 
+# Cashfree (storefront checkout, alternative to Razorpay). CASHFREE_ENV is
+# 'sandbox' or 'production'. Webhooks are signed with the secret key itself.
+CASHFREE_APP_ID = env('CASHFREE_APP_ID', '')
+CASHFREE_SECRET_KEY = env('CASHFREE_SECRET_KEY', '')
+CASHFREE_ENV = env('CASHFREE_ENV', 'sandbox').strip().lower()
+CASHFREE_API_VERSION = env('CASHFREE_API_VERSION', '2023-08-01')
+
+# Which gateway the storefront checkout uses: 'razorpay' or 'cashfree'. The
+# admin can switch it any time from Settings → Payments (stored in the
+# `payment_gateway` setting, which wins over this default).
+PAYMENT_GATEWAY = env('PAYMENT_GATEWAY', 'razorpay').strip().lower()
+
 # Storefront (Phase 15). All secrets live in .env — never hardcode them here.
 # The storefront resolves its brand from STOREFRONT_BRAND_ID (default 1).
 STOREFRONT_BRAND_ID = int(env('STOREFRONT_BRAND_ID', '1'))

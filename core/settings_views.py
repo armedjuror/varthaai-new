@@ -29,6 +29,7 @@ from core.permissions import MODULE_PERMISSIONS
 from marketing.models import Review
 from orders.models import Coupon, Order
 from products.models import Flavor
+from storefront import payments
 
 CRUNCH_AUDIO_EXTENSIONS = ('mp3', 'wav', 'ogg', 'm4a')
 CRUNCH_AUDIO_MAX_BYTES = 2 * 1024 * 1024
@@ -84,7 +85,8 @@ class SettingsAPI(APIView):
             'total_reviews': Review.objects.count(),
             'total_coupons': Coupon.objects.count(),
         }
-        payload = {'success': True, 'settings': settings_map, 'stats': stats}
+        payload = {'success': True, 'settings': settings_map, 'stats': stats,
+                   'payment_gateways': payments.status_payload()}
 
         if getattr(request.user, 'is_super_admin', False):
             payload['admins'] = [
@@ -133,6 +135,9 @@ class SettingsAPI(APIView):
         data = body.get('data') or {}
         if not data:
             return _fail('No data provided.')
+        gateway = data.get(payments.SETTING_KEY)
+        if gateway is not None and gateway not in payments.GATEWAYS:
+            return _fail('Unknown payment gateway.')
         try:
             for key, value in data.items():
                 Setting.objects.update_or_create(

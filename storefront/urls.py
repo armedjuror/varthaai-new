@@ -43,6 +43,8 @@ urlpatterns = [
     path('api/place-order/', api_checkout.PlaceOrderAPI.as_view(), name='place_order'),
     path('api/verify-payment/', api_checkout.VerifyPaymentAPI.as_view(), name='verify_payment'),
     path('api/razorpay-webhook/', api_checkout.RazorpayWebhookAPI.as_view(), name='razorpay_webhook'),
+    path('api/verify-cashfree-payment/', api_checkout.CashfreeVerifyAPI.as_view(), name='verify_cashfree_payment'),
+    path('api/cashfree-webhook/', api_checkout.CashfreeWebhookAPI.as_view(), name='cashfree_webhook'),
 
     # Customer account
     path('api/dashboard-data/', api_account.DashboardDataAPI.as_view(), name='dashboard_data'),

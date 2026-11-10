@@ -1,13 +1,15 @@
 """
-B2C refunds (Phase 2B): money returned after a credit note, through
-Razorpay (refund on the original payment) or recorded as a manual refund.
+B2C refunds (Phase 2B): money returned after a credit note, through the
+gateway that took the payment (Razorpay or Cashfree — a refund on the original
+payment) or recorded as a manual refund.
 
-payment_status follows the refunds: refund_initiated while a Razorpay refund
+payment_status follows the refunds: refund_initiated while a gateway refund
 is pending, refunded once everything paid has been refunded; a partial
 refund leaves the order 'paid'.
 """
 import logging
 from decimal import Decimal
+from uuid import uuid4
 
 from django.conf import settings
 from django.db import transaction
@@ -35,8 +37,25 @@ def refundable(order):
     return max(ZERO, q2(paid_total(order) - refunded_total(order)))
 
 
-def can_refund_online(order):
+def can_refund_razorpay(order):
     return bool(order.razorpay_payment_id and settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET)
+
+
+def can_refund_cashfree(order):
+    return bool(order.cashfree_payment_id and settings.CASHFREE_APP_ID and settings.CASHFREE_SECRET_KEY)
+
+
+def online_refund_method(order):
+    """The gateway refund method for this order's payment, or ''."""
+    if can_refund_cashfree(order):
+        return Refund.Method.CASHFREE
+    if can_refund_razorpay(order):
+        return Refund.Method.RAZORPAY
+    return ''
+
+
+def can_refund_online(order):
+    return bool(online_refund_method(order))
 
 
 def sync_payment_status(order):
@@ -75,7 +94,7 @@ def issue_refund(order, amount, method, user=None, credit_note=None, reference='
         if amount > available:
             raise billing.BillingError(f'Only ₹{available:,.2f} can still be refunded on this order.')
         if method == Refund.Method.RAZORPAY:
-            if not can_refund_online(order):
+            if not can_refund_razorpay(order):
                 raise billing.BillingError('This order has no Razorpay payment to refund. Record a manual refund.')
             import razorpay
 
@@ -96,6 +115,26 @@ def issue_refund(order, amount, method, user=None, credit_note=None, reference='
                 processed_at=timezone.now() if processed else None,
                 created_by=user if getattr(user, 'pk', None) else None,
             )
+        elif method == Refund.Method.CASHFREE:
+            if not can_refund_cashfree(order):
+                raise billing.BillingError('This order has no Cashfree payment to refund. Record a manual refund.')
+            from storefront import payments
+
+            refund_id = 'rf' + uuid4().hex[:24]
+            try:
+                cf = payments.cashfree_refund(order.id, amount, refund_id,
+                                              note=f'Credit note {credit_note.number}' if credit_note else '')
+            except payments.CashfreeError as exc:
+                log.warning('Cashfree refund failed for %s: %s', order.id, exc)
+                raise billing.BillingError(f'Cashfree refund failed: {exc}') from exc
+            processed = cf.get('refund_status') in payments.CASHFREE_REFUND_DONE
+            refund = Refund.objects.create(
+                order=order, credit_note=credit_note, amount=amount, method=method,
+                status=Refund.Status.PROCESSED if processed else Refund.Status.INITIATED,
+                cashfree_refund_id=refund_id, reference=str(cf.get('cf_refund_id') or '')[:100], notes=notes,
+                processed_at=timezone.now() if processed else None,
+                created_by=user if getattr(user, 'pk', None) else None,
+            )
         elif method == Refund.Method.MANUAL:
             refund = Refund.objects.create(
                 order=order, credit_note=credit_note, amount=amount, method=method,
@@ -103,7 +142,7 @@ def issue_refund(order, amount, method, user=None, credit_note=None, reference='
                 processed_at=timezone.now(), created_by=user if getattr(user, 'pk', None) else None,
             )
         else:
-            raise billing.BillingError('Choose Razorpay or manual refund.')
+            raise billing.BillingError('Choose an online (original payment) or manual refund.')
         sync_payment_status(order)
         billing._activity(user, f'Refund ₹{amount} ({refund.get_method_display()})',
                           f'Order {order.id}, status {refund.status}', module='orders')
@@ -112,10 +151,19 @@ def issue_refund(order, amount, method, user=None, credit_note=None, reference='
 
 def on_refund_event(razorpay_refund_id, processed):
     """Razorpay webhook: refund.processed / refund.failed."""
-    if not razorpay_refund_id:
-        return
+    if razorpay_refund_id:
+        _settle_refund({'razorpay_refund_id': razorpay_refund_id}, processed)
+
+
+def on_cashfree_refund_event(cashfree_refund_id, processed):
+    """Cashfree webhook: REFUND_STATUS_WEBHOOK (SUCCESS / CANCELLED)."""
+    if cashfree_refund_id:
+        _settle_refund({'cashfree_refund_id': cashfree_refund_id}, processed)
+
+
+def _settle_refund(lookup, processed):
     with transaction.atomic():
-        refund = Refund.objects.select_for_update().filter(razorpay_refund_id=razorpay_refund_id).first()
+        refund = Refund.objects.select_for_update().filter(**lookup).first()
         if refund is None or refund.status != Refund.Status.INITIATED:
             return
         refund.status = Refund.Status.PROCESSED if processed else Refund.Status.FAILED
@@ -129,9 +177,10 @@ def refunds_payload(order):
         'paid_total': float(paid_total(order)),
         'refundable': float(refundable(order)),
         'can_refund_online': can_refund_online(order),
+        'online_refund_method': online_refund_method(order),
         'refunds': [{
             'id': r.id, 'amount': float(r.amount), 'method': r.get_method_display(), 'status': r.status,
             'status_label': r.get_status_display(), 'credit_note': r.credit_note.number if r.credit_note_id else '',
-            'reference': r.razorpay_refund_id or r.reference, 'date': r.created_at.isoformat(),
+            'reference': r.razorpay_refund_id or r.reference or r.cashfree_refund_id or '', 'date': r.created_at.isoformat(),
         } for r in order.refunds.select_related('credit_note')],
     }
