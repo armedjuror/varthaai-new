@@ -388,6 +388,32 @@ class ReportsTests(Phase2Base):
             res = self.client.get(f'/admin/gst/records/report/{kind}.csv?month={today:%Y-%m}')
             self.assertEqual(res.status_code, 200, kind)
 
+    def test_gstr1_json(self):
+        b2b_inv = self._issue_set()
+        today = billing.ist_today()
+        res = self.client.get(f'/admin/gst/records/gstr1.json?month={today:%Y-%m}')
+        self.assertEqual(res.status_code, 200)
+        self.assertIn('GSTR1.json', res['Content-Disposition'])
+        data = json.loads(res.content)
+        self.assertEqual(data['gstin'], self.entity.gstin)
+        self.assertEqual(data['fp'], f'{today:%m%Y}')
+        self.assertEqual(data['version'], 'GST3.2.2')
+        self.assertEqual(data['b2b'][0]['ctin'], b2b_inv.bill_to_gstin)
+        inv = data['b2b'][0]['inv'][0]
+        self.assertEqual(inv['inum'], b2b_inv.number)
+        self.assertEqual(inv['idt'], b2b_inv.invoice_date.strftime('%d-%m-%Y'))
+        self.assertEqual(inv['pos'], '29')
+        self.assertIn('iamt', inv['itms'][0]['itm_det'])        # inter-state → IGST
+        self.assertEqual(len(data['b2cl']), 1)
+        self.assertEqual(data['b2cs'][0]['sply_ty'], 'INTRA')
+        self.assertEqual(data['b2cs'][0]['pos'], '32')
+        self.assertEqual(data['cdnr'][0]['nt'][0]['ntty'], 'C')
+        self.assertEqual(data['hsn']['hsn_b2b'][0]['txval'], 800)
+        self.assertEqual([d['doc_num'] for d in data['doc_issue']['doc_det']], [1, 5])
+        self.assertEqual(data['doc_issue']['doc_det'][0]['docs'][0]['totnum'], 3)
+        bad = self.client.get('/admin/gst/records/gstr1.json?fy=2026-27')
+        self.assertEqual(bad.status_code, 400)
+
     def test_month_close_blocks_documents(self):
         self._issue_set()
         today = billing.ist_today()

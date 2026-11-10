@@ -5,6 +5,7 @@ records page (CA login).
 """
 import csv
 import io
+import json
 import zipfile
 from datetime import date, timedelta
 from decimal import Decimal
@@ -716,6 +717,25 @@ def gstr1_export(request):
         return HttpResponse('Choose a period.', status=400)
     response = HttpResponse(reports.gstr1_zip(start, end), content_type='application/zip')
     response['Content-Disposition'] = f'attachment; filename="gstr1_{start}_{end}.zip"'
+    return response
+
+
+@admin_login_required
+@require_module('gst_records')
+def gstr1_json_export(request):
+    """GSTR-1 JSON for upload on the GST portal. One return period = one month."""
+    month = request.GET.get('month') or ''
+    try:
+        start, end = reports.month_bounds(month)
+    except (ValueError, TypeError):
+        return HttpResponse('GSTR-1 JSON is filed per month — choose a month.', status=400)
+    entity = billing.entity_for_brand(current_brand_id(request))
+    if entity is None or not entity.gstin:
+        return HttpResponse('No GSTIN is set up. Fill in Settings → GST.', status=400)
+    payload = json.dumps(reports.gstr1_json(start, end, entity), separators=(',', ':'))
+    response = HttpResponse(payload, content_type='application/json')
+    response['Content-Disposition'] = (
+        f'attachment; filename="{entity.gstin}_{start:%B_%Y}_GSTR1.json"')
     return response
 
 

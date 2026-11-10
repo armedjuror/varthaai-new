@@ -123,10 +123,8 @@ def gstr1_sections(start, end):
     }
 
 
-def hsn_rows(invoices, cns, registered):
-    from billing.models import HSNCode
-
-    descriptions = dict(HSNCode.objects.values_list('code', 'description'))
+def _hsn_groups(invoices, cns, registered):
+    """{(hsn, rate): totals} over invoices and credit notes (credit notes subtract)."""
     groups = defaultdict(lambda: {'uqc': '', 'qty': Decimal('0'), 'value': ZERO, 'taxable': ZERO,
                                   'igst': ZERO, 'cgst': ZERO, 'sgst': ZERO, 'cess': ZERO})
 
@@ -149,10 +147,17 @@ def hsn_rows(invoices, cns, registered):
         if bool(cn.invoice.bill_to_gstin) == registered:
             for cl in cn.lines.all():
                 add(cl, cl.invoice_line, -1)
+    return sorted(groups.items())
+
+
+def hsn_rows(invoices, cns, registered):
+    from billing.models import HSNCode
+
+    descriptions = dict(HSNCode.objects.values_list('code', 'description'))
     rows = [[hsn, descriptions.get(hsn, ''), (g['uqc'] or 'OTH') + '-' + {
         'KGS': 'KILOGRAMS', 'PCS': 'PIECES', 'NOS': 'NUMBERS', 'PAC': 'PACKS'}.get(g['uqc'], 'OTHERS'),
         g['qty'], g['value'], rate, g['taxable'], g['igst'], g['cgst'], g['sgst'], g['cess']]
-        for (hsn, rate), g in sorted(groups.items())]
+        for (hsn, rate), g in _hsn_groups(invoices, cns, registered)]
     return (['HSN', 'Description', 'UQC', 'Total Quantity', 'Total Value', 'Rate', 'Taxable Value',
              'Integrated Tax Amount', 'Central Tax Amount', 'State/UT Tax Amount', 'Cess Amount'], rows)
 
@@ -189,6 +194,133 @@ def gstr1_zip(start, end):
             'are netted into B2CS. Invoices cancelled and reissued are reported with their credit notes.\n'
         ))
     return buf.getvalue()
+
+
+# ── GSTR-1 JSON (GST portal offline-tool format) ──────────────────────────
+
+GSTR1_JSON_VERSION = 'GST3.2.2'
+
+
+def _num(value, places=2):
+    """Decimal → JSON number the portal accepts: whole values as int, else rounded float."""
+    d = Decimal(value).quantize(Decimal(1).scaleb(-places))
+    return int(d) if d == d.to_integral_value() else float(d)
+
+
+def _json_date(d):
+    return d.strftime('%d-%m-%Y')
+
+
+def _itm_det(rate, t, interstate):
+    det = {'rt': _num(rate), 'txval': _num(t['taxable'])}
+    if interstate:
+        det['iamt'] = _num(t['igst'])
+    else:
+        det['camt'] = _num(t['cgst'])
+        det['samt'] = _num(t['sgst'])
+    det['csamt'] = _num(t['cess'])
+    return det
+
+
+def _itms(rates, interstate):
+    return [{'num': i, 'itm_det': _itm_det(rate, t, interstate)}
+            for i, (rate, t) in enumerate(sorted(rates.items()), start=1)]
+
+
+def gstr1_json(start, end, entity):
+    """GSTR-1 for one month as the GST portal's JSON upload (same shape the
+    offline tool and accounting packages such as Busy produce). Sections
+    and B2B/B2CL/B2CS split follow gstr1_sections() so the CSV and JSON agree."""
+    invoices = list(_invoices(start, end).filter(entity=entity))
+    cns = list(_credit_notes(start, end).filter(entity=entity))
+
+    b2b, b2cl, cdnr = defaultdict(list), defaultdict(list), defaultdict(list)
+    cdnur = []
+    b2cs = defaultdict(lambda: defaultdict(lambda: ZERO))
+
+    for inv in invoices:
+        rates = _by_rate(inv.lines.all())
+        pos = inv.place_of_supply_state
+        if inv.bill_to_gstin:
+            b2b[inv.bill_to_gstin].append({
+                'inum': inv.number, 'idt': _json_date(inv.invoice_date), 'val': _num(inv.grand_total),
+                'pos': pos, 'rchrg': 'N', 'inv_typ': 'R', 'itms': _itms(rates, inv.is_interstate),
+            })
+        elif _is_b2cl(inv):
+            b2cl[pos].append({
+                'inum': inv.number, 'idt': _json_date(inv.invoice_date), 'val': _num(inv.grand_total),
+                'itms': _itms(rates, True),
+            })
+        else:
+            for rate, t in rates.items():
+                acc = b2cs[(pos, inv.is_interstate, rate)]
+                for k, v in t.items():
+                    acc[k] += v
+
+    for cn in cns:
+        inv = cn.invoice
+        rates = _by_rate(cn.lines.all(), lambda cl: cl.invoice_line)
+        pos = inv.place_of_supply_state
+        note = {'nt_num': cn.number, 'nt_dt': _json_date(cn.credit_note_date), 'ntty': 'C',
+                'val': _num(cn.grand_total)}
+        if inv.bill_to_gstin:
+            cdnr[inv.bill_to_gstin].append({**note, 'pos': pos, 'rchrg': 'N', 'inv_typ': 'R',
+                                            'itms': _itms(rates, inv.is_interstate)})
+        elif _is_b2cl(inv):
+            cdnur.append({**note, 'typ': 'B2CL', 'pos': pos, 'itms': _itms(rates, True)})
+        else:
+            # Credit notes on small B2C invoices reduce B2CS for the period.
+            for rate, t in rates.items():
+                acc = b2cs[(pos, inv.is_interstate, rate)]
+                for k, v in t.items():
+                    acc[k] -= v
+
+    out = {'gstin': entity.gstin, 'fp': start.strftime('%m%Y'), 'version': GSTR1_JSON_VERSION, 'hash': 'hash'}
+    if b2b:
+        out['b2b'] = [{'ctin': ctin, 'inv': invs} for ctin, invs in sorted(b2b.items())]
+    if b2cl:
+        out['b2cl'] = [{'pos': pos, 'inv': invs} for pos, invs in sorted(b2cl.items())]
+    rows = []
+    for (pos, interstate, rate), t in sorted(b2cs.items()):
+        if not (t['taxable'] or t['cess']):
+            continue
+        row = {'typ': 'OE', 'sply_ty': 'INTER' if interstate else 'INTRA', 'pos': pos}
+        row.update(_itm_det(rate, t, interstate))
+        rows.append(row)
+    if rows:
+        out['b2cs'] = rows
+    if cdnr:
+        out['cdnr'] = [{'ctin': ctin, 'nt': notes} for ctin, notes in sorted(cdnr.items())]
+    if cdnur:
+        out['cdnur'] = cdnur
+
+    hsn = {}
+    for key, registered in (('hsn_b2b', True), ('hsn_b2c', False)):
+        data = [{
+            'num': i, 'hsn_sc': code, 'uqc': g['uqc'] or 'OTH', 'qty': _num(g['qty'], 3), 'rt': _num(rate),
+            'txval': _num(g['taxable']), 'iamt': _num(g['igst']), 'camt': _num(g['cgst']),
+            'samt': _num(g['sgst']), 'csamt': _num(g['cess']),
+        } for i, ((code, rate), g) in enumerate(_hsn_groups(invoices, cns, registered), start=1)]
+        if data:
+            hsn[key] = data
+    if hsn:
+        out['hsn'] = hsn
+
+    doc_det = []
+    for doc_num, label, docs in ((1, 'Invoices for outward supply', invoices), (5, 'Credit Note', cns)):
+        by_series = defaultdict(list)
+        for d in docs:
+            by_series[d.series_id].append(d.number)
+        entries = []
+        for i, numbers in enumerate(by_series.values(), start=1):
+            numbers.sort()
+            entries.append({'num': i, 'from': numbers[0], 'to': numbers[-1], 'totnum': len(numbers),
+                            'cancel': 0, 'net_issue': len(numbers)})
+        if entries:
+            doc_det.append({'doc_num': doc_num, 'doc_typ': label, 'docs': entries})
+    if doc_det:
+        out['doc_issue'] = {'doc_det': doc_det}
+    return out
 
 
 def sales_register(start, end):
