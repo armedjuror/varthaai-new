@@ -236,6 +236,9 @@ function renderOrderDetail(order, items, payments, returns, billing) {
       '<div style="display:flex;justify-content:space-between;font-weight:700;' + (parseFloat(order.balance_amount) > 0 ? 'color:#dc2626' : '') + '"><span>Balance</span><span>' + formatCurrency(order.balance_amount) + '</span></div>' +
     '</div>' +
     '<button class="btn btn-sm btn-outline-primary mt-3" onclick="openPaymentModal(\'' + escHtml(order.id) + '\',' + order.company_id + ',' + order.balance_amount + ')"><i class="fas fa-indian-rupee-sign me-1"></i>Record Payment</button>' +
+    (cfRefundable() > 0
+      ? ' <button class="btn btn-sm btn-outline-danger mt-3" onclick="openCashfreeRefundModal()" title="Only money paid online through Cashfree can go back through Cashfree"><i class="fas fa-rotate-left me-1"></i>Refund via Cashfree (' + formatCurrency(cfRefundable()) + ')</button>'
+      : '') +
   '</div>';
 
   html += gstInvoiceSection(order, billing);
@@ -310,6 +313,18 @@ function renderOrderDetail(order, items, payments, returns, billing) {
       '</tr>';
     });
     html += '</tbody></table></div></div>';
+  }
+
+  // Cashfree refunds (status follows Cashfree's webhook)
+  var cfRefunds = (currentOrderDetail && currentOrderDetail.cashfree_refunds) || [];
+  if (cfRefunds.length) {
+    var badge = { initiated: 'bg-warning text-dark', processed: 'bg-success', failed: 'bg-danger' };
+    html += '<div class="col-12"><h6 style="font-size:0.82rem;color:var(--gray-400);text-transform:uppercase;margin-bottom:8px">Cashfree refunds</h6>' +
+      cfRefunds.map(function (r) {
+        return '<div style="font-size:0.85rem;padding:3px 0">' + formatDate(r.date) + ' · <strong>' + formatCurrency(r.amount) + '</strong> · ' +
+          '<span class="badge ' + (badge[r.status] || 'bg-secondary') + '">' + escHtml(r.status_label) + '</span> · <span style="color:var(--gray-400)">' + escHtml(r.reference) + '</span>' +
+          (r.status === 'failed' ? ' <span style="color:#b45309">— amount booked back on the order</span>' : '') + '</div>';
+      }).join('') + '</div>';
   }
 
   html += '</div>';
@@ -414,6 +429,10 @@ function openReturnModal() {
   var order = currentOrderDetail.order;
   $('#returnOrderId').text(order.id);
   $('#returnNotes').val('');
+  $('#returnRefundMethod option[value="cashfree"]').remove();
+  if (cfRefundable() > 0) {
+    $('#returnRefundMethod').append('<option value="cashfree">Cashfree (original payment) — up to ' + formatCurrency(cfRefundable()) + '</option>');
+  }
   $('#returnRefundMethod').val('cash');
 
   var html = '';
@@ -631,6 +650,37 @@ function submitReissue() {
       .done(function (res) {
         showAlertModal(res.message, res.success ? 'success' : 'danger');
         if (res.success) { $('#reissueModal').modal('hide'); viewOrder(o.id); loadOrders(); }
+      })
+      .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Request failed.'), 'danger'); })
+      .always(hideLoader);
+  });
+}
+
+/* ── Refund via Cashfree (money that came in through Cashfree only) ── */
+function cfRefundable() {
+  return (currentOrderDetail && currentOrderDetail.cashfree_refundable) || 0;
+}
+
+function openCashfreeRefundModal() {
+  if (!currentOrderDetail) return;
+  $('#cfRefundOrderId').text(currentOrderDetail.order.id);
+  $('#cfRefundMax').text(formatCurrency(cfRefundable()));
+  $('#cfRefundAmount').val(cfRefundable()).attr('max', cfRefundable());
+  $('#cfRefundNotes').val('');
+  $('#cashfreeRefundModal').modal('show');
+}
+
+function submitCashfreeRefund() {
+  var amount = parseFloat($('#cfRefundAmount').val());
+  if (!(amount > 0)) { showAlertModal('Enter the amount to refund.', 'warning'); return; }
+  if (amount > cfRefundable() + 0.001) { showAlertModal('At most ' + formatCurrency(cfRefundable()) + ' can be refunded through Cashfree.', 'warning'); return; }
+  var orderId = currentOrderDetail.order.id;
+  confirmThen('Send ' + formatCurrency(amount) + ' back to the customer through Cashfree? This cannot be undone.', function () {
+    showLoader('Refunding…');
+    apiPost('/admin/api/b2b-orders/', { action: 'cashfree_refund', order_id: orderId, amount: amount, notes: $('#cfRefundNotes').val() })
+      .done(function (res) {
+        showAlertModal(res.message, res.success ? 'success' : 'danger');
+        if (res.success) { $('#cashfreeRefundModal').modal('hide'); viewOrder(orderId); loadOrders(); }
       })
       .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Request failed.'), 'danger'); })
       .always(hideLoader);

@@ -22,7 +22,7 @@ from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.views import APIView
 
-from billing import links
+from billing import links, refunds
 from billing import services as billing
 from billing.links import apply_b2b_payment
 from billing.gst_states import STATES, normalise_state_code, state_label
@@ -374,6 +374,11 @@ class B2BOrdersAPI(APIView):
             'payments': [_payment_row(p) for p in payments],
             'returns': [_return_row(r) for r in returns],
             'billing': _billing_payload(order),
+            'cashfree_refundable': float(refunds.b2b_cashfree_refundable_total(order)),
+            'cashfree_refunds': [{
+                'amount': float(r.amount), 'status': r.status, 'status_label': r.get_status_display(),
+                'reference': r.cashfree_refund_id, 'date': r.created_at.isoformat(),
+            } for r in order.gateway_refunds.order_by('-created_at')],
         })
 
     def _applicable_offers(self, request, brand_id):
@@ -453,6 +458,7 @@ class B2BOrdersAPI(APIView):
             'share_link': self._share_link,
             'regenerate_link': self._share_link,
             'whatsapp': self._whatsapp,
+            'cashfree_refund': self._cashfree_refund,
         }
         handler = handlers.get(action)
         if not handler:
@@ -992,7 +998,11 @@ class B2BOrdersAPI(APIView):
 
         refund_amount = Decimal('0')
         if not invoice:
-            refund_amount = _apply_return_money(order, return_amount, refund_method, request.user)
+            try:
+                refund_amount = _apply_return_money(order, return_amount, refund_method, request.user)
+            except billing.BillingError as exc:
+                transaction.set_rollback(True)   # undo the restock above
+                return err(str(exc))
 
         ret = B2BReturn.objects.create(
             b2b_order=order,
@@ -1071,7 +1081,11 @@ class B2BOrdersAPI(APIView):
             return err(str(exc))
 
         refund_method = body.get('refund_method') or 'cash'
-        refund = _apply_return_money(order, cn.grand_total, refund_method, request.user)
+        try:
+            refund = _apply_return_money(order, cn.grand_total, refund_method, request.user)
+        except billing.BillingError as exc:
+            transaction.set_rollback(True)   # the credit note is not issued either
+            return err(str(exc))
         ret.credit_note = cn
         ret.return_amount = cn.grand_total
         ret.refund_amount = refund
@@ -1140,6 +1154,17 @@ class B2BOrdersAPI(APIView):
         else:
             links.get_or_create_link(order, request.user)
         return ok(links.share_payload(order, request), 'Link ready.')
+
+    def _cashfree_refund(self, request, brand_id, body):
+        order = B2BOrder.objects.filter(id=body.get('order_id'), brand_id=brand_id).select_related('company').first()
+        if not order:
+            return err('Order not found.')
+        try:
+            sent = refunds.refund_b2b_via_cashfree(order, _decimal_or_zero(body.get('amount')), request.user,
+                                                   notes=(body.get('notes') or '').strip())
+        except billing.BillingError as exc:
+            return err(str(exc))
+        return ok(None, f'Refund of ₹{sent:,.2f} sent through Cashfree. It reaches the customer in a few days.')
 
     def _whatsapp(self, request, brand_id, body):
         order = (B2BOrder.objects.filter(id=body.get('order_id'), brand_id=brand_id)
@@ -1333,19 +1358,29 @@ class B2BOffersAPI(APIView):
 
 def _apply_return_money(order, amount, refund_method, user):
     """Reduce the order total by `amount` and refund anything paid above the
-    new total. Returns the refund amount."""
+    new total. Returns the refund amount. refund_method 'cashfree' sends it
+    back on the order's Cashfree payments (raises BillingError, before
+    anything changes, if that is not possible)."""
     new_total = max(Decimal('0'), order.total_amount - amount)
+    refund_amount = max(Decimal('0'), order.paid_amount - new_total)
+    if refund_method == 'cashfree' and refund_amount > 0:
+        available = refunds.b2b_cashfree_refundable_total(order)
+        if refund_amount > available:
+            raise billing.BillingError(
+                f'₹{refund_amount:,.2f} is due back but only ₹{available:,.2f} was paid through Cashfree. '
+                'Choose a manual refund method.')
+        refund_amount = refunds.send_b2b_cashfree_refund(
+            order, refund_amount, user, notes=f'Refund for return on order {order.id}')
     order.total_amount = new_total
-    refund_amount = Decimal('0')
-    if order.paid_amount > new_total:
-        refund_amount = order.paid_amount - new_total
+    if refund_amount > 0:
         order.paid_amount -= refund_amount
-        B2BPayment.objects.create(
-            company=order.company, b2b_order=order, amount=refund_amount,
-            payment_type=B2BPayment.PaymentType.REFUND, payment_method=refund_method,
-            notes=f'Refund for return on order {order.id}',
-            payment_date=date.today(), created_by=user,
-        )
+        if refund_method != 'cashfree':
+            B2BPayment.objects.create(
+                company=order.company, b2b_order=order, amount=refund_amount,
+                payment_type=B2BPayment.PaymentType.REFUND, payment_method=refund_method,
+                notes=f'Refund for return on order {order.id}',
+                payment_date=date.today(), created_by=user,
+            )
     order.balance_amount = order.total_amount - order.paid_amount
     if order.paid_amount >= order.total_amount:
         order.payment_status = B2BOrder.PaymentStatus.PAID

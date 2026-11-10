@@ -123,6 +123,39 @@
   </div>
 </div>
 
+<!-- Refund via Cashfree Modal -->
+<div class="modal fade" id="cashfreeRefundModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-rotate-left me-2"></i>Refund via Cashfree — <span id="cfRefundOrderId"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-light py-2" style="font-size:0.82rem">
+          Goes back to the customer's original UPI / card / bank through Cashfree. Only money paid online
+          through Cashfree can be refunded here (up to <strong id="cfRefundMax"></strong>); refund cash, UPI or
+          bank payments manually.
+        </div>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Amount (₹) <span class="text-danger">*</span></label>
+            <input type="number" class="form-control" id="cfRefundAmount" step="0.01" min="0.01">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Notes</label>
+            <input type="text" class="form-control" id="cfRefundNotes" placeholder="Reason (shown to Cashfree)" maxlength="100">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger btn-sm" onclick="submitCashfreeRefund()"><i class="fas fa-rotate-left me-1"></i>Refund</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Payment Modal -->
 <div class="modal fade" id="paymentModal" tabindex="-1">
   <div class="modal-dialog">

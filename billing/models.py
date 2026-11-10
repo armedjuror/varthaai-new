@@ -477,7 +477,8 @@ class MessageLog(OrderRefMixin):
 
 
 class Refund(models.Model):
-    """Money returned to a B2C customer (gateway refund or manual)."""
+    """Money returned to a customer: a B2C refund (gateway or manual), or a
+    B2B refund sent back through Cashfree on an online payment."""
     class Method(models.TextChoices):
         RAZORPAY = 'razorpay', 'Razorpay (original payment)'
         CASHFREE = 'cashfree', 'Cashfree (original payment)'
@@ -488,7 +489,16 @@ class Refund(models.Model):
         PROCESSED = 'processed', 'Processed'
         FAILED = 'failed', 'Failed'
 
-    order = models.ForeignKey('orders.Order', on_delete=models.CASCADE, related_name='refunds')
+    # B2C refunds hang off `order`; B2B Cashfree refunds off `b2b_order`, with
+    # the payment they go back on and the B2BPayment row that booked them.
+    order = models.ForeignKey('orders.Order', on_delete=models.CASCADE, related_name='refunds',
+                              null=True, blank=True)
+    b2b_order = models.ForeignKey('orders.B2BOrder', on_delete=models.SET_NULL, related_name='gateway_refunds',
+                                  null=True, blank=True)
+    payment_attempt = models.ForeignKey('billing.PaymentAttempt', on_delete=models.SET_NULL, related_name='refunds',
+                                        null=True, blank=True)
+    b2b_payment = models.ForeignKey('orders.B2BPayment', on_delete=models.SET_NULL, related_name='+',
+                                    null=True, blank=True)
     credit_note = models.ForeignKey('billing.CreditNote', on_delete=models.PROTECT, null=True, blank=True,
                                     related_name='refunds')
     amount = models.DecimalField(max_digits=12, decimal_places=2)

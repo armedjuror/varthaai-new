@@ -28,6 +28,7 @@ CF = dict(CASHFREE_APP_ID='cf_app', CASHFREE_SECRET_KEY='cf_secret', CASHFREE_EN
 class FakeCashfree:
     def __init__(self):
         self.orders, self.status = [], 'ACTIVE'
+        self.refunds, self.refund_error = [], None
 
     def __call__(self, method, path, payload=None, idempotency_key=None):
         if method == 'POST' and path == '/orders':
@@ -38,6 +39,12 @@ class FakeCashfree:
             return [{'cf_payment_id': 9988, 'payment_status': 'SUCCESS'}]
         if method == 'GET' and path.startswith('/orders/'):
             return {'order_status': self.status}
+        if method == 'POST' and path.endswith('/refunds'):
+            if self.refund_error:
+                from storefront.payments import CashfreeError
+                raise CashfreeError(self.refund_error)
+            self.refunds.append((path.split('/')[2], payload))
+            return {'cf_refund_id': '777', 'refund_id': payload['refund_id'], 'refund_status': 'PENDING'}
         raise AssertionError((method, path))
 
 
@@ -182,3 +189,133 @@ class PayPageTests(Phase2Base):
             res = self.start(link.token)
         self.assertEqual(res['gateway'], 'razorpay')
         self.assertEqual(self.fake.orders, [])
+
+
+@override_settings(**CF)
+class B2BCashfreeRefundTests(Phase2Base):
+    """B2B money paid through Cashfree (pay page) goes back through Cashfree;
+    cash / UPI / bank payments can't."""
+
+    def setUp(self):
+        super().setUp()
+        Setting.objects.update_or_create(setting_key='payment_gateway', defaults={'setting_value': 'cashfree'})
+        self.fake = FakeCashfree()
+        patcher = mock.patch('storefront.payments._cashfree', self.fake)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.order = self.b2b()
+        type(self.order).objects.filter(pk=self.order.pk).update(stock_deducted=True)   # returns need it
+        self.order.refresh_from_db()
+
+    def pay_online(self, amount=None):
+        from billing.models import PaymentAttempt
+
+        link = links.get_or_create_link(self.order, self.admin)
+        self.client.post(f'/o/{link.token}/pay/', content_type='application/json')
+        attempt = PaymentAttempt.objects.filter(gateway='cashfree').latest('id')
+        links.complete_cashfree_payment(attempt.cashfree_order_id, f'pay{attempt.id}')
+        self.order.refresh_from_db()
+        return attempt
+
+    def api(self, data):
+        return self.client.post('/admin/api/b2b-orders/', data, content_type='application/json').json()
+
+    def detail(self):
+        return self.client.get('/admin/api/b2b-orders/', {'view': 'order', 'id': self.order.id}).json()['data']
+
+    def test_refund_goes_back_on_the_cashfree_payment(self):
+        attempt = self.pay_online()
+        self.assertEqual(self.detail()['cashfree_refundable'], 1050.0)
+        res = self.api({'action': 'cashfree_refund', 'order_id': self.order.id, 'amount': 400, 'notes': 'Overpaid'})
+        self.assertTrue(res['success'], res)
+        cf_order, payload = self.fake.refunds[0]
+        self.assertEqual((cf_order, payload['refund_amount']), (attempt.cashfree_order_id, 400.0))
+        self.order.refresh_from_db()
+        self.assertEqual((self.order.paid_amount, self.order.payment_status), (D('650.00'), 'partial'))
+        row = B2BPayment.objects.get(payment_type='refund')
+        self.assertEqual((row.amount, row.payment_method), (D('400.00'), 'online'))
+        detail = self.detail()
+        self.assertEqual(detail['cashfree_refundable'], 650.0)
+        self.assertEqual(detail['cashfree_refunds'][0]['status'], 'initiated')
+
+    def test_cash_payments_cannot_be_refunded_through_cashfree(self):
+        links.apply_b2b_payment(self.order, D('1050'), method='cash', user=self.admin)
+        res = self.api({'action': 'cashfree_refund', 'order_id': self.order.id, 'amount': 100})
+        self.assertFalse(res['success'])
+        self.assertIn('paid through Cashfree', res['message'])
+        self.assertEqual(self.fake.refunds, [])
+
+    def test_only_the_cashfree_part_is_refundable(self):
+        links.apply_b2b_payment(self.order, D('300'), method='cash', user=self.admin)
+        self.pay_online()   # pays the remaining 750 online
+        self.assertEqual(self.detail()['cashfree_refundable'], 750.0)
+        res = self.api({'action': 'cashfree_refund', 'order_id': self.order.id, 'amount': 800})
+        self.assertFalse(res['success'])
+        self.assertEqual(self.fake.refunds, [])
+
+    def test_cashfree_rejection_changes_nothing(self):
+        self.pay_online()
+        self.fake.refund_error = 'insufficient balance'
+        res = self.api({'action': 'cashfree_refund', 'order_id': self.order.id, 'amount': 100})
+        self.assertFalse(res['success'])
+        self.assertIn('insufficient balance', res['message'])
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.paid_amount, D('1050.00'))
+        self.assertFalse(B2BPayment.objects.filter(payment_type='refund').exists())
+
+    def _refund_webhook(self, status):
+        from billing.models import Refund
+
+        refund = Refund.objects.get(b2b_order=self.order)
+        body = json.dumps({'type': 'REFUND_STATUS_WEBHOOK', 'data': {'refund': {
+            'refund_id': refund.cashfree_refund_id, 'refund_status': status}}}).encode()
+        res = self.client.post('/api/cashfree-webhook/', data=body, content_type='application/json', **sign(body))
+        self.assertEqual(res.status_code, 200)
+        refund.refresh_from_db()
+        return refund
+
+    def test_webhook_confirms_refund(self):
+        self.pay_online()
+        self.api({'action': 'cashfree_refund', 'order_id': self.order.id, 'amount': 400})
+        self.assertEqual(self._refund_webhook('SUCCESS').status, 'processed')
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.paid_amount, D('650.00'))
+
+    def test_cancelled_refund_is_booked_back(self):
+        self.pay_online()
+        self.api({'action': 'cashfree_refund', 'order_id': self.order.id, 'amount': 400})
+        self.assertEqual(self._refund_webhook('CANCELLED').status, 'failed')
+        self.order.refresh_from_db()
+        self.assertEqual((self.order.paid_amount, self.order.payment_status), (D('1050.00'), 'paid'))
+        self.assertEqual(self.detail()['cashfree_refundable'], 1050.0)   # can be retried
+        self._refund_webhook('CANCELLED')   # duplicate webhook: no double booking
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.paid_amount, D('1050.00'))
+
+    def test_return_refund_through_cashfree(self):
+        from orders.models import B2BReturn
+
+        self.pay_online()
+        item = self.order.items.get()
+        res = self.api({'action': 'return_items', 'order_id': self.order.id, 'refund_method': 'cashfree',
+                        'items': [{'item_id': item.id, 'quantity': 2, 'restock': False}]})
+        self.assertTrue(res['success'], res)
+        ret = B2BReturn.objects.get()
+        self.assertGreater(ret.refund_amount, 0)
+        self.assertEqual(self.fake.refunds[0][1]['refund_amount'], float(ret.refund_amount))
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.paid_amount, D('1050.00') - ret.refund_amount)
+        self.assertEqual(B2BPayment.objects.filter(payment_type='refund').count(), 1)
+
+    def test_return_refund_through_cashfree_refused_for_cash_paid_order(self):
+        from orders.models import B2BReturn
+
+        links.apply_b2b_payment(self.order, D('1050'), method='cash', user=self.admin)
+        item = self.order.items.get()
+        res = self.api({'action': 'return_items', 'order_id': self.order.id, 'refund_method': 'cashfree',
+                        'items': [{'item_id': item.id, 'quantity': 2, 'restock': False}]})
+        self.assertFalse(res['success'])
+        self.assertIn('paid through Cashfree', res['message'])
+        self.assertFalse(B2BReturn.objects.exists())   # nothing half-done
+        item.refresh_from_db()
+        self.assertEqual(item.returned_quantity, 0)

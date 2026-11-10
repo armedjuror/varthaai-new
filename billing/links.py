@@ -386,18 +386,33 @@ def apply_b2b_payment(order, amount, *, method, reference='', notes='', payment_
     amount and status (the single place both the admin form and online
     payments go through)."""
     from crm.models import B2BActivity
-    from finance.services import sync_b2b_order_income
-    from orders.models import B2BOrder, B2BPayment
+    from orders.models import B2BPayment
 
     amount = q2(amount)
-    B2BPayment.objects.create(
+    row = B2BPayment.objects.create(
         company_id=order.company_id, b2b_order=order, amount=amount,
         payment_type=payment_type, payment_method=method, reference_number=(reference or '')[:100],
         notes=notes, payment_date=payment_date or billing.ist_today(),
         created_by=user if getattr(user, 'pk', None) else None,
     )
     sign = Decimal('-1') if payment_type == 'refund' else Decimal('1')
-    order.paid_amount = order.paid_amount + sign * amount
+    set_b2b_paid(order, order.paid_amount + sign * amount)
+    actor = user if getattr(user, 'pk', None) else order.created_by
+    if actor is not None:
+        B2BActivity.objects.create(
+            company_id=order.company_id, admin_user=actor, order=order, type=B2BActivity.Type.PAYMENT,
+            subject=f'{payment_type.capitalize()} of {amount:.2f} via {method}',
+            description=f'Against order {order.pk}' + (f' — {notes}' if notes else ''),
+        )
+    return row
+
+
+def set_b2b_paid(order, paid_amount):
+    """Store a B2B order's new paid amount with its balance and status."""
+    from finance.services import sync_b2b_order_income
+    from orders.models import B2BOrder
+
+    order.paid_amount = paid_amount
     order.balance_amount = order.total_amount - order.paid_amount
     if order.paid_amount >= order.total_amount:
         order.payment_status = B2BOrder.PaymentStatus.PAID
@@ -407,13 +422,6 @@ def apply_b2b_payment(order, amount, *, method, reference='', notes='', payment_
         order.payment_status = B2BOrder.PaymentStatus.PENDING
     order.save(update_fields=['paid_amount', 'balance_amount', 'payment_status', 'updated_at'])
     sync_b2b_order_income(order)
-    actor = user if getattr(user, 'pk', None) else order.created_by
-    if actor is not None:
-        B2BActivity.objects.create(
-            company_id=order.company_id, admin_user=actor, order=order, type=B2BActivity.Type.PAYMENT,
-            subject=f'{payment_type.capitalize()} of {amount:.2f} via {method}',
-            description=f'Against order {order.pk}' + (f' — {notes}' if notes else ''),
-        )
 
 
 # ── WhatsApp ─────────────────────────────────────────────────────────────
