@@ -432,16 +432,22 @@ class ShareLink(OrderRefMixin):
 
 
 class PaymentAttempt(OrderRefMixin):
+    """One online payment of an order's balance from our own order / pay
+    page: a Razorpay order, or a Cashfree order paid in Cashfree's popup
+    (whichever gateway is active). Settling is idempotent per attempt."""
     class Status(models.TextChoices):
         CREATED = 'created', 'Created'
         PAID = 'paid', 'Paid'
         FAILED = 'failed', 'Failed'
 
     share_link = models.ForeignKey(ShareLink, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
-    razorpay_order_id = models.CharField(max_length=100, unique=True)
+    gateway = models.CharField(max_length=20, default='razorpay')
+    razorpay_order_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.CREATED)
     razorpay_payment_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    cashfree_order_id = models.CharField(max_length=50, unique=True, null=True, blank=True)
+    cashfree_payment_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     paid_at = models.DateTimeField(null=True, blank=True)
 

@@ -5,9 +5,12 @@ Order share links, paying from the link, and one-click WhatsApp messages
   - ShareLink: an open link with a long secret token that shows the Order
     Summary, a PAID seal or a Pay button, and the Tax Invoice / credit-note
     PDFs. One live link per order; regenerating revokes the old one.
-  - PaymentAttempt: a Razorpay order created for the current balance. The
-    browser return call and the webhook both settle it; both are idempotent
-    on the Razorpay payment id.
+  - Pay page (/o/<token>/pay/): our own page showing only the amount due
+    (not editable) and a Pay button. Payment reminders link to it.
+  - PaymentAttempt: one online payment of the current balance, through the
+    active gateway — a Razorpay order, or a Cashfree order paid in Cashfree's
+    popup on our page. The browser return, the webhook and a status check on
+    the next page view all settle it; settling is idempotent per attempt.
   - MessageLog: every WhatsApp button click ("Order details sent" /
     "Payment reminder sent"). WhatsApp only opens with the text ready — the
     sender still taps Send, so the log records what was prepared.
@@ -42,6 +45,9 @@ DEFAULT_MESSAGES = {
         'You can view the bill and pay here: {link}'
     ),
 }
+
+# Added to a reminder whose (customised) template has no {pay_link}.
+PAY_LINK_LINE = 'Pay ₹{amount} online: {pay_link}'
 
 
 # ── order helpers ────────────────────────────────────────────────────────
@@ -159,14 +165,31 @@ def _razorpay_client():
     return razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
 
+def active_gateway():
+    from storefront import payments
+
+    return payments.active_gateway()
+
+
 def payments_enabled():
-    return bool(settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET)
+    from storefront import payments
+
+    return payments.is_configured(active_gateway())
+
+
+def pay_url(link, request=None):
+    """Our own pay page for the link's order (amount due only, Pay button)."""
+    return link_url(link, request) + 'pay/'
 
 
 def start_payment(link):
-    """Create a Razorpay order for the current balance."""
+    """Create the online payment for the current balance through the active
+    gateway: a Razorpay order, or a Cashfree order (the returned attempt
+    then carries `payment_session_id` for the popup)."""
     if not payments_enabled():
         raise billing.BillingError('Online payment is not available right now.')
+    if active_gateway() == 'cashfree':
+        return _start_cashfree(link)
     order = link.order
     with transaction.atomic():
         order = type(order).objects.select_for_update().get(pk=order.pk)
@@ -180,6 +203,101 @@ def start_payment(link):
         attempt = PaymentAttempt.objects.create(
             share_link=link, razorpay_order_id=rzp['id'], amount=due, **_ref(order),
         )
+    return attempt
+
+
+# ── Cashfree (popup checkout on our pay / order page) ────────────────────
+
+def _cashfree_customer(order):
+    """(customer_id, 10-digit phone, name) for the Cashfree order."""
+    number, reason = whatsapp_recipient(order)
+    if not number:
+        raise billing.BillingError(f'Online payment needs a valid mobile number on the order. {reason}')
+    if kind_of(order) == 'b2c':
+        return f'cust{order.user_id or number[2:]}', number[2:], order.name
+    contact = order.contact if order.contact_id else None
+    return f'b2b{order.company_id}', number[2:], (contact.name if contact else order.company.company_name)
+
+
+def _start_cashfree(link):
+    from storefront import payments
+
+    order = link.order
+    with transaction.atomic():
+        order = type(order).objects.select_for_update().get(pk=order.pk)
+        due = amount_due(order)
+        if due <= 0:
+            raise billing.BillingError('Nothing is due on this order.')
+        customer_id, phone, name = _cashfree_customer(order)
+        cf_order_id = 'VP' + secrets.token_hex(12)
+        site = getattr(settings, 'SITE_URL', 'https://varthaai.com').rstrip('/')
+        try:
+            data = payments.cashfree_create_order(
+                cf_order_id, due, customer_id=customer_id, phone=phone, name=name,
+                note=f'Payment for order {order.pk}',
+                return_url=pay_url(link),           # in-app browsers come back here
+                notify_url=f'{site}/api/cashfree-webhook/',
+            )
+        except payments.CashfreeError as exc:
+            # Details go to the log only; this message is shown to the customer.
+            log.warning('Cashfree order failed for %s: %s', order.pk, exc)
+            raise billing.BillingError('Payment gateway error. Please try again in a minute.') from exc
+        attempt = PaymentAttempt.objects.create(
+            share_link=link, gateway='cashfree', cashfree_order_id=cf_order_id, amount=due, **_ref(order),
+        )
+    attempt.payment_session_id = data['payment_session_id']
+    return attempt
+
+
+def verify_cashfree_attempt(attempt):
+    """Ask Cashfree (server to server) whether the attempt's order is paid,
+    and record it if so. Returns True when paid."""
+    from storefront import payments
+
+    if attempt.status == PaymentAttempt.Status.PAID:
+        return True
+    if attempt.gateway != 'cashfree' or attempt.status != PaymentAttempt.Status.CREATED:
+        return False
+    try:
+        if payments.cashfree_get_order(attempt.cashfree_order_id).get('order_status') != 'PAID':
+            return False
+        payment = payments.cashfree_successful_payment(attempt.cashfree_order_id) or {}
+    except payments.CashfreeError as exc:
+        log.warning('Cashfree status check failed for %s: %s', attempt.cashfree_order_id, exc)
+        return False
+    complete_cashfree_payment(attempt.cashfree_order_id, payment.get('cf_payment_id'))
+    return True
+
+
+def sync_recent_cashfree(order):
+    """On a page view: settle a recent Cashfree attempt that was paid but whose
+    webhook / browser confirmation never arrived (customer back from a redirect)."""
+    recent = (PaymentAttempt.objects.filter(
+        gateway='cashfree', status=PaymentAttempt.Status.CREATED,
+        created_at__gte=timezone.now() - timedelta(days=2), **_ref(order),
+    ).order_by('-id')[:3])
+    for attempt in recent:
+        if verify_cashfree_attempt(attempt):
+            break
+
+
+def complete_cashfree_payment(cf_order_id, payment_id):
+    """Record a paid Cashfree attempt once (webhook, popup return or status
+    check). Returns the attempt, or None when the Cashfree order is not one
+    of ours from a pay / order page."""
+    if not cf_order_id:
+        return None
+    with transaction.atomic():
+        attempt = PaymentAttempt.objects.select_for_update().filter(cashfree_order_id=cf_order_id).first()
+        if attempt is None:
+            return None
+        if attempt.status == PaymentAttempt.Status.PAID:
+            return attempt
+        payment_id = str(payment_id or '') or None
+        if payment_id and PaymentAttempt.objects.filter(cashfree_payment_id=payment_id).exists():
+            return attempt
+        attempt.cashfree_payment_id = payment_id
+        _settle(attempt, payment_id or cf_order_id, 'cashfree')
     return attempt
 
 
@@ -202,8 +320,6 @@ def complete_payment(razorpay_order_id, payment_id):
     browser return and the webhook, in any order, any number of times.
     Returns the attempt, or None when the Razorpay order is not a link
     payment."""
-    from finance.services import sync_b2b_order_income, sync_b2c_order_income
-
     with transaction.atomic():
         attempt = PaymentAttempt.objects.select_for_update().filter(razorpay_order_id=razorpay_order_id).first()
         if attempt is None:
@@ -212,31 +328,50 @@ def complete_payment(razorpay_order_id, payment_id):
             return attempt
         if payment_id and PaymentAttempt.objects.filter(razorpay_payment_id=payment_id).exists():
             return attempt
-        order = type(attempt.order).objects.select_for_update().get(pk=attempt.order_id)
-        attempt.status = PaymentAttempt.Status.PAID
         attempt.razorpay_payment_id = payment_id or None
-        attempt.paid_at = timezone.now()
-        attempt.save(update_fields=['status', 'razorpay_payment_id', 'paid_at'])
-        if kind_of(order) == 'b2c':
-            from orders.views_b2c import _sync_loyalty
-
-            order.payment_status = 'paid'
-            order.payment_date = timezone.now()
-            order.razorpay_payment_id = payment_id or ''
-            fields = ['payment_status', 'payment_date', 'razorpay_payment_id', 'updated_at']
-            if order.status in ('pending', 'failed', 'cancelled'):
-                order.status = 'confirmed'
-                fields.append('status')
-            order.save(update_fields=fields)
-            _sync_loyalty(order.id, 'paid')
-            sync_b2c_order_income(order)
-        else:
-            apply_b2b_payment(order, attempt.amount, method='online', reference=payment_id or '',
-                              notes='Paid online from the order link', user=None)
-            sync_b2b_order_income(order)
-        billing._activity(None, f'Online payment ₹{attempt.amount} received', f'Order {order.pk} ({payment_id})',
-                          module='orders')
+        _settle(attempt, payment_id, 'razorpay')
     return attempt
+
+
+def _settle(attempt, payment_id, gateway):
+    """Mark the (locked) attempt paid and apply the money to its order.
+    Callers hold the attempt row lock inside a transaction."""
+    from finance.services import sync_b2b_order_income, sync_b2c_order_income
+
+    order = type(attempt.order).objects.select_for_update().get(pk=attempt.order_id)
+    attempt.status = PaymentAttempt.Status.PAID
+    attempt.paid_at = timezone.now()
+    attempt.save(update_fields=['status', 'razorpay_payment_id', 'cashfree_payment_id', 'paid_at'])
+    gateway_name = GATEWAY_NAMES.get(gateway, gateway)
+    if kind_of(order) == 'b2c':
+        from orders.views_b2c import _sync_loyalty
+
+        order.payment_status = 'paid'
+        order.payment_date = timezone.now()
+        fields = ['payment_status', 'payment_date', 'updated_at']
+        if gateway == 'cashfree':
+            order.payment_gateway = 'cashfree'
+            order.cashfree_payment_id = attempt.cashfree_payment_id or ''
+            fields += ['payment_gateway', 'cashfree_payment_id']
+        else:
+            order.razorpay_payment_id = payment_id or ''
+            fields.append('razorpay_payment_id')
+        if order.status in ('pending', 'failed', 'cancelled'):
+            order.status = 'confirmed'
+            fields.append('status')
+        order.save(update_fields=fields)
+        _sync_loyalty(order.id, 'paid')
+        sync_b2c_order_income(order)
+    else:
+        notes = f'Paid online from the order link ({gateway_name})'
+        apply_b2b_payment(order, attempt.amount, method='online', reference=payment_id or '',
+                          notes=notes, user=None)
+        sync_b2b_order_income(order)
+    billing._activity(None, f'Online payment ₹{attempt.amount} received',
+                      f'Order {order.pk} ({gateway_name} {payment_id})', module='orders')
+
+
+GATEWAY_NAMES = {'razorpay': 'Razorpay', 'cashfree': 'Cashfree'}
 
 
 def fail_payment(razorpay_order_id):
@@ -324,7 +459,9 @@ class _Blank(dict):
         return '{' + key + '}'
 
 
-def build_message(order, kind, url):
+def build_message(order, kind, url, pay_url=None):
+    """pay_url: our pay page for the amount due (reminders). The template
+    can place it with {pay_link}; otherwise a line is appended."""
     from core.models import Brand
 
     brand = Brand.objects.filter(id=order.brand_id).values_list('name', flat=True).first() or ''
@@ -335,8 +472,12 @@ def build_message(order, kind, url):
         name = order.contact.name if order.contact_id and order.contact else order.company.company_name
         due_date = order.due_date.strftime('%d-%m-%Y') if order.due_date else 'receipt'
     due = amount_due(order)
-    return message_template(kind).format_map(_Blank(
+    template = message_template(kind)
+    if pay_url and '{pay_link}' not in template:
+        template = template.rstrip() + '\n' + PAY_LINK_LINE
+    return template.format_map(_Blank(
         name=name, brand=brand, order_id=order.pk, amount=f'{due:,.2f}', due_date=due_date, link=url,
+        pay_link=pay_url or url,
     ))
 
 
@@ -349,7 +490,10 @@ def prepare_whatsapp(order, kind, user, request=None):
     if not number:
         raise billing.BillingError(reason)
     link = get_or_create_link(order, user)
-    text = build_message(order, kind, link_url(link, request))
+    pay = None
+    if kind == MessageLog.Kind.REMINDER and payments_enabled() and amount_due(order) > 0:
+        pay = pay_url(link, request)
+    text = build_message(order, kind, link_url(link, request), pay)
     label = MessageLog.Kind(kind).label
     MessageLog.objects.create(kind=kind, recipient=number, message=text,
                               created_by=user if getattr(user, 'pk', None) else None, **_ref(order))
@@ -364,7 +508,7 @@ def prepare_whatsapp(order, kind, user, request=None):
             )
     billing._activity(user, label, f'Order {order.pk} to {number}', module='orders')
     return {'url': f'https://wa.me/{number}?text={urllib.parse.quote(text)}', 'recipient': number,
-            'message': text, 'link': link_url(link, request)}
+            'message': text, 'link': link_url(link, request), 'pay_link': pay}
 
 
 def last_reminded(order):
@@ -377,6 +521,7 @@ def share_payload(order, request=None):
     link = live_link(order)
     number, reason = whatsapp_recipient(order)
     messages = MessageLog.objects.filter(**_ref(order)).select_related('created_by')[:20]
+    can_pay = bool(link) and payments_enabled() and amount_due(order) > 0
     return {
         'link': link_url(link, request) if link else None,
         'view_count': link.view_count if link else 0,
@@ -384,6 +529,7 @@ def share_payload(order, request=None):
         'whatsapp_number': number,
         'whatsapp_disabled_reason': reason,
         'amount_due': float(amount_due(order)),
+        'pay_link': pay_url(link, request) if can_pay else None,
         'messages': [{
             'kind': m.kind, 'label': m.get_kind_display(), 'recipient': m.recipient,
             'by': m.created_by.name if m.created_by else '', 'at': m.created_at.isoformat(),

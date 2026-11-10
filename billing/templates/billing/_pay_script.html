@@ -1,0 +1,61 @@
+{# Pay button for the order page and the pay page. Needs #payBtn and #payMsg. #}
+{# Opens the active gateway's popup on our own page; the server confirms the payment. #}
+{% if gateway == 'cashfree' %}
+<script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
+{% else %}
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+{% endif %}
+<script>
+(function () {
+  var base = '/o/{{ link.token|escapejs }}/';
+  var btn = document.getElementById('payBtn');
+  var msg = document.getElementById('payMsg');
+  function csrf() {
+    var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function post(url, data) {
+    return fetch(url, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
+      body: JSON.stringify(data || {})
+    }).then(function (r) { return r.json(); });
+  }
+  function say(text, ok) { msg.textContent = text; msg.style.color = ok ? '#16a34a' : '#dc2626'; }
+  function confirmPaid(data, quietIfUnpaid) {
+    say('Confirming payment…', true);
+    return post(base + 'pay/verify/', data).then(function (v) {
+      if (v.success) { say(v.message, true); setTimeout(function () { window.location.reload(); }, 1200); return; }
+      btn.disabled = false;
+      say(quietIfUnpaid ? '' : v.message, false);
+    }).catch(function () { btn.disabled = false; say('Could not confirm yet — refresh in a minute.', false); });
+  }
+  function payCashfree(res) {
+    if (typeof Cashfree === 'undefined') { say('Could not load the payment window. Please try again.', false); btn.disabled = false; return; }
+    say('', true);
+    Cashfree({ mode: res.mode }).checkout({ paymentSessionId: res.payment_session_id, redirectTarget: '_modal' })
+      .then(function (result) {
+        if (result.redirect) return;  // in-app browser: Cashfree brings the customer back to this page
+        // Closed popup or finished attempt: ask our server for the real status.
+        confirmPaid({ cashfree_order_id: res.cashfree_order_id }, !result.paymentDetails);
+      });
+  }
+  function payRazorpay(res) {
+    var rzp = new Razorpay({
+      key: res.key_id, amount: res.amount, currency: res.currency, name: res.name,
+      description: res.description, order_id: res.razorpay_order_id,
+      theme: { color: '#85aa4e' },
+      handler: function (r) { confirmPaid(r, false); },
+      modal: { ondismiss: function () { btn.disabled = false; say('', true); } }
+    });
+    rzp.open();
+  }
+  btn.addEventListener('click', function () {
+    btn.disabled = true; say('Opening payment…', true);
+    post(base + 'pay/').then(function (res) {
+      if (!res.success) { say(res.message, false); btn.disabled = false; return; }
+      if (res.gateway === 'cashfree') payCashfree(res); else payRazorpay(res);
+    }).catch(function () { say('Something went wrong. Please try again.', false); btn.disabled = false; });
+  });
+})();
+</script>

@@ -421,7 +421,8 @@ class CashfreeVerifyAPI(StorefrontAPIView):
 
 
 class CashfreeWebhookAPI(StorefrontAPIView):
-    """POST Cashfree webhook (payments + refunds), HMAC-verified."""
+    """POST Cashfree webhook (checkout payments, order-link / pay-page
+    payments, refunds), HMAC-verified."""
 
     def post(self, request):
         raw = request.body
@@ -441,7 +442,9 @@ class CashfreeWebhookAPI(StorefrontAPIView):
         payment = payload.get('payment') or {}
 
         if event == 'PAYMENT_SUCCESS_WEBHOOK' and payment.get('payment_status') == 'SUCCESS':
-            _confirm_cashfree_payment(order_id, payment.get('cf_payment_id'))
+            # Order-link / pay-page payments (B2B + B2C balances) first, then storefront checkout.
+            if links.complete_cashfree_payment(order_id, payment.get('cf_payment_id')) is None:
+                _confirm_cashfree_payment(order_id, payment.get('cf_payment_id'))
         elif event == 'PAYMENT_FAILED_WEBHOOK':
             # Same rule as Razorpay: only pre-payment orders, never a paid one.
             Order.objects.filter(
