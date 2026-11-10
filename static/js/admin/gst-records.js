@@ -130,6 +130,11 @@ function downloadReport(kind) {
   var p = filters();
   delete p.search;
   delete p.supply_type;
+  if (kind === 'gstr1-json') {
+    if (!p.month) { showAlertModal('GSTR-1 JSON is filed per month. Set Period to Month and pick one.', 'warning'); return; }
+    window.location.href = '/admin/gst/records/gstr1.json?' + $.param({ month: p.month });
+    return;
+  }
   if (!p.month && !p.fy && !(p.from && p.to)) { showAlertModal('Choose a month, financial year or date range first.', 'warning'); return; }
   var url = kind === 'gstr1' ? '/admin/gst/records/gstr1/' : '/admin/gst/records/report/' + kind + '.csv';
   window.location.href = url + '?' + $.param(p);

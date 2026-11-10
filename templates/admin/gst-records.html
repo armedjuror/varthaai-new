@@ -16,6 +16,7 @@
         <button class="btn btn-primary btn-sm" onclick="exportZip()"><i class="fas fa-file-zipper me-1"></i>PDFs + registers (ZIP)</button>
         <button class="btn btn-outline-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown">Reports</button>
         <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item" href="#" onclick="downloadReport('gstr1-json');return false">GSTR-1 JSON (portal upload, monthly)</a></li>
           <li><a class="dropdown-item" href="#" onclick="downloadReport('gstr1');return false">GSTR-1 data (ZIP of CSVs)</a></li>
           <li><a class="dropdown-item" href="#" onclick="downloadReport('sales-register');return false">Sales register (CSV)</a></li>
           <li><a class="dropdown-item" href="#" onclick="downloadReport('credit-note-register');return false">Credit-note register (CSV)</a></li>

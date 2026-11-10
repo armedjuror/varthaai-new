@@ -13,6 +13,7 @@ urlpatterns = [
     path('gst/records/', views.gst_records_page, name='gst_records'),
     path('gst/records/export/', views.gst_records_export, name='gst_records_export'),
     path('gst/records/gstr1/', views.gstr1_export, name='gstr1_export'),
+    path('gst/records/gstr1.json', views.gstr1_json_export, name='gstr1_json_export'),
     path('gst/records/report/<slug:kind>.csv', views.gst_report_csv, name='gst_report_csv'),
     path('api/gst/settings/', views.GSTSettingsAPI.as_view(), name='gst_settings_api'),
     path('api/gst/records/', views.GSTRecordsAPI.as_view(), name='gst_records_api'),
