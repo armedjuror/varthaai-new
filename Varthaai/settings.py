@@ -204,6 +204,12 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+# Adds ?v=<content hash> to static URLs so browsers pick up new JS/CSS after a
+# deploy despite nginx's 30-day cache (core/static_storage.py).
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'core.static_storage.VersionedStaticFilesStorage'},
+}
 
 # Uploaded media (flavor images, receipts, QR codes, etc.)
 MEDIA_URL = '/media/'
