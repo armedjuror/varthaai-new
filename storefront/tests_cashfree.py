@@ -269,3 +269,32 @@ class SignatureTests(TestCase):
             body, headers['HTTP_X_WEBHOOK_TIMESTAMP'], headers['HTTP_X_WEBHOOK_SIGNATURE']))
         self.assertFalse(payments.cashfree_verify_webhook(
             body + b' ', headers['HTTP_X_WEBHOOK_TIMESTAMP'], headers['HTTP_X_WEBHOOK_SIGNATURE']))
+
+
+@override_settings(MEDIA_ROOT=MEDIA, PRIVATE_MEDIA_ROOT=MEDIA, **KEYS)
+class CashfreePayPageRefundTests(TestCase):
+    """A B2C order paid from the pay page is refunded on that Cashfree order."""
+
+    def setUp(self):
+        seed_gst(self)
+        self.order = Order.objects.create(
+            id='VO_pp1', brand=self.brand, name='Asha', mobile='9876543210', address='x', pincode='673001',
+            shipping_state_code='32', price_mode='inclusive',
+        )
+        OrderItem.objects.create(order=self.order, flavor=self.flavor, quantity=1000, price_per_kg=1200,
+                                 sale_price_per_kg=1000, flavor_name='Classic')
+        from billing import links
+        from billing.models import PaymentAttempt
+
+        link = links.get_or_create_link(self.order)
+        PaymentAttempt.objects.create(share_link=link, gateway='cashfree', cashfree_order_id='VPabc123',
+                                      amount=D('1000'), b2c_order=self.order)
+        links.complete_cashfree_payment('VPabc123', '555')
+        self.order.refresh_from_db()
+
+    def test_refund_goes_to_the_pay_page_cashfree_order(self):
+        self.assertEqual((self.order.payment_gateway, self.order.cashfree_payment_id), ('cashfree', '555'))
+        fake = FakeCashfree()
+        with mock.patch('storefront.payments._cashfree', fake):
+            refunds.issue_refund(self.order, '200', Refund.Method.CASHFREE, self.admin)
+        self.assertEqual(fake.calls[-1][1], '/orders/VPabc123/refunds')

@@ -45,6 +45,18 @@ def can_refund_cashfree(order):
     return bool(order.cashfree_payment_id and settings.CASHFREE_APP_ID and settings.CASHFREE_SECRET_KEY)
 
 
+def cashfree_order_ref(order):
+    """The Cashfree order the payment was made on: the storefront checkout
+    uses our order id; a payment from the order link / pay page has its own
+    Cashfree order id (VP...)."""
+    from billing.models import PaymentAttempt
+
+    attempt = (PaymentAttempt.objects.filter(b2c_order=order, gateway='cashfree', status='paid',
+                                            cashfree_payment_id=order.cashfree_payment_id)
+               .exclude(cashfree_order_id__isnull=True).order_by('-id').first())
+    return attempt.cashfree_order_id if attempt else order.id
+
+
 def online_refund_method(order):
     """The gateway refund method for this order's payment, or ''."""
     if can_refund_cashfree(order):
@@ -122,7 +134,7 @@ def issue_refund(order, amount, method, user=None, credit_note=None, reference='
 
             refund_id = 'rf' + uuid4().hex[:24]
             try:
-                cf = payments.cashfree_refund(order.id, amount, refund_id,
+                cf = payments.cashfree_refund(cashfree_order_ref(order), amount, refund_id,
                                               note=f'Credit note {credit_note.number}' if credit_note else '')
             except payments.CashfreeError as exc:
                 log.warning('Cashfree refund failed for %s: %s', order.id, exc)
