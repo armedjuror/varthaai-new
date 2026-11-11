@@ -14,7 +14,7 @@ from billing.pdf import pdf_guard
 from core.api import HasModulePermission, current_brand_id, err, ok
 from core.auth import admin_login_required, require_module
 from formbuilder import pdf, services
-from formbuilder.models import Form, FormField
+from formbuilder.models import Form, FormBranding, FormField
 from formbuilder.services import FormError
 
 PER_PAGE_CHOICES = (10, 20, 50, 100)
@@ -40,6 +40,25 @@ def _field_json(f):
     }
 
 
+def _file_size(form):
+    if not form.download_file:
+        return 0
+    try:
+        return form.download_file.size
+    except OSError:
+        return 0
+
+
+def _branding_json(branding):
+    b = branding or FormBranding()
+    return {
+        'primary_color': b.primary_color, 'accent_color': b.accent_color,
+        'background_color': b.background_color, 'footer_text': b.footer_text,
+        'logo_url': b.logo.url if b.logo else '',
+        'default_download_hours': b.default_download_hours,
+    }
+
+
 def _form_json(form, with_fields=False):
     data = {
         'id': form.id, 'public_id': form.public_id, 'title': form.title,
@@ -51,6 +70,9 @@ def _form_json(form, with_fields=False):
         'success_redirect_url': form.success_redirect_url, 'show_code': form.show_code,
         'code_length': form.code_length, 'code_prefix': form.code_prefix,
         'code_label': form.code_label, 'created_at': form.created_at.isoformat(),
+        'download_name': form.download_name if form.download_file else '',
+        'download_size': _file_size(form), 'download_label': form.download_label,
+        'download_hours': form.download_hours,
     }
     if with_fields:
         data['fields'] = [_field_json(f) for f in form.fields.all()]
@@ -95,6 +117,10 @@ def _apply_settings(form, d):
     for flag in ('create_users', 'one_response_per_phone', 'show_code'):
         if flag in d:
             setattr(form, flag, bool(d[flag]))
+    if 'download_label' in d:
+        form.download_label = (d['download_label'] or '').strip()[:100] or 'Download'
+    if 'download_hours' in d:
+        form.download_hours = services.clean_download_hours(d['download_hours'])
     for text, limit in (('consent_text', 500), ('success_title', 200), ('code_label', 100), ('code_prefix', 10)):
         if text in d:
             setattr(form, text, (d[text] or '').strip()[:limit])
@@ -140,6 +166,9 @@ class FormsAPI(APIView):
         try:
             if action == 'create':
                 form = Form(brand_id=brand_id)
+                branding = services.branding_for(brand_id)
+                if branding:
+                    form.download_hours = branding.default_download_hours
                 _apply_settings(form, {'title': d.get('title'), 'description': d.get('description')})
                 form.save()
                 return ok({'id': form.id}, 'Form created.')
@@ -171,6 +200,12 @@ class FormDetailAPI(APIView):
                 _apply_settings(form, d)
                 form.save()
                 return ok(_form_json(form), 'Saved.')
+            if action == 'upload_download':           # multipart: file=<the file>
+                services.set_download(form, request.FILES.get('file'))
+                return ok(_form_json(form), 'File uploaded.')
+            if action == 'remove_download':
+                services.remove_download(form)
+                return ok(_form_json(form), 'File removed.')
             if action in ('add_field', 'add_user_field'):
                 return self._add_field(form, d, quick=action == 'add_user_field')
             if action == 'update_field':
@@ -262,6 +297,45 @@ class FormDetailAPI(APIView):
             field.options = services.clean_options(d.get('options', field.options))
 
 
+class FormBrandingAPI(APIView):
+    """Look of the current brand's public form pages. POST is multipart when a
+    logo is attached (logo=<file>, remove_logo=1 clears it)."""
+    permission_classes = [HasModulePermission]
+    permission_module = 'forms'
+
+    def get(self, request):
+        return ok(_branding_json(services.branding_for(current_brand_id(request))))
+
+    def post(self, request):
+        d = request.data
+        branding, _ = FormBranding.objects.get_or_create(brand_id=current_brand_id(request))
+        try:
+            for key in ('primary_color', 'accent_color', 'background_color'):
+                if key in d:
+                    setattr(branding, key, services.clean_color(d.get(key)))
+            if 'footer_text' in d:
+                branding.footer_text = (d.get('footer_text') or '').strip()[:200]
+            if 'default_download_hours' in d:
+                branding.default_download_hours = services.clean_download_hours(d.get('default_download_hours'))
+            logo = request.FILES.get('logo')
+            if logo is not None:
+                if logo.size > 2 * 1024 * 1024:
+                    raise FormError('Logo must be under 2 MB.')
+                ext = (logo.name or '').rsplit('.', 1)[-1].lower()
+                if ext not in ('png', 'jpg', 'jpeg', 'webp'):
+                    raise FormError('Logo must be PNG, JPG or WEBP.')
+                if branding.logo:
+                    branding.logo.delete(save=False)
+                branding.logo.save(logo.name, logo, save=False)
+            elif str(d.get('remove_logo') or '') in ('1', 'true', 'True') and branding.logo:
+                branding.logo.delete(save=False)
+                branding.logo = None
+        except FormError as exc:
+            return err(str(exc))
+        branding.save()
+        return ok(_branding_json(branding), 'Branding saved.')
+
+
 class FormLinksAPI(APIView):
     permission_classes = [HasModulePermission]
     permission_module = 'forms'
@@ -290,6 +364,7 @@ class FormResultsAPI(APIView):
             'id': s.id, 'created_at': s.created_at.isoformat(), 'code': s.code,
             'via_link': s.via_link, 'answers': s.answers,
             'user_id': s.user_id, 'user_name': s.user.name if s.user else '',
+            'download_count': s.download_count,
         } for s in page]
         return ok({
             'rows': rows, 'total': page.paginator.count, 'page': page.number,

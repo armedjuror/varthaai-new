@@ -10,17 +10,77 @@ the key means (a store, a campaign, an event, ...).
 Three optional field roles - user_name / user_phone / user_email - make a
 submission create (or update) a customer record, see formbuilder.services.
 """
+import os
 import re
 
+from django.conf import settings
+from django.core.files.storage import FileSystemStorage
 from django.db import models
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils.crypto import get_random_string
 
 PUBLIC_ID_LENGTH = 10
 SLUG_RE = re.compile(r'^[a-z][a-z0-9_]{0,39}$')
 
 
+HEX_COLOR_RE = re.compile(r'^#[0-9A-Fa-f]{6}$')
+
+
 def new_public_id():
     return get_random_string(PUBLIC_ID_LENGTH, 'abcdefghjkmnpqrstuvwxyz23456789')
+
+
+class PrivateFormFileStorage(FileSystemStorage):
+    """Success-page downloads live under PRIVATE_MEDIA_ROOT, which nginx does
+    not serve. They are only streamed by formbuilder.views_public.download,
+    after the visitor has submitted the form. Location is read on every access
+    so tests can override it."""
+
+    @property
+    def base_location(self):
+        return str(getattr(settings, 'PRIVATE_MEDIA_ROOT', os.path.join(settings.BASE_DIR, 'private_media')))
+
+    @property
+    def location(self):
+        return os.path.abspath(self.base_location)
+
+    @property
+    def base_url(self):
+        return None
+
+    def url(self, name):
+        raise ValueError('Form downloads have no public URL.')
+
+
+def private_form_storage():
+    return PrivateFormFileStorage()
+
+
+def download_upload_to(instance, filename):
+    # Random directory: the stored name reveals nothing and never collides.
+    return f'form_downloads/{instance.public_id}/{get_random_string(12)}/{os.path.basename(filename)}'
+
+
+class FormBranding(models.Model):
+    """Per-brand look of the public form pages (/f/...). Every blank value
+    falls back to the default theme, so a brand with no row looks as before."""
+    brand = models.OneToOneField('core.Brand', on_delete=models.CASCADE, primary_key=True,
+                                 related_name='form_branding')
+    primary_color = models.CharField(max_length=7, blank=True)      # buttons, links, focus
+    accent_color = models.CharField(max_length=7, blank=True)       # highlights, progress tip
+    background_color = models.CharField(max_length=7, blank=True)   # page backdrop
+    logo = models.ImageField(upload_to='brands/forms/', null=True, blank=True)  # overrides Brand.logo
+    footer_text = models.CharField(max_length=200, blank=True)
+    # Brand default for new downloads: how long a download link keeps working.
+    default_download_hours = models.PositiveIntegerField(default=72)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'form_brandings'
+
+    def __str__(self):
+        return f'Form branding: {self.brand_id}'
 
 
 class Form(models.Model):
@@ -51,6 +111,15 @@ class Form(models.Model):
     code_length = models.PositiveSmallIntegerField(default=6)
     code_prefix = models.CharField(max_length=10, blank=True)
     code_label = models.CharField(max_length=100, default='Your code')
+
+    # Optional file unlocked on the thank-you page (lead magnet). Stored
+    # privately; the visitor gets a signed link that expires after
+    # download_hours.
+    download_file = models.FileField(
+        upload_to=download_upload_to, storage=private_form_storage, max_length=300, blank=True)
+    download_name = models.CharField(max_length=200, blank=True)    # filename the visitor gets
+    download_label = models.CharField(max_length=100, default='Download')
+    download_hours = models.PositiveIntegerField(default=72)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -113,6 +182,8 @@ class Submission(models.Model):
         'accounts.User', null=True, blank=True, on_delete=models.SET_NULL, related_name='form_submissions')
     code = models.CharField(max_length=30, blank=True)
     phone = models.CharField(max_length=15, blank=True, db_index=True)  # normalised, for the one-per-phone rule
+    download_count = models.PositiveIntegerField(default=0)
+    last_downloaded_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -123,3 +194,9 @@ class Submission(models.Model):
             models.UniqueConstraint(
                 fields=['form', 'code'], condition=~models.Q(code=''), name='uniq_form_submission_code'),
         ]
+
+
+@receiver(post_delete, sender=Form)
+def _drop_download_file(sender, instance, **kwargs):
+    if instance.download_file:
+        instance.download_file.delete(save=False)

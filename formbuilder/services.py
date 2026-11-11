@@ -1,22 +1,25 @@
 """Business logic for the form builder: validation, submissions, users, results."""
 import csv
 import io
+import os
 import re
 import secrets
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
+from django.core import signing
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import IntegrityError, transaction
-from django.db.models import DecimalField, Q
+from django.db.models import DecimalField, F, Q
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast
+from django.utils import timezone
 from django.utils.text import slugify
 
 from accounts.models import User
 from formbuilder import tokens
-from formbuilder.models import SLUG_RE, Form, FormField, Submission
+from formbuilder.models import HEX_COLOR_RE, SLUG_RE, Form, FormBranding, FormField, Submission
 
 CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'   # no 0/O/1/I
 MIN_CODE_LENGTH, MAX_CODE_LENGTH = 4, 12
@@ -397,3 +400,128 @@ def csv_rows(form, qs):
         row[1] = csv_safe(row[1])
         writer.writerow(row)
         yield flush()
+
+
+# ── success-page download (lead magnet) ─────────────────────────────────
+
+MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024        # nginx client_max_body_size is 20M
+MIN_DOWNLOAD_HOURS, MAX_DOWNLOAD_HOURS = 1, 24 * 90
+DOWNLOAD_EXTENSIONS = {
+    '.pdf', '.epub', '.zip', '.png', '.jpg', '.jpeg', '.webp', '.gif',
+    '.docx', '.xlsx', '.pptx', '.csv', '.txt', '.md', '.mp3', '.mp4',
+}
+INLINE_EXTENSIONS = {'.pdf', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.txt', '.mp4', '.mp3'}
+_DOWNLOAD_SALT = 'formbuilder-download-v1'
+
+
+def clean_download_hours(raw):
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        raise FormError('Link validity must be a number of hours.')
+    if not MIN_DOWNLOAD_HOURS <= n <= MAX_DOWNLOAD_HOURS:
+        raise FormError(f'Link validity must be between {MIN_DOWNLOAD_HOURS} and {MAX_DOWNLOAD_HOURS} hours.')
+    return n
+
+
+def set_download(form, upload):
+    """Attach `upload` (an UploadedFile) as the form's download, replacing any old one."""
+    if upload is None:
+        raise FormError('Choose a file to upload.')
+    name = os.path.basename(upload.name or '')[:200]
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in DOWNLOAD_EXTENSIONS:
+        raise FormError('Allowed files: ' + ', '.join(sorted(e[1:] for e in DOWNLOAD_EXTENSIONS)) + '.')
+    if upload.size > MAX_DOWNLOAD_BYTES:
+        raise FormError('File is larger than 20 MB.')
+    if upload.size == 0:
+        raise FormError('File is empty.')
+    old = form.download_file.name if form.download_file else ''
+    form.download_file.save(name, upload, save=False)
+    form.download_name = name
+    form.save(update_fields=['download_file', 'download_name', 'updated_at'])
+    if old and old != form.download_file.name:
+        form.download_file.storage.delete(old)
+
+
+def remove_download(form):
+    if form.download_file:
+        form.download_file.delete(save=False)
+    form.download_file = ''
+    form.download_name = ''
+    form.save(update_fields=['download_file', 'download_name', 'updated_at'])
+
+
+def download_token(form, submission):
+    return signing.dumps({'f': form.public_id, 's': submission.pk}, salt=_DOWNLOAD_SALT, compress=False)
+
+
+def read_download_token(form, token):
+    """Return the Submission the token was issued for, or None if it is
+    missing, tampered, expired, or belongs to another form."""
+    if not token or len(token) > 300:
+        return None
+    try:
+        data = signing.loads(token, salt=_DOWNLOAD_SALT, max_age=form.download_hours * 3600)
+    except signing.BadSignature:                 # includes SignatureExpired
+        return None
+    if not isinstance(data, dict) or data.get('f') != form.public_id:
+        return None
+    return Submission.objects.filter(pk=data.get('s'), form=form).first()
+
+
+def record_download(submission):
+    Submission.objects.filter(pk=submission.pk).update(
+        download_count=F('download_count') + 1, last_downloaded_at=timezone.now())
+
+
+def download_is_inline(form):
+    return os.path.splitext(form.download_name or form.download_file.name)[1].lower() in INLINE_EXTENSIONS
+
+
+# ── per-brand branding of the public pages ──────────────────────────────
+
+def clean_color(raw):
+    value = (raw or '').strip()
+    if value and not HEX_COLOR_RE.match(value):
+        raise FormError('Colours must look like #1A2B3C.')
+    return value.upper()
+
+
+def branding_for(brand_id):
+    return FormBranding.objects.filter(brand_id=brand_id).first()
+
+
+def theme_css(branding):
+    """CSS custom-property overrides for the public pages. Values are
+    validated hex colours, so they are safe to drop into a <style> block."""
+    if branding is None:
+        return ''
+    rules = []
+    p, a, bg = branding.primary_color, branding.accent_color, branding.background_color
+    if p:
+        rules.append(
+            f'.fx{{--leaf:{p};--leaf-deep:color-mix(in srgb,{p} 78%,#000);}}'
+            f'.fx .fx-submit:not(.fx-submit--ghost){{background:var(--leaf-deep);box-shadow:0 5px 0 color-mix(in srgb,{p} 55%,#000),'
+            f'0 14px 26px -12px color-mix(in srgb,{p} 60%,transparent);}}'
+            f'.fx .fx-submit:not(.fx-submit--ghost):hover{{background:color-mix(in srgb,{p} 68%,#000);}}'
+            f'.fx .fx-field.is-focus{{border-color:color-mix(in srgb,{p} 55%,transparent);'
+            f'box-shadow:0 0 0 4px color-mix(in srgb,{p} 14%,transparent);}}'
+            f'.fx input:focus,.fx select:focus,.fx textarea:focus{{box-shadow:0 0 0 3px color-mix(in srgb,{p} 22%,transparent);}}'
+            f'.fx .fx-submit--ghost:hover{{background:color-mix(in srgb,{p} 12%,transparent);}}'
+            f'.fx .fx-progress{{background:color-mix(in srgb,{p} 16%,transparent);}}'
+            f'.fx .fx-meta span{{background:color-mix(in srgb,{p} 14%,transparent);}}'
+            f'.fx .fx-wave{{color:color-mix(in srgb,{p} 45%,transparent);}}'
+            f'.fx .fx-stage--quiet::before{{background:radial-gradient(closest-side,color-mix(in srgb,{p} 18%,transparent),transparent);}}'
+            f'.fx .fx-hill--back{{fill:color-mix(in srgb,{p} 22%,#fff);}}'
+            f'.fx .fx-hill--mid{{fill:color-mix(in srgb,{p} 38%,#fff);}}'
+            f'.fx .fx-hill--front{{fill:color-mix(in srgb,{p} 55%,#fff);}}'
+        )
+    if a:
+        rules.append(f'.fx{{--chip:{a};}}'
+                     f'.fx .fx-progress-bar{{background:linear-gradient(90deg,var(--leaf),{a});}}'
+                     f'.fx .fx-sun{{background:radial-gradient(closest-side,color-mix(in srgb,{a} 42%,transparent),transparent);}}')
+    if bg:
+        rules.append(f'.fx{{--cream:{bg};background:{bg};}}'
+                     f'.fx .fx-scene{{background:linear-gradient(180deg,color-mix(in srgb,{bg} 70%,#fff) 0%,{bg} 62%);}}')
+    return ''.join(rules)

@@ -1,0 +1,20 @@
+{% extends 'formbuilder/_base_public.html' %}
+{% block title %}Link expired{% endblock %}
+{% block body_class %}fx-page-closed{% endblock %}
+{% block body %}
+<div class="fx-done">
+  <div class="fx-stage fx-stage--quiet">
+    {% if is_house %}
+    <vt-mascot emotion="sleepy" doze></vt-mascot>
+    {% else %}
+    <svg class="fx-closed-icon" viewBox="0 0 80 80" aria-hidden="true"><rect x="16" y="34" width="48" height="34" rx="8"/><path d="M27 34v-8a13 13 0 0 1 26 0v8" fill="none"/><circle cx="40" cy="50" r="4.5"/></svg>
+    {% endif %}
+  </div>
+  <h1 class="fx-title">This download link has expired</h1>
+  <p class="fx-desc">Fill in the form again to get a fresh link.</p>
+  {% if form.status == 'live' %}
+  <a class="fx-submit fx-submit--link" href="{% url 'form_public:public' form.public_id %}"><span class="fx-submit-label">Back to the form</span>
+    <svg class="fx-submit-arrow" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10h11M11 5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+  {% endif %}
+</div>
+{% endblock %}

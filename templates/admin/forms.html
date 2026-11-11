@@ -12,6 +12,9 @@
       <p>Build forms, share links or QR codes, and collect responses.</p>
     </div>
     <div class="page-header-actions">
+      <button class="btn btn-sm btn-outline-primary me-1" onclick="openBranding()">
+        <i class="fas fa-palette me-1"></i>Branding
+      </button>
       <button class="btn btn-sm btn-primary" onclick="openCreateForm()">
         <i class="fas fa-plus me-1"></i>New Form
       </button>
@@ -32,6 +35,42 @@
     </div>
   </div>
 
+</div>
+
+<div class="modal fade" id="brandingModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fas fa-palette me-2"></i>Form branding</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted" style="font-size:13px">Applies to every public form of the current brand. Leave a value empty to keep the default theme.</p>
+        <div class="row g-2 mb-3">
+          <div class="col-4"><label class="form-label">Primary</label>
+            <div class="input-group input-group-sm"><input type="color" class="form-control form-control-color" id="brPrimaryPick"><input class="form-control" id="brPrimary" placeholder="#447337" maxlength="7"></div></div>
+          <div class="col-4"><label class="form-label">Accent</label>
+            <div class="input-group input-group-sm"><input type="color" class="form-control form-control-color" id="brAccentPick"><input class="form-control" id="brAccent" placeholder="#E9C202" maxlength="7"></div></div>
+          <div class="col-4"><label class="form-label">Background</label>
+            <div class="input-group input-group-sm"><input type="color" class="form-control form-control-color" id="brBgPick"><input class="form-control" id="brBg" placeholder="#EDE8D6" maxlength="7"></div></div>
+        </div>
+        <div class="mb-3"><label class="form-label">Logo <span class="text-muted">(overrides the brand logo on forms)</span></label>
+          <div class="d-flex align-items-center gap-2 mb-2" id="brLogoCurrent" style="display:none!important">
+            <img id="brLogoImg" alt="" style="height:36px;width:auto">
+            <div class="form-check ms-2"><input class="form-check-input" type="checkbox" id="brRemoveLogo"><label class="form-check-label" for="brRemoveLogo">Remove</label></div>
+          </div>
+          <input type="file" class="form-control" id="brLogo" accept="image/png,image/jpeg,image/webp"></div>
+        <div class="mb-3"><label class="form-label">Footer text</label><input class="form-control" id="brFooter" maxlength="200" placeholder="Default: brand name"></div>
+        <div class="mb-1"><label class="form-label">Default download link validity (hours)</label>
+          <input type="number" min="1" max="2160" class="form-control" id="brHours">
+          <div class="form-text">Used for new forms. Each form can change it.</div></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="saveBranding()">Save</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="modal fade" id="createFormModal" tabindex="-1">

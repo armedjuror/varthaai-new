@@ -11,6 +11,7 @@ urlpatterns = [
     path('forms/<int:pk>/export.csv', v.export_csv, name='export_csv'),
     path('forms/<int:pk>/qr.pdf', v.qr_pdf, name='qr_pdf'),
     path('api/forms/', v.FormsAPI.as_view(), name='forms_api'),
+    path('api/forms/branding/', v.FormBrandingAPI.as_view(), name='branding_api'),
     path('api/forms/<int:pk>/', v.FormDetailAPI.as_view(), name='form_api'),
     path('api/forms/<int:pk>/links/', v.FormLinksAPI.as_view(), name='links_api'),
     path('api/forms/<int:pk>/results/', v.FormResultsAPI.as_view(), name='results_api'),

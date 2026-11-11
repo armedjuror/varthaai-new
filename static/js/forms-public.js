@@ -198,6 +198,22 @@
         try { document.execCommand('copy'); ok(); } catch (e) {} t.remove();
       }
     });
+
+    // "Copy the link" under the download button: Instagram's in-app browser
+    // sometimes swallows downloads, so let people take the link elsewhere.
+    var linkBtn = done.querySelector('.fx-linkbtn');
+    if (linkBtn) linkBtn.addEventListener('click', function () {
+      var url = linkBtn.getAttribute('data-copy');
+      function ok() {
+        linkBtn.textContent = 'Link copied';
+        setTimeout(function () { linkBtn.textContent = 'Copy the link'; }, 2000);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url).then(ok, function () {});
+      else {
+        var t = document.createElement('textarea'); t.value = url; document.body.appendChild(t); t.select();
+        try { document.execCommand('copy'); ok(); } catch (e) {} t.remove();
+      }
+    });
   }
 
   function init() { initForm(); initDone(); }
