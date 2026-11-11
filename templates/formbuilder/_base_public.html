@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="robots" content="noindex, nofollow">
-  <meta name="theme-color" content="#EDE8D6">
+  <meta name="theme-color" content="{{ theme_color|default:'#EDE8D6' }}">
   <title>{% block title %}{{ form.title }}{% endblock %} · {{ form.brand.name }}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="{% static 'css/forms-v2.css' %}">
   {% if is_house %}<script src="{% static 'js/mascot.js' %}" defer></script>{% endif %}
   <script src="{% static 'js/forms-public.js' %}" defer></script>
+  {% if theme_css %}<style>{{ theme_css }}</style>{% endif %}
 </head>
 {% comment %}
   Public form pages (form, thanks, closed). Varthaai's own forms (is_house) get
@@ -43,7 +44,7 @@
       {% block body %}{% endblock %}
     </div>
 
-    <p class="fx-foot">{% if is_house %}Made with love in Kerala · {% endif %}{{ form.brand.name }}</p>
+    <p class="fx-foot">{% if footer_text %}{{ footer_text }}{% else %}{% if is_house %}Made with love in Kerala · {% endif %}{{ form.brand.name }}{% endif %}</p>
   </main>
 </body>
 </html>

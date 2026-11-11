@@ -8,4 +8,5 @@ app_name = 'form_public'
 urlpatterns = [
     path('<str:public_id>/', v.public_form, name='public'),
     path('<str:public_id>/thanks/', v.thanks, name='thanks'),
+    path('<str:public_id>/download/', v.download, name='download'),
 ]

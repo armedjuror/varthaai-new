@@ -183,6 +183,49 @@ function fillSettings() {
   $('#setRedirect').val(d.success_redirect_url);
   $('#setShowCode').prop('checked', d.show_code); $('#codeOptions').toggle(d.show_code);
   $('#setCodeLength').val(d.code_length); $('#setCodePrefix').val(d.code_prefix); $('#setCodeLabel').val(d.code_label);
+  $('#setDownloadLabel').val(d.download_label); $('#setDownloadHours').val(d.download_hours);
+  fillDownload();
+}
+
+function fillDownload() {
+  var d = formData;
+  if (d.download_name) {
+    $('#downloadName').text(d.download_name);
+    $('#downloadSize').text(d.download_size ? '(' + (d.download_size / 1048576).toFixed(2) + ' MB)' : '');
+    $('#downloadCurrent').attr('style', '');
+    $('#downloadUploadLabel').text('Replace');
+  } else {
+    $('#downloadCurrent').attr('style', 'display:none!important');
+    $('#downloadUploadLabel').text('Upload');
+  }
+}
+
+function uploadDownload() {
+  var file = $('#downloadFile')[0].files[0];
+  if (!file) { showAlertModal('Choose a file first.', 'danger'); return; }
+  if (file.size > 20 * 1024 * 1024) { showAlertModal('File is larger than 20 MB.', 'danger'); return; }
+  var fd = new FormData();
+  fd.append('action', 'upload_download');
+  fd.append('file', file);
+  showLoader('Uploading…');
+  apiPostForm(API, fd).done(function (res) {
+    hideLoader();
+    if (!res.success) { showAlertModal(res.message, 'danger'); return; }
+    $('#downloadFile').val('');
+    $.extend(formData, res.data);
+    fillDownload();
+    showAlertModal('File uploaded. Respondents will see a download button on the thank-you page.', 'success');
+  }).fail(function (xhr) { hideLoader(); showAlertModal(apiErrorMessage(xhr, 'Upload failed.'), 'danger'); });
+}
+
+function removeDownload() {
+  confirmThen('Remove the download? Links already sent will stop working.', function () {
+    apiPost(API, { action: 'remove_download' }).done(function (res) {
+      if (!res.success) { showAlertModal(res.message, 'danger'); return; }
+      $.extend(formData, res.data);
+      fillDownload();
+    }).fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Failed to remove file.'), 'danger'); });
+  });
 }
 
 function saveSettings() {
@@ -195,7 +238,8 @@ function saveSettings() {
     success_title: $('#setSuccessTitle').val(), success_message: $('#setSuccessMessage').val(),
     success_redirect_url: $('#setRedirect').val(),
     show_code: $('#setShowCode').is(':checked'), code_length: $('#setCodeLength').val(),
-    code_prefix: $('#setCodePrefix').val(), code_label: $('#setCodeLabel').val()
+    code_prefix: $('#setCodePrefix').val(), code_label: $('#setCodeLabel').val(),
+    download_label: $('#setDownloadLabel').val(), download_hours: $('#setDownloadHours').val()
   }).done(function (res) {
     hideLoader();
     if (!res.success) { showAlertModal(res.message, 'danger'); return; }
@@ -325,7 +369,7 @@ function loadResults() {
     $('#resultsCount').text(d.total);
     $('#resultsHead').html('<tr><th>Submitted</th>' + (formData.show_code ? '<th>Code</th>' : '') +
       fields.map(function (f) { return '<th>' + escHtml(f.label) + (f.is_archived ? ' <small class="text-muted">(archived)</small>' : '') + '</th>'; }).join('') +
-      '<th>Customer</th></tr>');
+      (formData.download_name ? '<th>Downloads</th>' : '') + '<th>Customer</th></tr>');
     if (!d.rows.length) {
       $('#resultsBody').html('<tr><td colspan="' + (fields.length + 3) + '" class="text-center text-muted" style="padding:30px">No responses match.</td></tr>');
     } else {
@@ -333,6 +377,7 @@ function loadResults() {
         return '<tr><td style="white-space:nowrap">' + formatDateTime(r.created_at) + '</td>' +
           (formData.show_code ? '<td><code>' + escHtml(r.code) + '</code></td>' : '') +
           fields.map(function (f) { return '<td>' + cell(f, r.answers[f.slug]) + '</td>'; }).join('') +
+          (formData.download_name ? '<td>' + (r.download_count || 0) + '</td>' : '') +
           '<td>' + (r.user_id ? '<a href="/admin/customers/' + r.user_id + '/' + '">' + escHtml(r.user_name || 'View') + '</a>' : '—') + '</td></tr>';
       }).join(''));
     }

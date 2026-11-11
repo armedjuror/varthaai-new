@@ -9,8 +9,9 @@ import math
 from django.conf import settings
 from django.core.cache import cache
 from django.templatetags.static import static
-from django.http import Http404, HttpResponse
+from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils.html import linebreaks
 from django.utils.safestring import mark_safe
 from django.views.decorators.csrf import csrf_protect
@@ -32,7 +33,7 @@ def _client_ip(request):
 
 def _private(response):
     response['X-Robots-Tag'] = 'noindex, nofollow'
-    response['Referrer-Policy'] = 'no-referrer'
+    response['Referrer-Policy'] = 'same-origin'   # 'no-referrer' makes Chrome POST with Origin: null, which fails CSRF
     response['Cache-Control'] = 'private, no-store'
     return response
 
@@ -50,14 +51,23 @@ def _rate_limited(request):
 def _theme(form):
     """Look and feel for the public pages. Varthaai's own forms (the storefront
     brand) get the mascot and grove; any other brand gets a neutral version
-    with its own logo."""
+    with its own logo. Each brand's FormBranding (colours, logo, footer)
+    overrides the defaults."""
     is_house = form.brand_id == getattr(settings, 'STOREFRONT_BRAND_ID', None)
+    branding = services.branding_for(form.brand_id)
     logo = ''
-    if form.brand.logo:
+    if branding and branding.logo:
+        logo = branding.logo.url
+    elif form.brand.logo:
         logo = form.brand.logo.url
     elif is_house:
         logo = static('images/logo.png')
-    return {'is_house': is_house, 'brand_logo': logo}
+    return {
+        'is_house': is_house, 'brand_logo': logo,
+        'theme_css': mark_safe(services.theme_css(branding)),   # validated hex values only
+        'theme_color': (branding.background_color if branding and branding.background_color else '#EDE8D6'),
+        'footer_text': branding.footer_text if branding else '',
+    }
 
 
 def _rays(n=12):
@@ -116,9 +126,9 @@ def public_form(request, public_id):
         return _render_form(request, form, prefill, request.POST, errors, status=400)
 
     done = request.session.get(SESSION_KEY, {})
-    done[form.public_id] = {'code': submission.code}
+    done[form.public_id] = {'code': submission.code, 'sid': submission.pk}
     request.session[SESSION_KEY] = done
-    if form.success_redirect_url and not form.show_code:
+    if form.success_redirect_url and not form.show_code and not form.download_file:
         return redirect(form.success_redirect_url)
     return redirect('form_public:thanks', public_id=form.public_id)
 
@@ -128,10 +138,39 @@ def thanks(request, public_id):
     done = (request.session.get(SESSION_KEY) or {}).get(form.public_id)
     if done is None:                       # opened directly, not after submitting
         return redirect('form_public:public', public_id=form.public_id)
+    download_url = ''
+    submission = None
+    if form.download_file and done.get('sid'):
+        submission = form.submissions.filter(pk=done['sid']).first()
+    if submission is not None:
+        download_url = request.build_absolute_uri(
+            reverse('form_public:download', args=[form.public_id])
+            + f'?t={services.download_token(form, submission)}')
     return _private(render(request, 'formbuilder/thanks.html', {
         'form': form,
+        'download_url': download_url,
         'message_html': mark_safe(linebreaks(form.success_message, autoescape=True)),  # escaped first
         'code': done.get('code', '') if form.show_code else '',
         'rays': _rays(),
         **_theme(form),
     }))
+
+
+def download(request, public_id):
+    """Stream the form's file to someone who submitted it. The ?t= token is
+    signed, bound to this form and their submission, and expires after
+    form.download_hours, so the link can be reopened (e.g. in another
+    browser) but not shared forever."""
+    form = _get_form(public_id)
+    submission = services.read_download_token(form, request.GET.get('t'))
+    if submission is None or not form.download_file:
+        return _private(render(request, 'formbuilder/download_expired.html',
+                               {'form': form, **_theme(form)}, status=410))
+    try:
+        handle = form.download_file.open('rb')
+    except FileNotFoundError:
+        raise Http404
+    services.record_download(submission)
+    response = FileResponse(handle, as_attachment=not services.download_is_inline(form),
+                            filename=form.download_name or None)
+    return _private(response)

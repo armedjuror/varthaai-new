@@ -2,7 +2,14 @@
 
 var STATUS_BADGE = { draft: 'bg-warning', live: 'bg-success', closed: 'bg-danger' };
 
-$(function () { loadForms(); });
+$(function () {
+  loadForms();
+  // Keep each colour picker and its hex box in step.
+  [['#brPrimaryPick', '#brPrimary'], ['#brAccentPick', '#brAccent'], ['#brBgPick', '#brBg']].forEach(function (p) {
+    $(p[0]).on('input', function () { $(p[1]).val(this.value.toUpperCase()); });
+    $(p[1]).on('input', function () { if (/^#[0-9A-Fa-f]{6}$/.test(this.value)) $(p[0]).val(this.value); });
+  });
+});
 
 function loadForms() {
   apiGet('/admin/api/forms/')
@@ -59,4 +66,43 @@ function deleteForm(id, responses) {
       })
       .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Failed to delete.'), 'danger'); });
   });
+}
+
+/* ── per-brand branding of public form pages ── */
+
+var BRANDING_API = '/admin/api/forms/branding/';
+
+function openBranding() {
+  apiGet(BRANDING_API).done(function (res) {
+    if (!res.success) { showAlertModal(res.message, 'danger'); return; }
+    var b = res.data;
+    [['#brPrimary', '#brPrimaryPick', b.primary_color, '#447337'], ['#brAccent', '#brAccentPick', b.accent_color, '#E9C202'],
+     ['#brBg', '#brBgPick', b.background_color, '#EDE8D6']].forEach(function (x) {
+      $(x[0]).val(x[2]); $(x[1]).val(x[2] || x[3]);
+    });
+    $('#brFooter').val(b.footer_text); $('#brHours').val(b.default_download_hours);
+    $('#brLogo').val(''); $('#brRemoveLogo').prop('checked', false);
+    if (b.logo_url) { $('#brLogoImg').attr('src', b.logo_url); $('#brLogoCurrent').attr('style', ''); }
+    else $('#brLogoCurrent').attr('style', 'display:none!important');
+    new bootstrap.Modal('#brandingModal').show();
+  }).fail(function (xhr) { showAlertModal(apiErrorMessage(xhr, 'Failed to load branding.'), 'danger'); });
+}
+
+function saveBranding() {
+  var fd = new FormData();
+  fd.append('primary_color', $('#brPrimary').val().trim());
+  fd.append('accent_color', $('#brAccent').val().trim());
+  fd.append('background_color', $('#brBg').val().trim());
+  fd.append('footer_text', $('#brFooter').val());
+  fd.append('default_download_hours', $('#brHours').val());
+  var logo = $('#brLogo')[0].files[0];
+  if (logo) fd.append('logo', logo);
+  else if ($('#brRemoveLogo').is(':checked')) fd.append('remove_logo', '1');
+  showLoader('Saving…');
+  apiPostForm(BRANDING_API, fd).done(function (res) {
+    hideLoader();
+    if (!res.success) { showAlertModal(res.message, 'danger'); return; }
+    bootstrap.Modal.getInstance('#brandingModal').hide();
+    showAlertModal('Branding saved. It applies to all of this brand\'s forms.', 'success');
+  }).fail(function (xhr) { hideLoader(); showAlertModal(apiErrorMessage(xhr, 'Failed to save branding.'), 'danger'); });
 }

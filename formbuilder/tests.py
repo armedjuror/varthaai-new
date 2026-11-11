@@ -5,6 +5,7 @@ import json
 from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
+from django.utils import timezone
 
 from accounts.models import AdminUser, User
 from core.api import BRAND_SESSION_KEY
@@ -454,3 +455,171 @@ class QRTests(Base):
     def test_qr_without_key_field_is_a_400(self):
         r = self.client.get(f'/admin/forms/{self.form.id}/qr.pdf')
         assert r.status_code in (400, 503)
+
+
+# ── download on success + per-brand branding ────────────────────────────
+
+import shutil
+import tempfile
+from datetime import timedelta
+from unittest import mock
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
+
+from formbuilder.models import FormBranding
+
+_PRIVATE = tempfile.mkdtemp(prefix='fb-private-')
+_MEDIA = tempfile.mkdtemp(prefix='fb-media-')
+
+
+@override_settings(PRIVATE_MEDIA_ROOT=_PRIVATE, MEDIA_ROOT=_MEDIA)
+class DownloadTests(Base):
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        shutil.rmtree(_PRIVATE, ignore_errors=True)
+        shutil.rmtree(_MEDIA, ignore_errors=True)
+
+    def setUp(self):
+        super().setUp()
+        self.form = make_form(self.brand, title='Free guide')
+        add(self.form, 'Your name', role=FormField.ROLE_NAME, required=True)
+        add(self.form, 'Phone', FormField.PHONE, role=FormField.ROLE_PHONE, required=True)
+        services.set_download(self.form, SimpleUploadedFile('guide.pdf', b'%PDF-1.4 hello'))
+
+    def submit(self):
+        return self.client.post(f'/f/{self.form.public_id}/', {'your_name': 'Asha', 'phone': '9876543210'})
+
+    def thanks_download_url(self):
+        r = self.client.get(f'/f/{self.form.public_id}/thanks/')
+        assert r.status_code == 200
+        url = r.context['download_url']
+        assert url
+        return url.split('testserver', 1)[1]
+
+    def test_file_is_private_and_unlocks_after_submit(self):
+        assert self.form.download_file.name.startswith('form_downloads/')
+        assert self.form.download_file.path.startswith(_PRIVATE)
+        r = self.submit()
+        assert r.status_code == 302
+        url = self.thanks_download_url()
+        r = self.client.get(url)
+        assert r.status_code == 200
+        assert b''.join(r.streaming_content) == b'%PDF-1.4 hello'
+        assert 'inline' in r['Content-Disposition'] and 'guide.pdf' in r['Content-Disposition']
+        assert r['Cache-Control'] == 'private, no-store'
+        sub = self.form.submissions.get()
+        assert sub.download_count == 1 and sub.last_downloaded_at
+
+    def test_no_link_without_submitting(self):
+        r = self.client.get(f'/f/{self.form.public_id}/download/')
+        assert r.status_code == 410
+        r = self.client.get(f'/f/{self.form.public_id}/download/?t=garbage')
+        assert r.status_code == 410
+
+    def test_link_works_in_another_browser_until_it_expires(self):
+        self.submit()
+        url = self.thanks_download_url()
+        self.client.logout()                 # fresh session, like opening it in Chrome
+        assert self.client.get(url).status_code == 200
+        later = timezone.now() + timedelta(hours=self.form.download_hours, minutes=1)
+        with mock.patch('django.core.signing.time.time', return_value=later.timestamp()):
+            assert self.client.get(url).status_code == 410
+
+    def test_token_bound_to_form(self):
+        self.submit()
+        url = self.thanks_download_url()
+        other = make_form(self.brand, title='Other')
+        services.set_download(other, SimpleUploadedFile('x.pdf', b'x'))
+        token = url.split('?t=')[1]
+        assert self.client.get(f'/f/{other.public_id}/download/?t={token}').status_code == 410
+
+    def test_honeypot_gets_no_download(self):
+        self.client.post(f'/f/{self.form.public_id}/', {'your_name': 'Bot', 'phone': '9876543210', 'website': 'x'})
+        r = self.client.get(f'/f/{self.form.public_id}/thanks/')
+        assert r.status_code == 302              # no session entry, back to the form
+        assert not self.form.submissions.exists()
+
+    def test_redirect_url_does_not_skip_the_download(self):
+        self.form.success_redirect_url = 'https://example.com/'
+        self.form.save()
+        r = self.submit()
+        assert r['Location'].endswith('/thanks/')
+
+    def test_non_pdf_is_an_attachment(self):
+        services.set_download(self.form, SimpleUploadedFile('pack.zip', b'PK..'))
+        self.submit()
+        r = self.client.get(self.thanks_download_url())
+        assert r['Content-Disposition'].startswith('attachment')
+
+    def test_upload_rules_and_replace_removes_old_file(self):
+        import os
+        old_path = self.form.download_file.path
+        with self.assertRaises(FormError):
+            services.set_download(self.form, SimpleUploadedFile('evil.exe', b'MZ'))
+        with self.assertRaises(FormError):
+            services.set_download(self.form, SimpleUploadedFile('empty.pdf', b''))
+        services.set_download(self.form, SimpleUploadedFile('v2.pdf', b'%PDF v2'))
+        assert not os.path.exists(old_path)
+        assert self.form.download_name == 'v2.pdf'
+
+    def test_deleting_form_deletes_file(self):
+        import os
+        path = self.form.download_file.path
+        self.form.delete()
+        assert not os.path.exists(path)
+
+    def test_admin_upload_settings_and_remove(self):
+        self.login()
+        api = reverse('formbuilder:form_api', args=[self.form.pk])
+        r = self.client.post(api, {'action': 'upload_download',
+                                   'file': SimpleUploadedFile('menu.pdf', b'%PDF menu')})
+        assert r.json()['success'], r.json()
+        assert r.json()['data']['download_name'] == 'menu.pdf'
+        r = self.post_json(api, {'action': 'update_settings', 'download_label': 'Get the menu', 'download_hours': 5})
+        assert r.json()['success']
+        self.form.refresh_from_db()
+        assert (self.form.download_label, self.form.download_hours) == ('Get the menu', 5)
+        r = self.post_json(api, {'action': 'update_settings', 'download_hours': 0})
+        assert not r.json()['success']
+        r = self.post_json(api, {'action': 'remove_download'})
+        assert r.json()['success'] and r.json()['data']['download_name'] == ''
+
+    def test_admin_cannot_touch_other_brands_form(self):
+        self.login()
+        foreign = make_form(self.other_brand)
+        r = self.client.post(reverse('formbuilder:form_api', args=[foreign.pk]),
+                             {'action': 'upload_download', 'file': SimpleUploadedFile('a.pdf', b'x')})
+        assert r.status_code == 404
+
+
+@override_settings(MEDIA_ROOT=_MEDIA)
+class BrandingTests(Base):
+    def test_branding_is_per_brand_and_themes_public_pages(self):
+        self.login()
+        r = self.client.post(reverse('formbuilder:branding_api'), {
+            'primary_color': '#1a2b3c', 'accent_color': '#FF6600', 'background_color': '',
+            'footer_text': 'Byte After Eight', 'default_download_hours': '48'})
+        assert r.json()['success'], r.json()
+        b = FormBranding.objects.get(brand=self.brand)
+        assert b.primary_color == '#1A2B3C' and b.default_download_hours == 48
+
+        form = make_form(self.brand)
+        html = self.client.get(f'/f/{form.public_id}/').content.decode()
+        assert '--leaf:#1A2B3C' in html and '--chip:#FF6600' in html and 'Byte After Eight' in html
+
+        other = make_form(self.other_brand)
+        html = self.client.get(f'/f/{other.public_id}/').content.decode()
+        assert '--leaf:#1A2B3C' not in html
+
+    def test_bad_colour_rejected(self):
+        self.login()
+        r = self.client.post(reverse('formbuilder:branding_api'), {'primary_color': 'red;}</style><script>'})
+        assert not r.json()['success']
+
+    def test_new_form_takes_brand_default_hours(self):
+        FormBranding.objects.create(brand=self.brand, default_download_hours=12)
+        self.login()
+        r = self.post_json(reverse('formbuilder:forms_api'), {'action': 'create', 'title': 'Guide'})
+        assert Form.objects.get(pk=r.json()['data']['id']).download_hours == 12
