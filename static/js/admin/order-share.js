@@ -27,13 +27,14 @@ var OrderShare = (function () {
       .fail(function (xhr) { showAlertModal(apiErrorMessage(xhr), 'danger'); });
   }
 
-  function copy(text) {
+  function copy(text, what) {
+    var done = (what || 'Link') + ' copied.';
     if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text).then(function () { showAlertModal('Link copied.', 'success'); });
+      navigator.clipboard.writeText(text).then(function () { showAlertModal(done, 'success'); });
     } else {
       var ta = document.createElement('textarea');
       ta.value = text; document.body.appendChild(ta); ta.select();
-      try { document.execCommand('copy'); showAlertModal('Link copied.', 'success'); } catch (e) { window.prompt('Copy the link:', text); }
+      try { document.execCommand('copy'); showAlertModal(done, 'success'); } catch (e) { window.prompt('Copy the link:', text); }
       document.body.removeChild(ta);
     }
   }
@@ -50,6 +51,9 @@ var OrderShare = (function () {
         ? '<button class="btn btn-sm btn-outline-secondary os-copy"><i class="fas fa-link me-1"></i>Copy link</button>' +
           '<button class="btn btn-sm btn-outline-secondary os-regen" title="Revokes the old link"><i class="fas fa-rotate me-1"></i>New link</button>'
         : '<button class="btn btn-sm btn-outline-secondary os-create"><i class="fas fa-link me-1"></i>Create link</button>') +
+      (share.pay_link
+        ? '<button class="btn btn-sm btn-outline-primary os-paycopy" title="Page with only the amount due and a Pay button"><i class="fas fa-indian-rupee-sign me-1"></i>Copy pay link (' + formatCurrency(share.amount_due) + ')</button>'
+        : '') +
       '</div>';
     if (disabled) html += '<div style="font-size:0.75rem;color:#b45309;margin-top:6px">' + reason + '</div>';
     if (share.link) {
@@ -69,6 +73,7 @@ var OrderShare = (function () {
       sendWhatsApp(kind, orderId, msgKind, function () { linkAction(kind, orderId, 'share_link', refresh); });
     });
     $el.find('.os-copy').on('click', function () { copy(share.link); });
+    $el.find('.os-paycopy').on('click', function () { copy(share.pay_link, 'Pay link'); });
     $el.find('.os-create').on('click', function () { linkAction(kind, orderId, 'share_link', refresh); });
     $el.find('.os-regen').on('click', function () {
       confirmThen('Create a new link? The old link stops working.', function () {

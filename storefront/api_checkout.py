@@ -1,6 +1,7 @@
 """
 Storefront checkout (ported from PHP api/place_order.php, verify_payment.php,
-razorpay_webhook.php).
+razorpay_webhook.php), plus Cashfree as a switchable alternative gateway
+(see storefront.payments).
 
 Storefront orders do NOT deduct FIFO stock — deduction happens later at
 ship/deliver via the admin, matching the PHP behaviour and the spec.
@@ -30,7 +31,7 @@ from orders.models import Coupon, Order, OrderItem
 from orders.views_b2c import _sync_loyalty, _validate_coupon
 from products.models import Flavor
 
-from storefront import services
+from storefront import payments, services
 from storefront.api_base import StorefrontAPIView
 
 log = logging.getLogger(__name__)
@@ -80,7 +81,7 @@ GIFT_NOTE_MAX = 300  # keep in sync with the textarea maxlength on the checkout 
 
 
 class PlaceOrderAPI(StorefrontAPIView):
-    """POST checkout -> creates the order + Razorpay order."""
+    """POST checkout -> creates the order + the gateway order (Razorpay or Cashfree)."""
 
     def post(self, request):
         body = request.data if isinstance(request.data, dict) else {}
@@ -169,6 +170,8 @@ class PlaceOrderAPI(StorefrontAPIView):
             referral_user = User.objects.filter(brand_id=brand.id, referral_code=referral_code).first()
 
         order_id = services.generate_order_id(brand)
+        gateway = payments.active_gateway()
+        cf_order = None
         try:
             with transaction.atomic():
                 order = Order.objects.create(
@@ -178,7 +181,7 @@ class PlaceOrderAPI(StorefrontAPIView):
                     coupon_discount=coupon_discount, delivery_charge=delivery_charge,
                     status='pending', payment_status='pending', shipping_state_code=state_code,
                     billing_gstin=billing_gstin, billing_legal_name=billing_legal_name,
-                    gift_note=gift_note,
+                    gift_note=gift_note, payment_gateway=gateway,
                 )
                 OrderItem.objects.bulk_create([
                     OrderItem(
@@ -192,25 +195,43 @@ class PlaceOrderAPI(StorefrontAPIView):
                 if order.price_mode == 'exclusive':
                     # GST on top: the customer pays goods + GST (exact paise).
                     final_amount = float(billing.b2c_order_total(order))
-                rzp = _razorpay_client().order.create({
-                    'receipt': order_id,
-                    'amount': int(round(final_amount * 100)),
-                    'currency': 'INR',
-                    'notes': {'order_id': order_id, 'customer_name': name, 'customer_mobile': clean},
-                })
-                order.razorpay_order_id = rzp['id']
-                order.save(update_fields=['razorpay_order_id'])
+                if gateway == payments.CASHFREE:
+                    site = settings.SITE_URL.rstrip('/')
+                    cf_order = payments.cashfree_create_order(
+                        order_id, final_amount,
+                        customer_id=f'cust{user.id}', phone=clean, name=name,
+                        note=f'Varthaai order {order_id}',
+                        return_url=f'{site}/?cf_order_id={order_id}',
+                        notify_url=f'{site}/api/cashfree-webhook/',
+                    )
+                else:
+                    rzp = _razorpay_client().order.create({
+                        'receipt': order_id,
+                        'amount': int(round(final_amount * 100)),
+                        'currency': 'INR',
+                        'notes': {'order_id': order_id, 'customer_name': name, 'customer_mobile': clean},
+                    })
+                    order.razorpay_order_id = rzp['id']
+                    order.save(update_fields=['razorpay_order_id'])
         except Exception as e:  # noqa: BLE001 — mirror PHP: any gateway error rolls back
             log.warning('place_order failed for %s: %s', order_id, e)
             return Response({'success': False, 'message': f'Payment gateway error: {e}'})
 
         order.refresh_from_db()
+        extra = {}
+        if cf_order:
+            extra = {
+                'payment_session_id': cf_order['payment_session_id'],
+                'cashfree_mode': payments.cashfree_mode(),
+            }
         return Response({
             'success': True,
+            'gateway': gateway,
+            **extra,
             'order_id': order_id,
             'razorpay_order_id': order.razorpay_order_id,
             'amount': final_amount,
-            'key_id': settings.RAZORPAY_KEY_ID,
+            'key_id': settings.RAZORPAY_KEY_ID if gateway == payments.RAZORPAY else '',
             'customer_name': name,
             'customer_email': '',
             'customer_mobile': clean,
@@ -335,3 +356,107 @@ class RazorpayWebhookAPI(StorefrontAPIView):
         Order.objects.filter(
             razorpay_order_id=rzp_order_id, status__in=PRE_PAYMENT_STATUSES,
         ).exclude(payment_status='paid').update(payment_status='failed', status='cancelled')
+
+
+# ── Cashfree ─────────────────────────────────────────────────────────────
+
+def _confirm_cashfree_payment(order_id, cf_payment_id):
+    """Mark a Cashfree order paid exactly once, whichever of the browser
+    verify call and the webhook gets here first. Returns (order, newly_paid)."""
+    with transaction.atomic():
+        order = (Order.objects.select_for_update()
+                 .filter(id=order_id, payment_gateway=payments.CASHFREE).first())
+        if order is None:
+            return None, False
+        if order.payment_status in ('paid', 'refund_initiated', 'refunded'):
+            return order, False
+        order.payment_status = 'paid'
+        if order.status in PRE_PAYMENT_STATUSES:
+            order.status = 'confirmed'
+        order.cashfree_payment_id = str(cf_payment_id or '')
+        order.payment_date = timezone.now()
+        order.save(update_fields=['payment_status', 'status', 'cashfree_payment_id', 'payment_date'])
+        sync_b2c_order_income(order)
+
+        details = _order_details(order)
+        points = services.calculate_purchase_points(details['saleTotal'])
+        services.add_points(order.user_id, points, 'purchase', order.id)
+        _sync_loyalty(order.id, 'paid')
+        if order.referral_id:
+            services.add_points(order.referral_id, settings.REFERRAL_POINTS, 'referral', order.id)
+    services.notify_new_order(order, order.items.all())
+    return order, True
+
+
+class CashfreeVerifyAPI(StorefrontAPIView):
+    """POST { order_id } after the Cashfree checkout closes -> ask Cashfree
+    (server to server) whether the order is paid, then confirm it. Nothing
+    from the browser is trusted beyond the order id."""
+
+    def post(self, request):
+        body = request.data if isinstance(request.data, dict) else {}
+        order_id = (body.get('order_id') or '').strip()
+        if not order_id:
+            return Response({'success': False, 'message': 'Missing payment data'})
+        order = Order.objects.filter(id=order_id, payment_gateway=payments.CASHFREE).first()
+        if not order:
+            return Response({'success': False, 'message': 'Order not found'})
+
+        if order.payment_status != 'paid':
+            try:
+                cf_order = payments.cashfree_get_order(order_id)
+                if cf_order.get('order_status') != 'PAID':
+                    return Response({'success': False, 'status': cf_order.get('order_status') or '',
+                                     'message': 'Payment not completed'})
+                payment = payments.cashfree_successful_payment(order_id) or {}
+            except payments.CashfreeError as e:
+                return Response({'success': False, 'message': f'Payment verification error: {e}'})
+            order, _ = _confirm_cashfree_payment(order_id, payment.get('cf_payment_id'))
+
+        points = services.calculate_purchase_points(_order_details(order)['saleTotal'])
+        return Response({
+            'success': True, 'message': 'Payment verified successfully',
+            'order_id': order.id, 'payment_id': order.cashfree_payment_id, 'points_earned': points,
+        })
+
+
+class CashfreeWebhookAPI(StorefrontAPIView):
+    """POST Cashfree webhook (checkout payments, order-link / pay-page
+    payments, refunds), HMAC-verified."""
+
+    def post(self, request):
+        raw = request.body
+        if not payments.cashfree_verify_webhook(
+            raw, request.META.get('HTTP_X_WEBHOOK_TIMESTAMP', ''),
+            request.META.get('HTTP_X_WEBHOOK_SIGNATURE', ''),
+        ):
+            return Response({'error': 'Invalid signature'}, status=400)
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            return Response({'error': 'Invalid JSON'}, status=400)
+
+        event = data.get('type') or ''
+        payload = data.get('data') or {}
+        order_id = (payload.get('order') or {}).get('order_id')
+        payment = payload.get('payment') or {}
+
+        if event == 'PAYMENT_SUCCESS_WEBHOOK' and payment.get('payment_status') == 'SUCCESS':
+            # Order-link / pay-page payments (B2B + B2C balances) first, then storefront checkout.
+            if links.complete_cashfree_payment(order_id, payment.get('cf_payment_id')) is None:
+                _confirm_cashfree_payment(order_id, payment.get('cf_payment_id'))
+        elif event == 'PAYMENT_FAILED_WEBHOOK':
+            # Same rule as Razorpay: only pre-payment orders, never a paid one.
+            Order.objects.filter(
+                id=order_id, payment_gateway=payments.CASHFREE, status__in=PRE_PAYMENT_STATUSES,
+            ).exclude(payment_status='paid').update(payment_status='failed', status='cancelled')
+        elif event == 'REFUND_STATUS_WEBHOOK':
+            refund = payload.get('refund') or {}
+            status = refund.get('refund_status')
+            if status in payments.CASHFREE_REFUND_DONE + payments.CASHFREE_REFUND_FAILED:
+                refunds.on_cashfree_refund_event(refund.get('refund_id'),
+                                                 status in payments.CASHFREE_REFUND_DONE)
+        else:
+            log.info('Unhandled Cashfree webhook event: %s', event)
+
+        return Response({'status': 'success'})

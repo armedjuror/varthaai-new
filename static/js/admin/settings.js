@@ -84,6 +84,20 @@ $(function () {
       .always(hideLoader);
   });
 
+  /* ── Payments form ── */
+  $('#paymentsForm').on('submit', function (e) {
+    e.preventDefault();
+    var data = { payment_gateway: $('#payment_gateway').val() };
+    showLoader('Saving…');
+    apiPost('/admin/api/settings/', { action: 'update_settings', data: data })
+      .done(function (res) {
+        showAlertModal(res.message, res.success ? 'success' : 'danger');
+        if (res.success) loadSettings();
+      })
+      .fail(function ()    { showAlertModal('Request failed.', 'danger'); })
+      .always(hideLoader);
+  });
+
   /* ── Crunch sound upload ── */
   $('#uploadCrunchAudioBtn').on('click', function () {
     var file = $('#crunch_audio_file')[0].files[0];
@@ -213,11 +227,29 @@ function loadSettings() {
         PERM_KEYS = {};
         res.permission_modules.forEach(function (p) { PERM_KEYS[p.key] = p.label; });
       }
+      if (res.payment_gateways) { renderPaymentGateways(res.payment_gateways); }
       if (res.brands) { _allBrands = res.brands; renderBrandPermsUI('create'); renderBrandPermsUI('edit'); }
       if (res.admins) { _allAdmins = res.admins; renderAdminsTable(_allAdmins); }
     })
     .fail(function () { showAlertModal('Failed to load settings.', 'danger'); })
     .always(hideLoader);
+}
+
+function renderPaymentGateways(p) {
+  $('#payment_gateway').val(p.selected);
+  var labels = {};
+  var rows = p.gateways.map(function (g) {
+    labels[g.key] = g.label;
+    var keys = g.configured
+      ? '<span class="badge bg-success">Configured</span>'
+      : '<span class="badge bg-secondary">Not configured</span>';
+    if (g.key === 'cashfree' && g.configured) keys += ' <span class="badge bg-light text-dark">' + escHtml(p.cashfree_env) + '</span>';
+    return '<tr><td>' + escHtml(g.label) + '</td><td>' + keys + '</td><td><code>' + escHtml(p.webhooks[g.key] || '') + '</code></td></tr>';
+  });
+  $('#paymentGatewaysTable').html(rows.join(''));
+  $('#paymentGatewayActive').text(labels[p.active] || p.active);
+  $('#paymentGatewayFallback').text(p.active !== p.selected
+    ? labels[p.selected] + ' has no API keys, so checkout is using ' + labels[p.active] + '.' : '');
 }
 
 function populateSettings(s) {

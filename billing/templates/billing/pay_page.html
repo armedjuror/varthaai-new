@@ -1,0 +1,64 @@
+{% load static billing_tags %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Pay{% if brand %} {{ brand.name }}{% endif %} — Order {{ order.pk }}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; color: #333; background: #f4f6f9; min-height: 100vh;
+         display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .pay-card { background: #fff; width: 100%; max-width: 420px; border-radius: 14px;
+              box-shadow: 0 4px 24px rgba(17, 24, 39, 0.08); padding: 32px 24px; text-align: center; }
+  .logo { max-width: 130px; margin-bottom: 18px; }
+  .to { color: #666; font-size: 0.95rem; }
+  .order { color: #666; font-size: 0.85rem; margin-top: 4px; }
+  .label { margin-top: 26px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.6px; color: #888; }
+  .amount { font-size: 2.6rem; font-weight: 700; color: #111827; margin: 4px 0 6px; }
+  .due-date { font-size: 0.85rem; color: #b45309; }
+  .pay-btn { margin-top: 26px; width: 100%; background: #85aa4e; color: #fff; border: none; padding: 15px;
+             border-radius: 30px; font-size: 1.1rem; font-weight: 700; cursor: pointer; }
+  .pay-btn:disabled { opacity: .6; cursor: default; }
+  .pay-msg { margin-top: 12px; font-size: 0.9rem; min-height: 1.2em; }
+  .paid { margin-top: 26px; color: #16a34a; font-size: 1.3rem; font-weight: 700; }
+  .note { margin-top: 18px; font-size: 0.85rem; color: #666; }
+  .secure { margin-top: 18px; font-size: 0.75rem; color: #9ca3af; }
+  .bill { display: inline-block; margin-top: 18px; color: #4b6b23; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<div class="pay-card">
+  {% if brand and brand.logo %}
+    <img class="logo" src="{{ brand.logo.url }}" alt="{{ brand.name }}">
+  {% else %}
+    <img class="logo" src="{% static 'images/logo.png' %}" alt="{{ brand.name|default:'' }}">
+  {% endif %}
+  <div class="to">{{ customer_name }}</div>
+  <div class="order">Order {{ order.pk }}</div>
+
+  {% if due > 0 %}
+    <div class="label">Amount due</div>
+    <div class="amount" id="payAmount">₹{{ due|inr }}</div>
+    {% if due_date %}<div class="due-date">Due on {{ due_date|date:"d M Y" }}</div>{% endif %}
+    {% if can_pay %}
+      <button class="pay-btn" id="payBtn">Pay ₹{{ due|inr }}</button>
+      <div class="pay-msg" id="payMsg"></div>
+      <div class="secure">Secure payment via {% if gateway == 'cashfree' %}Cashfree{% else %}Razorpay{% endif %} · UPI, cards, netbanking</div>
+    {% else %}
+      <div class="note">Online payment is not available right now.
+        {% if settings_map.business_phone %}Please contact us on {{ settings_map.business_phone }}.{% endif %}</div>
+    {% endif %}
+  {% else %}
+    <div class="paid">✓ Nothing due</div>
+    <div class="note">{% if paid %}₹{{ paid|inr }} received. {% endif %}Thank you{% if brand %} for choosing {{ brand.name }}{% endif %}!</div>
+  {% endif %}
+
+  <a class="bill" href="/o/{{ link.token }}/">View bill &amp; invoice</a>
+</div>
+{% if can_pay %}
+{% include 'billing/_pay_script.html' %}
+{% endif %}
+</body>
+</html>

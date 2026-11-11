@@ -432,16 +432,22 @@ class ShareLink(OrderRefMixin):
 
 
 class PaymentAttempt(OrderRefMixin):
+    """One online payment of an order's balance from our own order / pay
+    page: a Razorpay order, or a Cashfree order paid in Cashfree's popup
+    (whichever gateway is active). Settling is idempotent per attempt."""
     class Status(models.TextChoices):
         CREATED = 'created', 'Created'
         PAID = 'paid', 'Paid'
         FAILED = 'failed', 'Failed'
 
     share_link = models.ForeignKey(ShareLink, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
-    razorpay_order_id = models.CharField(max_length=100, unique=True)
+    gateway = models.CharField(max_length=20, default='razorpay')
+    razorpay_order_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.CREATED)
     razorpay_payment_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    cashfree_order_id = models.CharField(max_length=50, unique=True, null=True, blank=True)
+    cashfree_payment_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     paid_at = models.DateTimeField(null=True, blank=True)
 
@@ -471,9 +477,11 @@ class MessageLog(OrderRefMixin):
 
 
 class Refund(models.Model):
-    """Money returned to a B2C customer (Razorpay refund or manual)."""
+    """Money returned to a customer: a B2C refund (gateway or manual), or a
+    B2B refund sent back through Cashfree on an online payment."""
     class Method(models.TextChoices):
         RAZORPAY = 'razorpay', 'Razorpay (original payment)'
+        CASHFREE = 'cashfree', 'Cashfree (original payment)'
         MANUAL = 'manual', 'Manual (cash / UPI / bank)'
 
     class Status(models.TextChoices):
@@ -481,13 +489,24 @@ class Refund(models.Model):
         PROCESSED = 'processed', 'Processed'
         FAILED = 'failed', 'Failed'
 
-    order = models.ForeignKey('orders.Order', on_delete=models.CASCADE, related_name='refunds')
+    # B2C refunds hang off `order`; B2B Cashfree refunds off `b2b_order`, with
+    # the payment they go back on and the B2BPayment row that booked them.
+    order = models.ForeignKey('orders.Order', on_delete=models.CASCADE, related_name='refunds',
+                              null=True, blank=True)
+    b2b_order = models.ForeignKey('orders.B2BOrder', on_delete=models.SET_NULL, related_name='gateway_refunds',
+                                  null=True, blank=True)
+    payment_attempt = models.ForeignKey('billing.PaymentAttempt', on_delete=models.SET_NULL, related_name='refunds',
+                                        null=True, blank=True)
+    b2b_payment = models.ForeignKey('orders.B2BPayment', on_delete=models.SET_NULL, related_name='+',
+                                    null=True, blank=True)
     credit_note = models.ForeignKey('billing.CreditNote', on_delete=models.PROTECT, null=True, blank=True,
                                     related_name='refunds')
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     method = models.CharField(max_length=10, choices=Method.choices)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.INITIATED)
     razorpay_refund_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    # Our refund_id sent to Cashfree (Cashfree echoes it back in webhooks).
+    cashfree_refund_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
     reference = models.CharField(max_length=100, blank=True)
     notes = models.TextField(blank=True)
     created_by = models.ForeignKey(

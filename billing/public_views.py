@@ -20,6 +20,7 @@ from billing.pdf import pdf_guard
 from billing import services as billing
 from billing.models import CreditNote
 from billing.tax import ZERO, q2
+from storefront import payments
 
 RATE_LIMIT = 120          # requests …
 RATE_WINDOW = 10 * 60     # … per IP per 10 minutes
@@ -128,6 +129,8 @@ def _context(request, link, for_pdf=False):
         'total': total, 'paid': paid, 'due': due,
         'due_date': getattr(order, 'due_date', None),
         'can_pay': due > 0 and links.payments_enabled() and not for_pdf,
+        'gateway': links.active_gateway(),
+        'cashfree_mode': payments.cashfree_mode(),
         'razorpay_key': settings.RAZORPAY_KEY_ID,
         'for_pdf': for_pdf,
         'docs_locked': not docs_ok,
@@ -141,6 +144,7 @@ def _context(request, link, for_pdf=False):
 @public_link
 def order_page(request, link):
     links.record_view(link)
+    links.sync_recent_cashfree(link.order)  # customer may be back from paying
     return render(request, 'billing/share_page.html', _context(request, link))
 
 
@@ -183,19 +187,33 @@ def credit_note_pdf(request, link, pk):
     return response
 
 
-@require_POST
+@ensure_csrf_cookie
 @public_link
 def pay_start(request, link):
+    """GET: our pay page — the amount due (not editable) and a Pay button.
+    POST: start the payment through the active gateway."""
+    if request.method == 'GET':
+        links.record_view(link)
+        links.sync_recent_cashfree(link.order)
+        return render(request, 'billing/pay_page.html', _context(request, link))
+    if request.method != 'POST':
+        return HttpResponse(status=405)
     try:
         attempt = links.start_payment(link)
     except billing.BillingError as exc:
         return JsonResponse({'success': False, 'message': str(exc)})
     except Exception:  # noqa: BLE001 — gateway errors must not leak details
         return JsonResponse({'success': False, 'message': 'Payment gateway error. Please try again.'})
+    if attempt.gateway == 'cashfree':
+        return JsonResponse({
+            'success': True, 'gateway': 'cashfree', 'payment_session_id': attempt.payment_session_id,
+            'cashfree_order_id': attempt.cashfree_order_id, 'mode': payments.cashfree_mode(),
+        })
     from core.models import Brand
 
     brand = Brand.objects.filter(id=attempt.order.brand_id).values_list('name', flat=True).first() or ''
     return JsonResponse({
+        'gateway': 'razorpay',
         'success': True, 'key_id': settings.RAZORPAY_KEY_ID, 'razorpay_order_id': attempt.razorpay_order_id,
         'amount': int(attempt.amount * 100), 'currency': 'INR', 'name': brand,
         'description': f'Order {attempt.order_id}',
@@ -211,11 +229,21 @@ def pay_verify(request, link):
         body = json.loads(request.body or '{}')
     except ValueError:
         body = {}
+    flt = {'b2c_order_id': link.b2c_order_id} if link.b2c_order_id else {'b2b_order_id': link.b2b_order_id}
+    from billing.models import PaymentAttempt
+
+    cf_order = body.get('cashfree_order_id') or ''
+    if cf_order:
+        # Only the id comes from the browser; the status comes from Cashfree.
+        attempt = PaymentAttempt.objects.filter(cashfree_order_id=cf_order, **flt).first()
+        if attempt is None:
+            return JsonResponse({'success': False, 'message': 'Payment not found.'})
+        if not links.verify_cashfree_attempt(attempt):
+            return JsonResponse({'success': False, 'message': 'Payment not completed.'})
+        return JsonResponse({'success': True, 'message': 'Payment received. Thank you!'})
     rzp_order = body.get('razorpay_order_id') or ''
     payment_id = body.get('razorpay_payment_id') or ''
     signature = body.get('razorpay_signature') or ''
-    flt = {'b2c_order_id': link.b2c_order_id} if link.b2c_order_id else {'b2b_order_id': link.b2b_order_id}
-    from billing.models import PaymentAttempt
 
     if not PaymentAttempt.objects.filter(razorpay_order_id=rzp_order, **flt).exists():
         return JsonResponse({'success': False, 'message': 'Payment not found.'})

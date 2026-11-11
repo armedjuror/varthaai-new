@@ -453,7 +453,11 @@ function placeOrder(recaptchaToken) {
         success: function(response) {
             if (response.success) {
                 $('#deliveryModal').modal('hide');
-                initiateRazorpayPayment(response);
+                if (response.gateway === 'cashfree') {
+                    initiateCashfreePayment(response);
+                } else {
+                    initiateRazorpayPayment(response);
+                }
             } else {
                 $('#loader').fadeOut()
                 showAlertModal('Error: ' + response.message, 'error');
@@ -559,7 +563,87 @@ async function handlePaymentCancellation(orderId) {
   }
 }
 
-async function handlePaymentFailure(response, orderData) {
+// ── Cashfree checkout (popup) ──
+// The order is confirmed server-side: the browser only tells us the popup
+// closed, and /api/verify-cashfree-payment/ asks Cashfree whether it was paid.
+function initiateCashfreePayment(orderData) {
+  if (typeof Cashfree === 'undefined') {
+    $('#loader').fadeOut();
+    showAlertModal('Could not load the payment window. Please check your connection and try again.', 'error');
+    return;
+  }
+  const cashfree = Cashfree({ mode: orderData.cashfree_mode || 'production' });
+  $('#loader').fadeOut();
+  cashfree.checkout({
+    paymentSessionId: orderData.payment_session_id,
+    redirectTarget: '_modal'
+  }).then(function(result) {
+    if (result.redirect) {
+      // In-app browsers: Cashfree redirects to our return URL after payment.
+      return;
+    }
+    // Closed popup (result.error) or finished attempt (result.paymentDetails):
+    // either way, check the real status with our server.
+    verifyCashfreePayment(orderData, !!result.paymentDetails);
+  });
+}
+
+function verifyCashfreePayment(orderData, attempted) {
+  $('#loader').fadeIn();
+  $.ajax({
+    url: '/api/verify-cashfree-payment/',
+    type: 'POST',
+    data: { order_id: orderData.order_id },
+    dataType: 'json',
+    success: function(response) {
+      $('#loader').fadeOut();
+      if (response.success) {
+        showPaymentSuccessModal(response, orderData);
+        resetOrderForms();
+      } else if (attempted) {
+        handlePaymentFailure({ error: { description: response.message } }, orderData, initiateCashfreePayment);
+      } else {
+        handlePaymentCancellation(orderData.order_id);
+      }
+    },
+    error: function() {
+      $('#loader').fadeOut();
+      showAlertModal('Error verifying payment. Please contact support with your order ID: ' + orderData.order_id, 'error');
+    }
+  });
+}
+
+// Back from a Cashfree redirect (return_url = /?cf_order_id=<order id>).
+function handleCashfreeReturn() {
+  var params = new URLSearchParams(window.location.search);
+  var orderId = params.get('cf_order_id');
+  if (!orderId) return;
+  params.delete('cf_order_id');
+  var qs = params.toString();
+  window.history.replaceState({}, '', window.location.pathname + (qs ? '?' + qs : '') + window.location.hash);
+  $('#loader').fadeIn();
+  $.ajax({
+    url: '/api/verify-cashfree-payment/',
+    type: 'POST',
+    data: { order_id: orderId },
+    dataType: 'json',
+    success: function(response) {
+      $('#loader').fadeOut();
+      if (response.success) {
+        showPaymentSuccessModal(response, { order_id: orderId });
+        try { resetOrderForms(); } catch (e) { /* no order form on this page */ }
+      } else {
+        showAlertModal('Payment for order ' + orderId + ' was not completed. ' + (response.message || ''), 'error');
+      }
+    },
+    error: function() {
+      $('#loader').fadeOut();
+      showAlertModal('Error verifying payment. Please contact support with your order ID: ' + orderId, 'error');
+    }
+  });
+}
+
+async function handlePaymentFailure(response, orderData, retryPayment) {
   console.error('Payment failed:', response.error);
 
   let errorMessage = 'Payment failed. ';
@@ -576,7 +660,7 @@ async function handlePaymentFailure(response, orderData) {
   try {
     const confirmRetry = await confirm('Would you like to retry the payment?');
     if (confirmRetry) {
-      initiateRazorpayPayment(orderData);
+      (retryPayment || initiateRazorpayPayment)(orderData);
     } else {
       cancelOrder(orderData.order_id);
     }
@@ -588,6 +672,7 @@ async function handlePaymentFailure(response, orderData) {
 
 function pushPurchaseEvent(orderData) {
   if (typeof window.dataLayer === 'undefined') return;
+  if (orderData.amount === undefined) return; // back from a redirect: value unknown here
   var details = orderData.order_details || {};
   var items = (details.items || []).map(function (it) {
     return { item_id: it.flavor_id, item_name: it.flavor_name, quantity: it.quantity, price: it.salePrice };
@@ -610,8 +695,8 @@ function showPaymentSuccessModal(verificationResponse, orderData) {
   $('#success-order-id').text(verificationResponse.order_id);
 
   // Update payment ID (truncated for display)
-  const paymentId = verificationResponse.payment_id;
-  const truncatedPaymentId = paymentId.substring(0, 20) + '...';
+  const paymentId = verificationResponse.payment_id || '';
+  const truncatedPaymentId = paymentId.length > 20 ? paymentId.substring(0, 20) + '...' : paymentId;
   $('#success-payment-id').text(truncatedPaymentId).attr('title', paymentId);
 
   // Update points earned
@@ -1207,6 +1292,8 @@ function initializeRecaptcha() {
 }
 
 // Try to initialize if reCAPTCHA is already loaded
+$(document).ready(handleCashfreeReturn);
+
 $(document).ready(function() {
     // Check if reCAPTCHA is already loaded
     if (typeof grecaptcha !== 'undefined' && grecaptcha.render) {

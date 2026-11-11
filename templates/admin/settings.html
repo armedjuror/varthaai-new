@@ -33,6 +33,9 @@
           <button class="nav-link text-start" data-bs-toggle="pill" data-bs-target="#tabTracking" type="button">
             <i class="fas fa-chart-line me-2"></i>Tracking
           </button>
+          <button class="nav-link text-start" data-bs-toggle="pill" data-bs-target="#tabPayments" type="button">
+            <i class="fas fa-credit-card me-2"></i>Payments
+          </button>
           <a class="nav-link text-start" href="{% url 'billing:gst_settings' %}">
             <i class="fas fa-file-invoice me-2"></i>GST &amp; Invoicing
           </a>
@@ -313,6 +316,52 @@
               <div class="mt-4">
                 <button type="submit" class="btn btn-primary btn-sm">
                   <i class="fas fa-save me-1"></i>Save Tracking Settings
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <!-- Payments -->
+        <div class="tab-pane fade" id="tabPayments" role="tabpanel">
+          <div class="data-card">
+            <div class="data-card-header">
+              <h3><i class="fas fa-credit-card me-2" style="color:var(--primary-color)"></i>Payment Gateway</h3>
+            </div>
+            <form id="paymentsForm" style="padding:20px">
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label">Storefront checkout gateway</label>
+                  <select class="form-select" id="payment_gateway">
+                    <option value="razorpay">Razorpay</option>
+                    <option value="cashfree">Cashfree</option>
+                  </select>
+                  <div class="form-text">
+                    New website orders are paid through this gateway. Orders already placed keep the
+                    gateway they were paid with for verification, webhooks and refunds.
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Currently in use</label>
+                  <div id="paymentGatewayActive" style="font-weight:600">—</div>
+                  <div class="form-text" id="paymentGatewayFallback"></div>
+                </div>
+              </div>
+              <div class="table-responsive mt-4">
+                <table class="table mb-0">
+                  <thead><tr><th>Gateway</th><th>API keys</th><th>Webhook URL</th></tr></thead>
+                  <tbody id="paymentGatewaysTable"><tr><td colspan="3" class="text-muted">Loading…</td></tr></tbody>
+                </table>
+              </div>
+              <div class="mt-3" style="font-size:0.85rem;color:var(--gray-500)">
+                API keys live in the server <code>.env</code> (<code>RAZORPAY_KEY_ID</code> / <code>RAZORPAY_KEY_SECRET</code>,
+                <code>CASHFREE_APP_ID</code> / <code>CASHFREE_SECRET_KEY</code> / <code>CASHFREE_ENV</code>).
+                If the selected gateway has no keys, checkout falls back to the other one.
+                Add the webhook URL in each gateway's dashboard (Cashfree: payment success, failed and refund events).
+              </div>
+              <div class="mt-4">
+                <button type="submit" class="btn btn-primary btn-sm">
+                  <i class="fas fa-save me-1"></i>Save Payment Settings
                 </button>
               </div>
             </form>
