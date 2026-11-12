@@ -52,10 +52,14 @@ var OrderShare = (function () {
           '<button class="btn btn-sm btn-outline-secondary os-regen" title="Revokes the old link"><i class="fas fa-rotate me-1"></i>New link</button>'
         : '<button class="btn btn-sm btn-outline-secondary os-create"><i class="fas fa-link me-1"></i>Create link</button>') +
       (share.pay_link
-        ? '<button class="btn btn-sm btn-outline-primary os-paycopy" title="Page with only the amount due and a Pay button"><i class="fas fa-indian-rupee-sign me-1"></i>Copy pay link (' + formatCurrency(share.amount_due) + ')</button>'
+        ? '<button class="btn btn-sm btn-outline-primary os-paycopy" title="Page with only the amount due and a Pay button"><i class="fas fa-indian-rupee-sign me-1"></i>Copy pay link (' + formatCurrency(share.amount_due) + ')</button>' +
+          '<a class="btn btn-sm btn-primary" href="' + escHtml(share.pay_link) + '" target="_blank" rel="noopener" title="Open the pay page in a new tab to take the payment now"><i class="fas fa-credit-card me-1"></i>Pay ' + formatCurrency(share.amount_due) + '</a>'
         : '') +
       '</div>';
     if (disabled) html += '<div style="font-size:0.75rem;color:#b45309;margin-top:6px">' + reason + '</div>';
+    if (share.pay_link_disabled_reason) {
+      html += '<div style="font-size:0.75rem;color:var(--gray-400);margin-top:6px"><i class="fas fa-circle-info me-1"></i>' + escHtml(share.pay_link_disabled_reason) + '</div>';
+    }
     if (share.link) {
       html += '<div style="font-size:0.75rem;color:var(--gray-400);margin-top:6px;word-break:break-all">' + escHtml(share.link) +
         ' · viewed ' + share.view_count + 'x' + (share.last_viewed_at ? ', last ' + formatDateTime(share.last_viewed_at) : '') + '</div>';

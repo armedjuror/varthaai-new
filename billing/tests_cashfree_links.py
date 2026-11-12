@@ -16,6 +16,7 @@ from urllib.parse import unquote
 from django.test import override_settings
 
 from billing import links
+from billing import services as billing
 from billing.models import PaymentAttempt
 from billing.tests_phase2 import RZP, FakeRazorpay, Phase2Base, patch_rzp
 from core.models import Setting
@@ -64,6 +65,7 @@ class PayPageTests(Phase2Base):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.order = self.b2b()
+        billing.ensure_invoice(self.order)   # the pay link needs the GST invoice
 
     def remind(self):
         return self.client.post('/admin/api/b2b-orders/', {'action': 'whatsapp', 'order_id': self.order.id,
@@ -96,7 +98,10 @@ class PayPageTests(Phase2Base):
         self.assertContains(res, '₹1,050.00')
         self.assertContains(res, 'id="payBtn"')
         self.assertContains(res, 'sdk.cashfree.com/js/v3/cashfree.js')
-        self.assertNotContains(res, '<input')            # nothing to edit
+        # Full balance by default; B2B can open the (hidden) part-payment box.
+        self.assertContains(res, 'data-full="1050.00"')
+        self.assertContains(res, 'id="partBox"')
+        self.assertContains(res, 'class="part-box hidden"')
         self.assertNotContains(res, 'MG Road')
         self.assertEqual(res['X-Robots-Tag'], 'noindex, nofollow')
 
@@ -135,7 +140,7 @@ class PayPageTests(Phase2Base):
 
     def test_verify_refuses_other_orders_attempts(self):
         link = links.get_or_create_link(self.order, self.admin)
-        other = links.get_or_create_link(self.b2b(oid='VOB_p2'), self.admin)
+        other = links.get_or_create_link(self.b2b(oid='VOB_p2', invoiced=True), self.admin)
         cf_id = self.start(other.token)['cashfree_order_id']
         v = self.client.post(f'/o/{link.token}/pay/verify/', {'cashfree_order_id': cf_id},
                              content_type='application/json').json()
@@ -204,6 +209,7 @@ class B2BCashfreeRefundTests(Phase2Base):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.order = self.b2b()
+        billing.ensure_invoice(self.order)   # the pay link needs the GST invoice
         type(self.order).objects.filter(pk=self.order.pk).update(stock_deducted=True)   # returns need it
         self.order.refresh_from_db()
 
@@ -292,13 +298,19 @@ class B2BCashfreeRefundTests(Phase2Base):
         self.order.refresh_from_db()
         self.assertEqual(self.order.paid_amount, D('1050.00'))
 
-    def test_return_refund_through_cashfree(self):
+    def _return_two(self):
+        item = self.order.items.get()
+        res = self.api({'action': 'return_items', 'order_id': self.order.id,
+                        'items': [{'item_id': item.id, 'quantity': 2, 'restock': False}]})
+        self.assertTrue(res['success'], res)
+        return res['data']['return_id']
+
+    def test_credit_note_refund_through_cashfree(self):
         from orders.models import B2BReturn
 
         self.pay_online()
-        item = self.order.items.get()
-        res = self.api({'action': 'return_items', 'order_id': self.order.id, 'refund_method': 'cashfree',
-                        'items': [{'item_id': item.id, 'quantity': 2, 'restock': False}]})
+        return_id = self._return_two()   # invoiced order: money waits for the credit note
+        res = self.api({'action': 'generate_credit_note', 'return_id': return_id, 'refund_method': 'cashfree'})
         self.assertTrue(res['success'], res)
         ret = B2BReturn.objects.get()
         self.assertGreater(ret.refund_amount, 0)
@@ -307,15 +319,130 @@ class B2BCashfreeRefundTests(Phase2Base):
         self.assertEqual(self.order.paid_amount, D('1050.00') - ret.refund_amount)
         self.assertEqual(B2BPayment.objects.filter(payment_type='refund').count(), 1)
 
-    def test_return_refund_through_cashfree_refused_for_cash_paid_order(self):
+    def test_credit_note_refund_through_cashfree_refused_for_cash_paid_order(self):
         from orders.models import B2BReturn
 
         links.apply_b2b_payment(self.order, D('1050'), method='cash', user=self.admin)
-        item = self.order.items.get()
-        res = self.api({'action': 'return_items', 'order_id': self.order.id, 'refund_method': 'cashfree',
-                        'items': [{'item_id': item.id, 'quantity': 2, 'restock': False}]})
+        return_id = self._return_two()
+        res = self.api({'action': 'generate_credit_note', 'return_id': return_id, 'refund_method': 'cashfree'})
         self.assertFalse(res['success'])
         self.assertIn('paid through Cashfree', res['message'])
-        self.assertFalse(B2BReturn.objects.exists())   # nothing half-done
-        item.refresh_from_db()
-        self.assertEqual(item.returned_quantity, 0)
+        self.assertTrue(B2BReturn.objects.get().credit_note_pending)   # credit note not issued either
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.paid_amount, D('1050.00'))
+
+
+@override_settings(**CF)
+class B2BPartialPaymentTests(Phase2Base):
+    """B2B customers can pay part of the balance from the pay page."""
+
+    def setUp(self):
+        super().setUp()
+        Setting.objects.update_or_create(setting_key='payment_gateway', defaults={'setting_value': 'cashfree'})
+        self.fake = FakeCashfree()
+        patcher = mock.patch('storefront.payments._cashfree', self.fake)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.order = self.b2b()
+        billing.ensure_invoice(self.order)   # the pay link needs the GST invoice
+        self.link = links.get_or_create_link(self.order, self.admin)
+        self.client.logout()
+
+    def start(self, data=None, link=None):
+        token = (link or self.link).token
+        return self.client.post(f'/o/{token}/pay/', data=json.dumps(data or {}),
+                                content_type='application/json').json()
+
+    def test_part_payment_collects_the_chosen_amount(self):
+        res = self.start({'amount': 400})
+        self.assertTrue(res['success'], res)
+        self.assertEqual(self.fake.orders[0]['order_amount'], 400.0)
+        self.fake.status = 'PAID'
+        self.client.post(f'/o/{self.link.token}/pay/verify/', {'cashfree_order_id': res['cashfree_order_id']},
+                         content_type='application/json')
+        self.order.refresh_from_db()
+        self.assertEqual((self.order.paid_amount, self.order.payment_status), (D('400.00'), 'partial'))
+        # The page and the next reminder now ask for the rest.
+        self.assertContains(self.client.get(f'/o/{self.link.token}/pay/'), '₹650.00')
+        self.assertEqual(links.amount_due(self.order), D('650.00'))
+
+    def test_two_part_payments_settle_the_order(self):
+        for amount in (300, 750):
+            cf_id = self.start({'amount': amount})['cashfree_order_id']
+            links.complete_cashfree_payment(cf_id, f'p{amount}')
+        self.order.refresh_from_db()
+        self.assertEqual((self.order.paid_amount, self.order.payment_status), (D('1050.00'), 'paid'))
+        self.assertEqual(B2BPayment.objects.filter(payment_type='payment').count(), 2)
+
+    def test_amount_limits(self):
+        for bad, message in ((2000, 'at most ₹1,050.00'), (0.5, 'minimum'), ('abc', 'valid amount'), (-5, 'minimum')):
+            res = self.start({'amount': bad})
+            self.assertFalse(res['success'], bad)
+            self.assertIn(message, res['message'])
+        self.assertEqual(self.fake.orders, [])
+        self.assertTrue(self.start({'amount': '1050'})['success'])   # the full balance is fine too
+
+    def test_no_amount_means_full_balance(self):
+        self.start()
+        self.assertEqual(self.fake.orders[0]['order_amount'], 1050.0)
+
+    def test_b2c_must_pay_in_full(self):
+        order = self.b2c(oid='VO_full1', invoiced=True)
+        link = links.get_or_create_link(order, self.admin)
+        page = self.client.get(f'/o/{link.token}/pay/')
+        self.assertNotContains(page, 'id="partBox"')
+        self.assertNotContains(page, '<input')
+        res = self.start({'amount': 100}, link=link)
+        self.assertFalse(res['success'])
+        self.assertIn('paid in full', res['message'])
+
+    @override_settings(**RZP)
+    def test_razorpay_part_payment(self):
+        Setting.objects.filter(setting_key='payment_gateway').update(setting_value='razorpay')
+        fake = FakeRazorpay()
+        with patch_rzp(fake):
+            res = self.start({'amount': 250.5})
+        self.assertTrue(res['success'], res)
+        self.assertEqual(res['amount'], 25050)
+
+
+
+@override_settings(**CF)
+class PayLinkNeedsInvoiceTests(Phase2Base):
+    """No GST invoice yet: no pay link anywhere and no online payment."""
+
+    def setUp(self):
+        super().setUp()
+        Setting.objects.update_or_create(setting_key='payment_gateway', defaults={'setting_value': 'cashfree'})
+        self.fake = FakeCashfree()
+        patcher = mock.patch('storefront.payments._cashfree', self.fake)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.order = self.b2b()   # confirmed, not invoiced
+
+    def test_no_pay_link_before_invoice(self):
+        data = self.client.post('/admin/api/b2b-orders/', {'action': 'whatsapp', 'order_id': self.order.id,
+                                'kind': 'reminder'}, content_type='application/json').json()['data']
+        self.assertIsNone(data['pay_link'])
+        self.assertNotIn('/pay/', data['message'])
+        share = self.client.post('/admin/api/b2b-orders/', {'action': 'share_link', 'order_id': self.order.id},
+                                 content_type='application/json').json()['data']
+        self.assertIsNone(share['pay_link'])
+        self.assertIn('GST tax invoice', share['pay_link_disabled_reason'])
+
+        link = links.live_link(self.order)
+        self.client.logout()
+        page = self.client.get(f'/o/{link.token}/pay/')
+        self.assertNotContains(page, 'id="payBtn"')
+        self.assertContains(page, 'once the tax invoice')
+        self.assertNotContains(self.client.get(f'/o/{link.token}/'), 'id="payBtn"')
+        res = self.client.post(f'/o/{link.token}/pay/', data='{}', content_type='application/json').json()
+        self.assertFalse(res['success'])
+        self.assertEqual(self.fake.orders, [])
+
+    def test_pay_link_appears_once_invoiced(self):
+        billing.ensure_invoice(self.order)
+        share = self.client.post('/admin/api/b2b-orders/', {'action': 'share_link', 'order_id': self.order.id},
+                                 content_type='application/json').json()['data']
+        self.assertTrue(share['pay_link'].endswith('/pay/'))
+        self.assertIsNone(share['pay_link_disabled_reason'])

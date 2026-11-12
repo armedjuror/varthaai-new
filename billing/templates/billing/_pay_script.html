@@ -22,6 +22,31 @@
     }).then(function (r) { return r.json(); });
   }
   function say(text, ok) { msg.textContent = text; msg.style.color = ok ? '#16a34a' : '#dc2626'; }
+
+  // B2B pay page: optionally pay part of the balance.
+  var partBox = document.getElementById('partBox');
+  var part = document.getElementById('payPart');
+  var inr = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function partMode() { return partBox && !partBox.classList.contains('hidden'); }
+  function chosenAmount() {
+    if (!partMode()) return null;
+    var v = parseFloat(part.value);
+    return isNaN(v) ? NaN : Math.round(v * 100) / 100;
+  }
+  function refreshLabel() {
+    var a = partMode() ? chosenAmount() : parseFloat(btn.dataset.full);
+    btn.textContent = (a > 0) ? 'Pay ₹' + inr.format(a) : 'Pay';
+  }
+  if (partBox) {
+    document.getElementById('partToggle').addEventListener('click', function () {
+      partBox.classList.toggle('hidden');
+      this.textContent = partMode() ? 'Pay the full amount instead' : 'Pay part of this amount';
+      if (!partMode()) part.value = btn.dataset.full;
+      else part.focus();
+      refreshLabel(); say('', true);
+    });
+    part.addEventListener('input', refreshLabel);
+  }
   function confirmPaid(data, quietIfUnpaid) {
     say('Confirming payment…', true);
     return post(base + 'pay/verify/', data).then(function (v) {
@@ -51,8 +76,15 @@
     rzp.open();
   }
   btn.addEventListener('click', function () {
+    var amount = chosenAmount();
+    if (amount !== null) {
+      var min = parseFloat(part.min), max = parseFloat(part.max);
+      if (!(amount >= min && amount <= max)) {
+        say('Enter an amount between ₹' + inr.format(min) + ' and ₹' + inr.format(max) + '.', false); return;
+      }
+    }
     btn.disabled = true; say('Opening payment…', true);
-    post(base + 'pay/').then(function (res) {
+    post(base + 'pay/', amount !== null ? { amount: amount } : {}).then(function (res) {
       if (!res.success) { say(res.message, false); btn.disabled = false; return; }
       if (res.gateway === 'cashfree') payCashfree(res); else payRazorpay(res);
     }).catch(function () { say('Something went wrong. Please try again.', false); btn.disabled = false; });

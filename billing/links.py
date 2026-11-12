@@ -177,25 +177,64 @@ def payments_enabled():
     return payments.is_configured(active_gateway())
 
 
+NO_INVOICE_REASON = 'The pay link is available once the GST tax invoice is generated.'
+
+
+def pay_link_allowed(order):
+    """Online payment from the order link / pay page is offered only for
+    orders whose GST tax invoice has been generated."""
+    return billing.active_invoice(order) is not None
+
+
 def pay_url(link, request=None):
     """Our own pay page for the link's order (amount due only, Pay button)."""
     return link_url(link, request) + 'pay/'
 
 
-def start_payment(link):
-    """Create the online payment for the current balance through the active
-    gateway: a Razorpay order, or a Cashfree order (the returned attempt
-    then carries `payment_session_id` for the popup)."""
+MIN_PART_PAYMENT = Decimal('1.00')   # Cashfree's minimum order amount
+
+
+def partial_payments_allowed(order):
+    """B2B customers may pay part of the balance online; B2C pays in full."""
+    return kind_of(order) == 'b2b'
+
+
+def _pay_amount(order, requested=None):
+    """What this payment collects: the balance due, or — for B2B — a part of
+    it the customer chose. Raises BillingError for anything else."""
+    due = amount_due(order)
+    if due <= 0:
+        raise billing.BillingError('Nothing is due on this order.')
+    if requested in (None, ''):
+        return due
+    if not partial_payments_allowed(order):
+        raise billing.BillingError('This order must be paid in full.')
+    try:
+        amount = q2(Decimal(str(requested)))
+    except (ArithmeticError, ValueError):
+        raise billing.BillingError('Enter a valid amount.') from None
+    if amount < MIN_PART_PAYMENT:
+        raise billing.BillingError(f'The minimum online payment is ₹{MIN_PART_PAYMENT:,.2f}.')
+    if amount > due:
+        raise billing.BillingError(f'You can pay at most ₹{due:,.2f}, the balance due.')
+    return amount
+
+
+def start_payment(link, amount=None):
+    """Create the online payment through the active gateway — for the whole
+    balance, or (B2B) the part `amount` the customer chose: a Razorpay order,
+    or a Cashfree order (the attempt then carries `payment_session_id` for
+    the popup)."""
     if not payments_enabled():
         raise billing.BillingError('Online payment is not available right now.')
+    if not pay_link_allowed(link.order):
+        raise billing.BillingError('Online payment is not available for this order yet.')
     if active_gateway() == 'cashfree':
-        return _start_cashfree(link)
+        return _start_cashfree(link, amount)
     order = link.order
     with transaction.atomic():
         order = type(order).objects.select_for_update().get(pk=order.pk)
-        due = amount_due(order)
-        if due <= 0:
-            raise billing.BillingError('Nothing is due on this order.')
+        due = _pay_amount(order, amount)
         rzp = _razorpay_client().order.create({
             'amount': int(due * 100), 'currency': 'INR', 'receipt': str(order.pk)[:40],
             'notes': {'order_id': str(order.pk), 'source': 'share_link'},
@@ -219,15 +258,13 @@ def _cashfree_customer(order):
     return f'b2b{order.company_id}', number[2:], (contact.name if contact else order.company.company_name)
 
 
-def _start_cashfree(link):
+def _start_cashfree(link, amount=None):
     from storefront import payments
 
     order = link.order
     with transaction.atomic():
         order = type(order).objects.select_for_update().get(pk=order.pk)
-        due = amount_due(order)
-        if due <= 0:
-            raise billing.BillingError('Nothing is due on this order.')
+        due = _pay_amount(order, amount)
         customer_id, phone, name = _cashfree_customer(order)
         cf_order_id = 'VP' + secrets.token_hex(12)
         site = getattr(settings, 'SITE_URL', 'https://varthaai.com').rstrip('/')
@@ -499,7 +536,8 @@ def prepare_whatsapp(order, kind, user, request=None):
         raise billing.BillingError(reason)
     link = get_or_create_link(order, user)
     pay = None
-    if kind == MessageLog.Kind.REMINDER and payments_enabled() and amount_due(order) > 0:
+    if (kind == MessageLog.Kind.REMINDER and payments_enabled() and amount_due(order) > 0
+            and pay_link_allowed(order)):
         pay = pay_url(link, request)
     text = build_message(order, kind, link_url(link, request), pay)
     label = MessageLog.Kind(kind).label
@@ -529,7 +567,8 @@ def share_payload(order, request=None):
     link = live_link(order)
     number, reason = whatsapp_recipient(order)
     messages = MessageLog.objects.filter(**_ref(order)).select_related('created_by')[:20]
-    can_pay = bool(link) and payments_enabled() and amount_due(order) > 0
+    invoiced = pay_link_allowed(order)
+    can_pay = bool(link) and payments_enabled() and amount_due(order) > 0 and invoiced
     return {
         'link': link_url(link, request) if link else None,
         'view_count': link.view_count if link else 0,
@@ -538,6 +577,8 @@ def share_payload(order, request=None):
         'whatsapp_disabled_reason': reason,
         'amount_due': float(amount_due(order)),
         'pay_link': pay_url(link, request) if can_pay else None,
+        'pay_link_disabled_reason': (NO_INVOICE_REASON if not invoiced and payments_enabled()
+                                     and amount_due(order) > 0 else None),
         'messages': [{
             'kind': m.kind, 'label': m.get_kind_display(), 'recipient': m.recipient,
             'by': m.created_by.name if m.created_by else '', 'at': m.created_at.isoformat(),
