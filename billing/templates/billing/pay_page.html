@@ -26,6 +26,15 @@
   .note { margin-top: 18px; font-size: 0.85rem; color: #666; }
   .secure { margin-top: 18px; font-size: 0.75rem; color: #9ca3af; }
   .bill { display: inline-block; margin-top: 18px; color: #4b6b23; font-size: 0.9rem; }
+  .part-toggle { display: inline-block; margin-top: 14px; color: #4b6b23; font-size: 0.9rem; cursor: pointer;
+                 background: none; border: none; text-decoration: underline; }
+  .part-box { margin-top: 14px; text-align: left; }
+  .part-box label { display: block; font-size: 0.8rem; color: #666; margin-bottom: 4px; }
+  .part-input { display: flex; align-items: center; border: 1px solid #d1d5db; border-radius: 10px; padding: 0 12px; }
+  .part-input span { font-size: 1.2rem; color: #666; }
+  .part-input input { flex: 1; border: none; outline: none; font-size: 1.2rem; padding: 10px 6px; width: 100%; }
+  .part-hint { font-size: 0.75rem; color: #888; margin-top: 4px; }
+  .hidden { display: none; }
 </style>
 </head>
 <body>
@@ -43,7 +52,17 @@
     <div class="amount" id="payAmount">₹{{ due|inr }}</div>
     {% if due_date %}<div class="due-date">Due on {{ due_date|date:"d M Y" }}</div>{% endif %}
     {% if can_pay %}
-      <button class="pay-btn" id="payBtn">Pay ₹{{ due|inr }}</button>
+      {% if can_pay_part %}
+      <button type="button" class="part-toggle" id="partToggle">Pay part of this amount</button>
+      <div class="part-box hidden" id="partBox">
+        <label for="payPart">Amount to pay now</label>
+        <div class="part-input"><span>₹</span>
+          <input type="number" id="payPart" inputmode="decimal" step="0.01" min="{{ min_part|stringformat:".2f" }}" max="{{ due|stringformat:".2f" }}" value="{{ due|stringformat:".2f" }}">
+        </div>
+        <div class="part-hint">Between ₹{{ min_part|inr }} and ₹{{ due|inr }}. The rest stays due.</div>
+      </div>
+      {% endif %}
+      <button class="pay-btn" id="payBtn" data-full="{{ due|stringformat:".2f" }}">Pay ₹{{ due|inr }}</button>
       <div class="pay-msg" id="payMsg"></div>
       <div class="secure">Secure payment via {% if gateway == 'cashfree' %}Cashfree{% else %}Razorpay{% endif %} · UPI, cards, netbanking</div>
     {% else %}

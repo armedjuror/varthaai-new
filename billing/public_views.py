@@ -129,6 +129,8 @@ def _context(request, link, for_pdf=False):
         'total': total, 'paid': paid, 'due': due,
         'due_date': getattr(order, 'due_date', None),
         'can_pay': due > 0 and links.payments_enabled() and not for_pdf,
+        'can_pay_part': links.partial_payments_allowed(order) and due > links.MIN_PART_PAYMENT,
+        'min_part': links.MIN_PART_PAYMENT,
         'gateway': links.active_gateway(),
         'cashfree_mode': payments.cashfree_mode(),
         'razorpay_key': settings.RAZORPAY_KEY_ID,
@@ -190,16 +192,23 @@ def credit_note_pdf(request, link, pk):
 @ensure_csrf_cookie
 @public_link
 def pay_start(request, link):
-    """GET: our pay page — the amount due (not editable) and a Pay button.
-    POST: start the payment through the active gateway."""
+    """GET: our pay page — the amount due and a Pay button (B2B can choose to
+    pay part of it). POST {amount?}: start the payment through the active
+    gateway; no amount = the full balance."""
     if request.method == 'GET':
         links.record_view(link)
         links.sync_recent_cashfree(link.order)
         return render(request, 'billing/pay_page.html', _context(request, link))
     if request.method != 'POST':
         return HttpResponse(status=405)
+    import json
+
     try:
-        attempt = links.start_payment(link)
+        body = json.loads(request.body or '{}')
+    except ValueError:
+        body = {}
+    try:
+        attempt = links.start_payment(link, body.get('amount') if isinstance(body, dict) else None)
     except billing.BillingError as exc:
         return JsonResponse({'success': False, 'message': str(exc)})
     except Exception:  # noqa: BLE001 — gateway errors must not leak details

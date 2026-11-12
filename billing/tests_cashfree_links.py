@@ -96,7 +96,10 @@ class PayPageTests(Phase2Base):
         self.assertContains(res, '₹1,050.00')
         self.assertContains(res, 'id="payBtn"')
         self.assertContains(res, 'sdk.cashfree.com/js/v3/cashfree.js')
-        self.assertNotContains(res, '<input')            # nothing to edit
+        # Full balance by default; B2B can open the (hidden) part-payment box.
+        self.assertContains(res, 'data-full="1050.00"')
+        self.assertContains(res, 'id="partBox"')
+        self.assertContains(res, 'class="part-box hidden"')
         self.assertNotContains(res, 'MG Road')
         self.assertEqual(res['X-Robots-Tag'], 'noindex, nofollow')
 
@@ -319,3 +322,76 @@ class B2BCashfreeRefundTests(Phase2Base):
         self.assertFalse(B2BReturn.objects.exists())   # nothing half-done
         item.refresh_from_db()
         self.assertEqual(item.returned_quantity, 0)
+
+
+@override_settings(**CF)
+class B2BPartialPaymentTests(Phase2Base):
+    """B2B customers can pay part of the balance from the pay page."""
+
+    def setUp(self):
+        super().setUp()
+        Setting.objects.update_or_create(setting_key='payment_gateway', defaults={'setting_value': 'cashfree'})
+        self.fake = FakeCashfree()
+        patcher = mock.patch('storefront.payments._cashfree', self.fake)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.order = self.b2b()
+        self.link = links.get_or_create_link(self.order, self.admin)
+        self.client.logout()
+
+    def start(self, data=None, link=None):
+        token = (link or self.link).token
+        return self.client.post(f'/o/{token}/pay/', data=json.dumps(data or {}),
+                                content_type='application/json').json()
+
+    def test_part_payment_collects_the_chosen_amount(self):
+        res = self.start({'amount': 400})
+        self.assertTrue(res['success'], res)
+        self.assertEqual(self.fake.orders[0]['order_amount'], 400.0)
+        self.fake.status = 'PAID'
+        self.client.post(f'/o/{self.link.token}/pay/verify/', {'cashfree_order_id': res['cashfree_order_id']},
+                         content_type='application/json')
+        self.order.refresh_from_db()
+        self.assertEqual((self.order.paid_amount, self.order.payment_status), (D('400.00'), 'partial'))
+        # The page and the next reminder now ask for the rest.
+        self.assertContains(self.client.get(f'/o/{self.link.token}/pay/'), '₹650.00')
+        self.assertEqual(links.amount_due(self.order), D('650.00'))
+
+    def test_two_part_payments_settle_the_order(self):
+        for amount in (300, 750):
+            cf_id = self.start({'amount': amount})['cashfree_order_id']
+            links.complete_cashfree_payment(cf_id, f'p{amount}')
+        self.order.refresh_from_db()
+        self.assertEqual((self.order.paid_amount, self.order.payment_status), (D('1050.00'), 'paid'))
+        self.assertEqual(B2BPayment.objects.filter(payment_type='payment').count(), 2)
+
+    def test_amount_limits(self):
+        for bad, message in ((2000, 'at most ₹1,050.00'), (0.5, 'minimum'), ('abc', 'valid amount'), (-5, 'minimum')):
+            res = self.start({'amount': bad})
+            self.assertFalse(res['success'], bad)
+            self.assertIn(message, res['message'])
+        self.assertEqual(self.fake.orders, [])
+        self.assertTrue(self.start({'amount': '1050'})['success'])   # the full balance is fine too
+
+    def test_no_amount_means_full_balance(self):
+        self.start()
+        self.assertEqual(self.fake.orders[0]['order_amount'], 1050.0)
+
+    def test_b2c_must_pay_in_full(self):
+        order = self.b2c(oid='VO_full1')
+        link = links.get_or_create_link(order, self.admin)
+        page = self.client.get(f'/o/{link.token}/pay/')
+        self.assertNotContains(page, 'id="partBox"')
+        self.assertNotContains(page, '<input')
+        res = self.start({'amount': 100}, link=link)
+        self.assertFalse(res['success'])
+        self.assertIn('paid in full', res['message'])
+
+    @override_settings(**RZP)
+    def test_razorpay_part_payment(self):
+        Setting.objects.filter(setting_key='payment_gateway').update(setting_value='razorpay')
+        fake = FakeRazorpay()
+        with patch_rzp(fake):
+            res = self.start({'amount': 250.5})
+        self.assertTrue(res['success'], res)
+        self.assertEqual(res['amount'], 25050)
