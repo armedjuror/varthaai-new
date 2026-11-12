@@ -66,7 +66,7 @@
       <div class="pay-msg" id="payMsg"></div>
       <div class="secure">Secure payment via {% if gateway == 'cashfree' %}Cashfree{% else %}Razorpay{% endif %} · UPI, cards, netbanking</div>
     {% else %}
-      <div class="note">Online payment is not available right now.
+      <div class="note">{% if not invoiced %}Online payment opens once the tax invoice for this order is issued.{% else %}Online payment is not available right now.{% endif %}
         {% if settings_map.business_phone %}Please contact us on {{ settings_map.business_phone }}.{% endif %}</div>
     {% endif %}
   {% else %}

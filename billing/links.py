@@ -177,6 +177,15 @@ def payments_enabled():
     return payments.is_configured(active_gateway())
 
 
+NO_INVOICE_REASON = 'The pay link is available once the GST tax invoice is generated.'
+
+
+def pay_link_allowed(order):
+    """Online payment from the order link / pay page is offered only for
+    orders whose GST tax invoice has been generated."""
+    return billing.active_invoice(order) is not None
+
+
 def pay_url(link, request=None):
     """Our own pay page for the link's order (amount due only, Pay button)."""
     return link_url(link, request) + 'pay/'
@@ -218,6 +227,8 @@ def start_payment(link, amount=None):
     the popup)."""
     if not payments_enabled():
         raise billing.BillingError('Online payment is not available right now.')
+    if not pay_link_allowed(link.order):
+        raise billing.BillingError('Online payment is not available for this order yet.')
     if active_gateway() == 'cashfree':
         return _start_cashfree(link, amount)
     order = link.order
@@ -525,7 +536,8 @@ def prepare_whatsapp(order, kind, user, request=None):
         raise billing.BillingError(reason)
     link = get_or_create_link(order, user)
     pay = None
-    if kind == MessageLog.Kind.REMINDER and payments_enabled() and amount_due(order) > 0:
+    if (kind == MessageLog.Kind.REMINDER and payments_enabled() and amount_due(order) > 0
+            and pay_link_allowed(order)):
         pay = pay_url(link, request)
     text = build_message(order, kind, link_url(link, request), pay)
     label = MessageLog.Kind(kind).label
@@ -555,7 +567,8 @@ def share_payload(order, request=None):
     link = live_link(order)
     number, reason = whatsapp_recipient(order)
     messages = MessageLog.objects.filter(**_ref(order)).select_related('created_by')[:20]
-    can_pay = bool(link) and payments_enabled() and amount_due(order) > 0
+    invoiced = pay_link_allowed(order)
+    can_pay = bool(link) and payments_enabled() and amount_due(order) > 0 and invoiced
     return {
         'link': link_url(link, request) if link else None,
         'view_count': link.view_count if link else 0,
@@ -564,6 +577,8 @@ def share_payload(order, request=None):
         'whatsapp_disabled_reason': reason,
         'amount_due': float(amount_due(order)),
         'pay_link': pay_url(link, request) if can_pay else None,
+        'pay_link_disabled_reason': (NO_INVOICE_REASON if not invoiced and payments_enabled()
+                                     and amount_due(order) > 0 else None),
         'messages': [{
             'kind': m.kind, 'label': m.get_kind_display(), 'recipient': m.recipient,
             'by': m.created_by.name if m.created_by else '', 'at': m.created_at.isoformat(),

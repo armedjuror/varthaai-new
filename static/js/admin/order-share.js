@@ -57,6 +57,9 @@ var OrderShare = (function () {
         : '') +
       '</div>';
     if (disabled) html += '<div style="font-size:0.75rem;color:#b45309;margin-top:6px">' + reason + '</div>';
+    if (share.pay_link_disabled_reason) {
+      html += '<div style="font-size:0.75rem;color:var(--gray-400);margin-top:6px"><i class="fas fa-circle-info me-1"></i>' + escHtml(share.pay_link_disabled_reason) + '</div>';
+    }
     if (share.link) {
       html += '<div style="font-size:0.75rem;color:var(--gray-400);margin-top:6px;word-break:break-all">' + escHtml(share.link) +
         ' · viewed ' + share.view_count + 'x' + (share.last_viewed_at ? ', last ' + formatDateTime(share.last_viewed_at) : '') + '</div>';

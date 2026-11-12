@@ -77,7 +77,7 @@ class Phase2Base(TestCase):
         self.contact = B2BContact.objects.create(company=self.company, name='Ravi', phone='98765 00000',
                                                  is_primary=True)
 
-    def b2c(self, oid='VO_p1', state='32', paid=False, mode='inclusive', grams=1000, delivery=0):
+    def b2c(self, oid='VO_p1', state='32', paid=False, mode='inclusive', grams=1000, delivery=0, invoiced=False):
         o = Order.objects.create(
             id=oid, brand=self.brand, name='Asha', mobile='9876543210', address='MG Road', pincode='673001',
             shipping_state_code=state, delivery_charge=delivery, price_mode=mode,
@@ -88,9 +88,11 @@ class Phase2Base(TestCase):
                                  sale_price_per_kg=1000, flavor_name='Classic')
         billing.refresh_b2c_gst(o)
         o.refresh_from_db()
+        if invoiced:
+            billing.ensure_invoice(o)
         return o
 
-    def b2b(self, oid='VOB_p1', total='1050.00'):
+    def b2b(self, oid='VOB_p1', total='1050.00', invoiced=False):
         o = B2BOrder.objects.create(
             id=oid, brand=self.brand, company=self.company, contact=self.contact, status='confirmed',
             subtotal=D('1000'), total_amount=D(total), gst_amount=D('50'), price_mode='exclusive',
@@ -98,12 +100,14 @@ class Phase2Base(TestCase):
         )
         B2BOrderItem.objects.create(b2b_order=o, flavor=self.flavor, quantity=10, weight_grams=250,
                                     total_weight_grams=2500, selling_price=D('100'), flavor_name='Classic')
+        if invoiced:   # online payment from the order link needs the GST invoice
+            billing.ensure_invoice(o)
         return o
 
 
 class ShareLinkTests(Phase2Base):
     def test_page_404s_and_headers(self):
-        o = self.b2c()
+        o = self.b2c(invoiced=True)
         link = links.get_or_create_link(o, self.admin)
         self.client.logout()
         res = self.client.get(f'/o/{link.token}/')
@@ -171,7 +175,7 @@ class LinkPaymentTests(Phase2Base):
                                 HTTP_X_RAZORPAY_SIGNATURE=sig)
 
     def test_b2b_pay_from_link_is_recorded_once(self):
-        o = self.b2b()
+        o = self.b2b(invoiced=True)
         link = links.get_or_create_link(o)
         fake = FakeRazorpay()
         res = self._start(link, fake)
@@ -193,7 +197,7 @@ class LinkPaymentTests(Phase2Base):
         self.assertFalse(res['success'])
 
     def test_webhook_before_return_and_b2c(self):
-        o = self.b2c()
+        o = self.b2c(invoiced=True)
         link = links.get_or_create_link(o)
         rzp_order = self._start(link, FakeRazorpay())['razorpay_order_id']
         self._webhook(rzp_order, 'pay_w')
@@ -203,17 +207,17 @@ class LinkPaymentTests(Phase2Base):
         self.assertEqual(Income.objects.filter(order=o).count(), 1)
 
     def test_bad_signature_and_foreign_order_rejected(self):
-        o = self.b2c()
+        o = self.b2c(invoiced=True)
         link = links.get_or_create_link(o)
         rzp_order = self._start(link, FakeRazorpay())['razorpay_order_id']
         self.assertFalse(self._verify(link, rzp_order, fake=FakeRazorpay(signature_ok=False))['success'])
-        other = links.get_or_create_link(self.b2b())
+        other = links.get_or_create_link(self.b2b(invoiced=True))
         self.assertFalse(self._verify(other, rzp_order)['success'])
         o.refresh_from_db()
         self.assertEqual(o.payment_status, 'pending')
 
     def test_partial_manual_payment_lowers_link_amount(self):
-        o = self.b2b()
+        o = self.b2b(invoiced=True)
         self.client.post('/admin/api/b2b-orders/', {'action': 'add_payment', 'company_id': self.company.id,
                                                     'amount': 500, 'payment_method': 'cash', 'order_id': o.id},
                          content_type='application/json')
